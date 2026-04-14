@@ -1,0 +1,593 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */; };
+		14E07E1C2F8E513D00E9F7FC /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E1B2F8E513D00E9F7FC /* ContentView.swift */; };
+		14E07E1E2F8E513F00E9F7FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */; };
+		14E07E212F8E513F00E9F7FC /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */; };
+		14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */; };
+		14E07E352F8E513F00E9F7FC /* eva_swift_stitchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */; };
+		14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		14E07E272F8E513F00E9F7FC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 14E07E0E2F8E513D00E9F7FC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 14E07E152F8E513D00E9F7FC;
+			remoteInfo = "eva-swift-stitch";
+		};
+		14E07E312F8E513F00E9F7FC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 14E07E0E2F8E513D00E9F7FC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 14E07E152F8E513D00E9F7FC;
+			remoteInfo = "eva-swift-stitch";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "eva-swift-stitch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchApp.swift; sourceTree = "<group>"; };
+		14E07E1B2F8E513D00E9F7FC /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "eva-swift-stitchTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchTests.swift; sourceTree = "<group>"; };
+		14E07E302F8E513F00E9F7FC /* eva-swift-stitchUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "eva-swift-stitchUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITests.swift; sourceTree = "<group>"; };
+		14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITestsLaunchTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		14E07E132F8E513D00E9F7FC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14E07E232F8E513F00E9F7FC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14E07E2D2F8E513F00E9F7FC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		14E07E0D2F8E513D00E9F7FC = {
+			isa = PBXGroup;
+			children = (
+				14E07E182F8E513D00E9F7FC /* eva-swift-stitch */,
+				14E07E292F8E513F00E9F7FC /* eva-swift-stitchTests */,
+				14E07E332F8E513F00E9F7FC /* eva-swift-stitchUITests */,
+				14E07E172F8E513D00E9F7FC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		14E07E172F8E513D00E9F7FC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */,
+				14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */,
+				14E07E302F8E513F00E9F7FC /* eva-swift-stitchUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		14E07E182F8E513D00E9F7FC /* eva-swift-stitch */ = {
+			isa = PBXGroup;
+			children = (
+				14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */,
+				14E07E1B2F8E513D00E9F7FC /* ContentView.swift */,
+				14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */,
+				14E07E1F2F8E513F00E9F7FC /* Preview Content */,
+			);
+			path = "eva-swift-stitch";
+			sourceTree = "<group>";
+		};
+		14E07E1F2F8E513F00E9F7FC /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		14E07E292F8E513F00E9F7FC /* eva-swift-stitchTests */ = {
+			isa = PBXGroup;
+			children = (
+				14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */,
+			);
+			path = "eva-swift-stitchTests";
+			sourceTree = "<group>";
+		};
+		14E07E332F8E513F00E9F7FC /* eva-swift-stitchUITests */ = {
+			isa = PBXGroup;
+			children = (
+				14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */,
+				14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */,
+			);
+			path = "eva-swift-stitchUITests";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		14E07E152F8E513D00E9F7FC /* eva-swift-stitch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14E07E3A2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitch" */;
+			buildPhases = (
+				14E07E122F8E513D00E9F7FC /* Sources */,
+				14E07E132F8E513D00E9F7FC /* Frameworks */,
+				14E07E142F8E513D00E9F7FC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "eva-swift-stitch";
+			productName = "eva-swift-stitch";
+			productReference = 14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		14E07E252F8E513F00E9F7FC /* eva-swift-stitchTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14E07E3D2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchTests" */;
+			buildPhases = (
+				14E07E222F8E513F00E9F7FC /* Sources */,
+				14E07E232F8E513F00E9F7FC /* Frameworks */,
+				14E07E242F8E513F00E9F7FC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				14E07E282F8E513F00E9F7FC /* PBXTargetDependency */,
+			);
+			name = "eva-swift-stitchTests";
+			productName = "eva-swift-stitchTests";
+			productReference = 14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		14E07E2F2F8E513F00E9F7FC /* eva-swift-stitchUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14E07E402F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchUITests" */;
+			buildPhases = (
+				14E07E2C2F8E513F00E9F7FC /* Sources */,
+				14E07E2D2F8E513F00E9F7FC /* Frameworks */,
+				14E07E2E2F8E513F00E9F7FC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				14E07E322F8E513F00E9F7FC /* PBXTargetDependency */,
+			);
+			name = "eva-swift-stitchUITests";
+			productName = "eva-swift-stitchUITests";
+			productReference = 14E07E302F8E513F00E9F7FC /* eva-swift-stitchUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		14E07E0E2F8E513D00E9F7FC /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1540;
+				LastUpgradeCheck = 1540;
+				TargetAttributes = {
+					14E07E152F8E513D00E9F7FC = {
+						CreatedOnToolsVersion = 15.4;
+					};
+					14E07E252F8E513F00E9F7FC = {
+						CreatedOnToolsVersion = 15.4;
+						TestTargetID = 14E07E152F8E513D00E9F7FC;
+					};
+					14E07E2F2F8E513F00E9F7FC = {
+						CreatedOnToolsVersion = 15.4;
+						TestTargetID = 14E07E152F8E513D00E9F7FC;
+					};
+				};
+			};
+			buildConfigurationList = 14E07E112F8E513D00E9F7FC /* Build configuration list for PBXProject "eva-swift-stitch" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 14E07E0D2F8E513D00E9F7FC;
+			productRefGroup = 14E07E172F8E513D00E9F7FC /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				14E07E152F8E513D00E9F7FC /* eva-swift-stitch */,
+				14E07E252F8E513F00E9F7FC /* eva-swift-stitchTests */,
+				14E07E2F2F8E513F00E9F7FC /* eva-swift-stitchUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		14E07E142F8E513D00E9F7FC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14E07E212F8E513F00E9F7FC /* Preview Assets.xcassets in Resources */,
+				14E07E1E2F8E513F00E9F7FC /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14E07E242F8E513F00E9F7FC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14E07E2E2F8E513F00E9F7FC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		14E07E122F8E513D00E9F7FC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14E07E1C2F8E513D00E9F7FC /* ContentView.swift in Sources */,
+				14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14E07E222F8E513F00E9F7FC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14E07E2C2F8E513F00E9F7FC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */,
+				14E07E352F8E513F00E9F7FC /* eva_swift_stitchUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		14E07E282F8E513F00E9F7FC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 14E07E152F8E513D00E9F7FC /* eva-swift-stitch */;
+			targetProxy = 14E07E272F8E513F00E9F7FC /* PBXContainerItemProxy */;
+		};
+		14E07E322F8E513F00E9F7FC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 14E07E152F8E513D00E9F7FC /* eva-swift-stitch */;
+			targetProxy = 14E07E312F8E513F00E9F7FC /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		14E07E382F8E513F00E9F7FC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		14E07E392F8E513F00E9F7FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		14E07E3B2F8E513F00E9F7FC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"eva-swift-stitch/Preview Content\"";
+				DEVELOPMENT_TEAM = 56WS9VF77S;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitch";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		14E07E3C2F8E513F00E9F7FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"eva-swift-stitch/Preview Content\"";
+				DEVELOPMENT_TEAM = 56WS9VF77S;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitch";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		14E07E3E2F8E513F00E9F7FC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 56WS9VF77S;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/eva-swift-stitch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/eva-swift-stitch";
+			};
+			name = Debug;
+		};
+		14E07E3F2F8E513F00E9F7FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 56WS9VF77S;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/eva-swift-stitch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/eva-swift-stitch";
+			};
+			name = Release;
+		};
+		14E07E412F8E513F00E9F7FC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 56WS9VF77S;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "eva-swift-stitch";
+			};
+			name = Debug;
+		};
+		14E07E422F8E513F00E9F7FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 56WS9VF77S;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "eva-swift-stitch";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		14E07E112F8E513D00E9F7FC /* Build configuration list for PBXProject "eva-swift-stitch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14E07E382F8E513F00E9F7FC /* Debug */,
+				14E07E392F8E513F00E9F7FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14E07E3A2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14E07E3B2F8E513F00E9F7FC /* Debug */,
+				14E07E3C2F8E513F00E9F7FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14E07E3D2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14E07E3E2F8E513F00E9F7FC /* Debug */,
+				14E07E3F2F8E513F00E9F7FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14E07E402F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14E07E412F8E513F00E9F7FC /* Debug */,
+				14E07E422F8E513F00E9F7FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 14E07E0E2F8E513D00E9F7FC /* Project object */;
+}
