@@ -6,17 +6,34 @@
 //
 
 import SwiftUI
+import AVFoundation
+
 
 struct ContentView: View {
+    @State private var permissionGranted = false
+
     var body: some View {
         VStack {
             Image(systemName: "globe")
                 .imageScale(.large)
                 .foregroundStyle(.tint)
-            Text("Hello, world!")
+            Text(permissionGranted ? "Camera ready ✅" : "No camera access ❌")
+                            .font(.title)
+                        Button("Request Camera Permission") {
+                            requestCameraPermission()
+                        }
+                        .buttonStyle(.borderedProminent)
         }
         .padding()
     }
+    
+    func requestCameraPermission() {
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    permissionGranted = granted
+                }
+            }
+        }
 }
 
 #Preview {
