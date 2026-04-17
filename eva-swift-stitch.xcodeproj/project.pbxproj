@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */; };
 		14E07E1C2F8E513D00E9F7FC /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E1B2F8E513D00E9F7FC /* ContentView.swift */; };
+		AABB01012F8E000000000001 /* CameraCapabilitiesReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB01002F8E000000000001 /* CameraCapabilitiesReporter.swift */; };
 		14E07E1E2F8E513F00E9F7FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */; };
 		14E07E212F8E513F00E9F7FC /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */; };
 		14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */; };
@@ -37,6 +38,7 @@
 		14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "eva-swift-stitch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchApp.swift; sourceTree = "<group>"; };
 		14E07E1B2F8E513D00E9F7FC /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AABB01002F8E000000000001 /* CameraCapabilitiesReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCapabilitiesReporter.swift; sourceTree = "<group>"; };
 		14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "eva-swift-stitchTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -98,6 +100,7 @@
 				14E07E432F8E51EC00E9F7FC /* Info.plist */,
 				14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */,
 				14E07E1B2F8E513D00E9F7FC /* ContentView.swift */,
+				AABB01002F8E000000000001 /* CameraCapabilitiesReporter.swift */,
 				14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */,
 				14E07E1F2F8E513F00E9F7FC /* Preview Content */,
 			);
@@ -260,6 +263,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				14E07E1C2F8E513D00E9F7FC /* ContentView.swift in Sources */,
+				AABB01012F8E000000000001 /* CameraCapabilitiesReporter.swift in Sources */,
 				14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
