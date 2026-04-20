@@ -383,6 +383,23 @@ underlying issue and ask again — do not `--amend` around it.
   is `nonisolated` on the `delivery` queue (ADR-02).** Actors coordinate with
   these queues; they do not replace them. Violating this wedges the session from
   a MainActor caller or races `lockForConfiguration()` against itself.
+- **`withThrowingTaskGroup` blocks on group teardown — do not use for
+  non-blocking timeout.** When a `withCheckedContinuation` task is cancelled
+  inside a group, the group's closure does not return until the continuation
+  resumes — which only happens when the underlying blocking operation completes.
+  For ADR-30 async-with-timeout, use a `ManagedAtomic<Bool>` CAS race with
+  `withCheckedContinuation` + a `Task { try? await Task.sleep(...) }` deadline
+  branch. The CAS ensures exactly-once resume without waiting for the losing
+  branch. Confirmed on device: `withThrowingTaskGroup` took 5 s when the work
+  hung; `ManagedAtomic` approach returned in 150 ms. See `AsyncWithTimeout.swift`.
+- **swift-format hook uses `--strict`; warnings fail the commit.** The
+  pre-commit hook runs `swift-format lint --strict`. Any diagnostic — including
+  `BeginDocumentationCommentWithOneLineSummary` — is a commit blocker. Fix:
+  add a blank `///` line after the first sentence of every multi-sentence doc
+  comment, or convert internal-only property comments from `///` to `//`.
+  `swift-format -i` fixes most rules automatically but NOT
+  `BeginDocumentationCommentWithOneLineSummary` — that one requires manual
+  splitting.
 
 ## 9. Background reading (only when needed)
 
