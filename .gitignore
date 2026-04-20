@@ -1,3 +1,19 @@
 .remember
 .xcodebuildmcp/
 Gemfile.lock
+docs/tmp/
+
+# SwiftPM build artifacts
+.build/
+.swiftpm/
+
+# Xcode user data
+**/xcuserdata/
+
+# Claude Code session state
+.claude/scheduled_tasks.lock
+.claude/todos/
+.claude/projects/
+
+# Upstream symlinks (machine-specific; recreated per-checkout)
+implementation/
