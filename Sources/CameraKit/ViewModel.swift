@@ -1,10 +1,16 @@
-import SwiftUI
 import Metal
+import OSLog
+import SwiftUI
+
+private let scenePhaseLog = Logger(subsystem: "com.cambrian.camerakit", category: "scenePhase")
 
 /// Main-actor view model for CameraView.
 ///
 /// ADR-21: UI state is owned by @Observable @MainActor ViewModel; actor-isolated
 /// engine state flows in via an async for-await loop on stateStream().
+/// ADR-09 / D-06: scenePhase transitions are handled by handleScenePhase(_:), which
+/// drives the GPU submission gate and session lifecycle. Strict policy: .inactive
+/// always gates regardless of UIApplication.applicationState.
 @Observable @MainActor
 final class ViewModel {
 
@@ -16,7 +22,9 @@ final class ViewModel {
 
     // MARK: - Texture handoff
 
-    /// Set once after open() succeeds. Read by MTKViewCoordinator.draw(in:) on the
+    /// Set once after open() succeeds.
+    ///
+    /// Read by MTKViewCoordinator.draw(in:) on the
     /// Metal thread. @ObservationIgnored skips @Observable's tracking rewrite so the
     /// property is a plain stored field; nonisolated(unsafe) allows cross-isolation reads
     /// (naturalTex is written exactly once per session, before the coordinator calls draw).
@@ -26,6 +34,13 @@ final class ViewModel {
     // MARK: - Engine
 
     let engine: CameraEngine
+
+    // MARK: - ScenePhase tracking (ADR-09, D-06, 08-ui.md §scenePhase wiring)
+
+    /// Tracks the previous scene phase so handleScenePhase can distinguish
+    /// .active-from-.inactive (gate re-open only) from .active-from-.background
+    /// (backgroundResume + gate re-open).
+    private var previousPhase: ScenePhase = .active
 
     // MARK: - Init
 
@@ -56,5 +71,38 @@ final class ViewModel {
 
     func stop() async {
         await engine.close()
+    }
+
+    // MARK: - ScenePhase handler (08-ui.md §scenePhase wiring, 02-concurrency.md §Sequence A)
+
+    /// Called by CameraView via .task(id: scenePhase) on every scene phase change.
+    ///
+    /// Phase mapping (D-06 strict policy):
+    ///   .inactive   → close gate; drain last submitted frame.
+    ///   .background → backgroundSuspend() (gate-close + drain + session stop).
+    ///   .active     → re-open gate; if returning from .background, backgroundResume() first.
+    func handleScenePhase(_ phase: ScenePhase) async {
+        scenePhaseLog.info("scenePhase: \(String(describing: self.previousPhase)) → \(String(describing: phase))")
+        switch phase {
+        case .inactive:
+            await engine.setGate(false)
+            await engine.drainSubmittedFrame()
+            scenePhaseLog.info("scenePhase inactive: gate closed, drain complete")
+
+        case .background:
+            await engine.backgroundSuspend()
+            scenePhaseLog.info("scenePhase background: backgroundSuspend complete")
+
+        case .active:
+            if previousPhase == .background {
+                await engine.backgroundResume()
+            }
+            await engine.setGate(true)
+            scenePhaseLog.info("scenePhase active: gate open (prevPhase=\(String(describing: self.previousPhase)))")
+
+        @unknown default:
+            break
+        }
+        previousPhase = phase
     }
 }

@@ -1,12 +1,15 @@
 import AVFoundation
-import Metal
+import Atomics
 import CoreMedia
+import Metal
 
 /// The public actor that orchestrates the entire camera pipeline.
 /// This is the ONLY type callers interact with at the API layer.
 ///
 /// ADR-07: All AVCaptureSession mutations go through sessionQueue.
+/// ADR-09: submissionGate guards every commandBuffer.commit() on the delivery queue.
 /// ADR-22: stateStream() returns AsyncStream<SessionState> buffered with .bufferingOldest.
+/// ADR-30: backgroundSuspend() / backgroundResume() use async-with-timeout for session lifecycle.
 /// ADR-32: Production code never creates AVCaptureDevice directly — CameraSession handles that.
 public actor CameraEngine {
 
@@ -20,6 +23,12 @@ public actor CameraEngine {
     private var stateContinuation: AsyncStream<SessionState>.Continuation?
     private var cachedStateStream: AsyncStream<SessionState>?
     private var isOpen: Bool = false
+
+    // ADR-09: GPU submission gate. Shared by reference with MetalPipeline.
+    // Reads: delivery queue (.acquiring load). Writes: engine actor (.sequentiallyConsistent store).
+    // `let` — same instance for the lifetime of the engine; nonisolated for synchronous
+    // access by tests and by MetalPipeline (which holds it as a reference).
+    nonisolated let submissionGate: ManagedAtomic<Bool> = ManagedAtomic(true)
 
     // MTLTexture is non-Sendable; stored nonisolated(unsafe) so ViewModel can read it
     // synchronously after open() returns, without crossing an actor boundary.
@@ -56,11 +65,11 @@ public actor CameraEngine {
             try session.configure(deliveryQueue: delivery, sampleBufferDelegate: delegate)
         }
 
-        // 4. Metal pipeline.
+        // 4. Metal pipeline — pass the shared submission gate (ADR-09).
         guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
             throw EngineError.metal(MetalError.unsupportedFormat)
         }
-        let pipeline = try MetalPipeline(device: mtlDevice, captureSize: captureSize)
+        let pipeline = try MetalPipeline(device: mtlDevice, captureSize: captureSize, gate: submissionGate)
 
         // 5. Wire sample buffer → Metal encode.
         //    Closure runs on delivery queue (ADR-02); pipeline is @unchecked Sendable.
@@ -76,15 +85,18 @@ public actor CameraEngine {
         self.deliveryQueue = delivery
         self.isOpen = true
 
-        // 7. Start running on sessionQueue (ADR-07).
+        // 7. Open the gate (idempotent — starts true; explicit after any prior close).
+        submissionGate.store(true, ordering: .sequentiallyConsistent)
+
+        // 8. Start running on sessionQueue (ADR-07).
         session.sessionQueue.async {
             session.startRunning()
         }
 
-        // 8. Publish .streaming state.
+        // 9. Publish .streaming state.
         publishState(.streaming)
 
-        // 9. Build and return SessionCapabilities.
+        // 10. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
         let activeCropRegion = Rect(
             x: 0,
@@ -94,8 +106,8 @@ public actor CameraEngine {
         )
         return SessionCapabilities(
             supportedSizes: supportedSizes,
-            previewTextureId: 0,   // stub: texture IDs arrive Stage 05
-            naturalTextureId: 0,   // stub: texture IDs arrive Stage 05
+            previewTextureId: 0,  // stub: texture IDs arrive Stage 05
+            naturalTextureId: 0,  // stub: texture IDs arrive Stage 05
             activeCaptureResolution: captureSize,
             activeCropRegion: activeCropRegion,
             streamPixelFormat: "420f"
@@ -105,6 +117,8 @@ public actor CameraEngine {
     /// Closes the camera session and releases all resources.
     public func close() async {
         guard isOpen else { return }
+        // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
+        submissionGate.store(false, ordering: .sequentiallyConsistent)
         if let session = cameraSession {
             session.sessionQueue.sync { session.stopRunning() }
         }
@@ -135,7 +149,9 @@ public actor CameraEngine {
         return stream
     }
 
-    /// Stage 01 stub. Full settings merge arrives Stage 03.
+    /// Stage 01 stub.
+    ///
+    /// Full settings merge arrives Stage 03.
     public func updateSettings(_ settings: CameraSettings) async throws {
         // Stage 01 stub: full settings merge arrives Stage 03.
     }
@@ -148,20 +164,57 @@ public actor CameraEngine {
         consumerRegistry.deregister(token)
     }
 
-    /// Called by ViewModel on .background scene phase.
-    func naiveBackgroundStop() {
-        // scaffolding:01:naive-scenephase-stop — plain sessionQueue.async with no GPU-submission
-        // gate, no waitUntilScheduled(), no UIApplication.beginBackgroundTask. Retires Stage 02.
-        guard let session = cameraSession else { return }
-        session.sessionQueue.async {
-            session.stopRunning()
+    /// Signals the app entered background.
+    ///
+    /// Gates GPU submission, drains any in-flight
+    /// frame, and stops the capture session via sessionQueue with timeout (ADR-30).
+    ///
+    /// Step 1 (disarm watchdogs) is a placeholder no-op until Stage 09.
+    public func backgroundSuspend() async {
+        // Disarm watchdogs (placeholder; arrives Stage 09).
+        submissionGate.store(false, ordering: .sequentiallyConsistent)
+        await drainSubmittedFrame()
+        if let session = cameraSession {
+            await session.stopRunningAsync()
         }
+    }
+
+    /// Signals the app returned to foreground.
+    ///
+    /// Re-opens the GPU submission gate.
+    ///
+    /// Session restart is driven by AVCaptureSessionInterruptionEnded (not wired until
+    /// a later stage). Until then the session remains stopped — idempotent and harmless
+    /// per brief test 02:background-resume-is-noop-until-interruption-ended.
+    public func backgroundResume() async {
+        submissionGate.store(true, ordering: .sequentiallyConsistent)
     }
 
     /// Exposes the naturalTex for the MTKView draw pass. nil if engine not open.
     /// nonisolated so ViewModel can call synchronously without actor hop (MTLTexture is non-Sendable).
     public nonisolated func currentTexture() -> (any MTLTexture)? {
         _naturalTex
+    }
+
+    // MARK: - Internal helpers (accessible via @testable import)
+
+    /// Sets the GPU submission gate (ADR-09, D-06).
+    /// `.inactive` policy is strict — always gates, regardless of UIApplication state.
+    func setGate(_ open: Bool) {
+        submissionGate.store(open, ordering: .sequentiallyConsistent)
+    }
+
+    /// Waits for the most recently committed command buffer to be scheduled.
+    ///
+    /// Bounds the drain window to FRAME_LATENCY_BUDGET_MS (ADR-09).
+    /// No-op if no buffer has been committed yet this session.
+    func drainSubmittedFrame() async {
+        metalPipeline?.drainLastBuffer()
+    }
+
+    /// Internal accessor for gate state — used by Stage02Tests.
+    var isGateOpen: Bool {
+        submissionGate.load(ordering: .acquiring)
     }
 
     // MARK: - Private helpers

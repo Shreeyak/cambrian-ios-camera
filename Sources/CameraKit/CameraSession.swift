@@ -1,9 +1,10 @@
-import Foundation
 import AVFoundation
 import CoreMedia
 import CoreVideo
+import Foundation
 
 /// Owns the `AVCaptureSession` lifecycle: configure, start, stop.
+///
 /// All `AVCaptureSession` mutations and `AVCaptureDevice.lockForConfiguration()` calls
 /// run on `sessionQueue` (ADR-07). `CameraEngine` dispatches onto that queue; this class
 /// never dispatches internally.
@@ -20,7 +21,9 @@ final class CameraSession: @unchecked Sendable {
     /// Set by configure(); nil until then.
     private(set) var device: (any CaptureDeviceProviding)?
 
-    /// The AVCaptureSession instance. Created once per open() call, reused across
+    /// The AVCaptureSession instance.
+    ///
+    /// Created once per open() call, reused across
     /// pause/resume (G-07 / ADR-07 §Session object is created once per open()).
     let avSession: AVCaptureSession
 
@@ -30,8 +33,9 @@ final class CameraSession: @unchecked Sendable {
     // MARK: - Init
 
     init() {
-        sessionQueue = DispatchQueue(label: "com.cambrian.camerakit.session",
-                                     qos: .userInitiated)
+        sessionQueue = DispatchQueue(
+            label: "com.cambrian.camerakit.session",
+            qos: .userInitiated)
         avSession = AVCaptureSession()
         videoOutput = AVCaptureVideoDataOutput()
     }
@@ -59,9 +63,11 @@ final class CameraSession: @unchecked Sendable {
 
         // ── 1. Device discovery (D-08) ──────────────────────────────────────────────
         // Use the default API per architecture/03-camera-session.md §Device selection.
-        guard let avDevice = AVCaptureDevice.default(
-            .builtInWideAngleCamera, for: .video, position: .back
-        ) else {
+        guard
+            let avDevice = AVCaptureDevice.default(
+                .builtInWideAngleCamera, for: .video, position: .back
+            )
+        else {
             throw EngineError.noBackCamera
         }
 
@@ -77,11 +83,13 @@ final class CameraSession: @unchecked Sendable {
         // Among YUV formats, prefer FullRange, then VideoRange.
         // Sort FullRange first so the first 4:3 hit is FullRange when available.
         let sortedByPreference: [AVCaptureDevice.Format] = yuvFormats.sorted { lhs, rhs in
-            let lhsFull = CMFormatDescriptionGetMediaSubType(lhs.formatDescription)
-                          == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-            let rhsFull = CMFormatDescriptionGetMediaSubType(rhs.formatDescription)
-                          == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-            if lhsFull != rhsFull { return lhsFull } // FullRange first
+            let lhsFull =
+                CMFormatDescriptionGetMediaSubType(lhs.formatDescription)
+                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            let rhsFull =
+                CMFormatDescriptionGetMediaSubType(rhs.formatDescription)
+                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            if lhsFull != rhsFull { return lhsFull }  // FullRange first
 
             // Within same range type, sort by pixel count descending (largest first).
             let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
@@ -91,11 +99,13 @@ final class CameraSession: @unchecked Sendable {
 
         // Select the largest 4:3 format that supports 30 fps.
         let fps30 = Int32(Constants.frameRateTargetFPS)
-        let candidateFormats: [AVCaptureDevice.Format] = sortedByPreference
+        let candidateFormats: [AVCaptureDevice.Format] =
+            sortedByPreference
             .filter { format in
                 let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                let w = Int32(dims.width), h = Int32(dims.height)
-                guard w * 3 == h * 4 else { return false } // 4:3 ratio
+                let w = Int32(dims.width)
+                let h = Int32(dims.height)
+                guard w * 3 == h * 4 else { return false }  // 4:3 ratio
                 // Must support 30 fps within at least one frame-rate range.
                 return format.videoSupportedFrameRateRanges.contains { range in
                     range.minFrameRate <= Double(fps30) && Double(fps30) <= range.maxFrameRate
@@ -179,12 +189,12 @@ final class CameraSession: @unchecked Sendable {
 
         // ── 6. Orientation: landscape-right via videoRotationAngle (ADR-17) ─────────
         if let connection = videoOutput.connection(with: .video) {
-            let angle = Constants.captureOrientationAngleDeg // ADR-17
+            let angle = Constants.captureOrientationAngleDeg  // ADR-17
             guard connection.isVideoRotationAngleSupported(angle) else {
                 throw EngineError.noSupportedFormat(
                     reason: "videoRotationAngle \(angle)° not supported on this device (ADR-17)")
             }
-            connection.videoRotationAngle = angle // ADR-17
+            connection.videoRotationAngle = angle  // ADR-17
         }
 
         return (device: liveDevice, captureSize: chosenSize)
@@ -192,13 +202,37 @@ final class CameraSession: @unchecked Sendable {
 
     // MARK: - Lifecycle wrappers
 
-    /// Starts the capture session. Caller must dispatch onto `sessionQueue` (ADR-07).
+    /// Starts the capture session.
+    ///
+    /// Caller must dispatch onto `sessionQueue` (ADR-07).
     func startRunning() {
         avSession.startRunning()
     }
 
-    /// Stops the capture session. Caller must dispatch onto `sessionQueue` (ADR-07).
+    /// Stops the capture session.
+    ///
+    /// Caller must dispatch onto `sessionQueue` (ADR-07).
     func stopRunning() {
         avSession.stopRunning()
+    }
+
+    /// Starts the capture session asynchronously with a timeout (ADR-30).
+    ///
+    /// Returns when startRunning() completes or when SESSION_LIFECYCLE_TIMEOUT_SECONDS
+    /// elapses, whichever comes first. Never throws.
+    func startRunningAsync() async {
+        await runOnQueue(sessionQueue) { [self] in
+            startRunning()
+        }
+    }
+
+    /// Stops the capture session asynchronously with a timeout (ADR-30).
+    ///
+    /// Returns when stopRunning() completes or when SESSION_LIFECYCLE_TIMEOUT_SECONDS
+    /// elapses, whichever comes first. Never throws.
+    func stopRunningAsync() async {
+        await runOnQueue(sessionQueue) { [self] in
+            stopRunning()
+        }
     }
 }

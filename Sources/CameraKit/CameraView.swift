@@ -1,11 +1,11 @@
-import SwiftUI
 import MetalKit
+import SwiftUI
 
 /// Public SwiftUI view that renders a live camera preview via an MTKView.
 ///
-/// Hosts MTKViewRepresentable and reacts to scene phase transitions.
-/// CameraEngine lifecycle is owned by ViewModel; this view calls start() once on
-/// appear and naiveBackgroundStop() on background (scaffolding:01:naive-scenephase-stop).
+/// Hosts MTKViewRepresentable and reacts to scene phase transitions via
+/// ViewModel.handleScenePhase(_:) (08-ui.md §scenePhase wiring, ADR-09, D-06).
+/// CameraEngine lifecycle is owned by ViewModel.
 public struct CameraView: View {
 
     @State private var viewModel = ViewModel()
@@ -24,12 +24,11 @@ public struct CameraView: View {
         .onChange(of: viewModel.sessionState) { _, _ in
             // Future: react to state changes (error overlay, recovery UI, etc.)
         }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background {
-                // Call naiveBackgroundStop on background transition.
-                // The scaffold slug lives in CameraEngine.naiveBackgroundStop().
-                Task { await viewModel.engine.naiveBackgroundStop() }
-            }
+        // 08-ui.md §scenePhase wiring: .task(id:) auto-cancels and re-runs on phase change.
+        // handleScenePhase enforces D-06 strict gating on .inactive and drives
+        // backgroundSuspend / backgroundResume for .background / .active.
+        .task(id: scenePhase) {
+            await viewModel.handleScenePhase(scenePhase)
         }
     }
 }
@@ -102,7 +101,7 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
         guard let blitEncoder = commandBuffer.makeBlitCommandEncoder() else { return }
 
         // Blit the region that fits both source and destination (Stage 01: no scaling).
-        let srcWidth  = min(texture.width,  drawable.texture.width)
+        let srcWidth = min(texture.width, drawable.texture.width)
         let srcHeight = min(texture.height, drawable.texture.height)
 
         blitEncoder.copy(
