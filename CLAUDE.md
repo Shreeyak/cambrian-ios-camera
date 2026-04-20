@@ -99,17 +99,21 @@ the stage-index ordering and invalidates `state.md` as proof of progress.
 ## 6. Common operations
 
 ```bash
-# Library build + tests (per-stage filter; omit --filter for full sweep)
-swift build --package-path CameraKit/
-swift test  --package-path CameraKit/ --filter StageNNTests
-swift test  --package-path CameraKit/ --filter 'Stage01Tests/engineOpenCloseTransitions'  # single test
+# Build + tests — ALWAYS through the xcodeproj for an iOS destination.
+# DO NOT `swift build --package-path CameraKit/` or `swift test --package-path …`.
+# SPM defaults to the host triple (macOS); CameraKit uses iOS-only AVFoundation APIs
+# (videoZoomFactor, setExposureTargetBias, …), the host build fails, and that failure
+# cascades into phantom SourceKit "cannot find type Size/WhiteBalanceGains" errors
+# across unrelated files. If SourceKit goes sideways: `rm -rf CameraKit/.build`,
+# clear DerivedData for eva-swift-stitch, rebuild via xcodeproj.
+xcodebuild -project eva-swift-stitch.xcodeproj -scheme eva-swift-stitch \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' build
+xcodebuild -project eva-swift-stitch.xcodeproj -scheme eva-swift-stitch \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' \
+  test -only-testing:CameraKitTests/StageNNTests
 
 # Scaffold inventory — live slugs must ≥1 hit; retired slugs must 0.
 grep -rn 'NN:slug' CameraKit/Sources/
-
-# App build (xcodeproj hosts CameraKit as a local SPM dependency)
-xcodebuild -project eva-swift-stitch.xcodeproj -scheme eva-swift-stitch \
-  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' build
 
 # Reference destinations
 -destination 'platform=iOS Simulator,name=iPad (A16)'

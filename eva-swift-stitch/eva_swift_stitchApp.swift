@@ -6,12 +6,13 @@
 //
 
 import SwiftUI
+import CameraKit
 
 @main
 struct eva_swift_stitchApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            CameraView()
         }
     }
 }
