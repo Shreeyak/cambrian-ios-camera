@@ -3,6 +3,9 @@
 Gemfile.lock
 docs/tmp/
 
+# xcode-build-server output (machine-specific DerivedData path)
+buildServer.json
+
 # SwiftPM build artifacts
 .build/
 .swiftpm/
