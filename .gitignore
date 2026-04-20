@@ -10,6 +10,9 @@ buildServer.json
 .build/
 .swiftpm/
 
+# Persistent xcodebuild logs from scripts/{build,test}-summary.sh
+.build-logs/
+
 # Xcode user data
 **/xcuserdata/
 

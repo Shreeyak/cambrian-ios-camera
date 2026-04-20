@@ -1,32 +1,44 @@
 #!/usr/bin/env bash
-# build-summary.sh — wrap `xcodebuild build`; structured output via xcsift.
+# test-summary.sh — wrap `xcodebuild test`; structured output via xcsift.
 #
-# Usage: scripts/build-summary.sh [--scheme NAME] [--destination DEST] [--verbose]
+# Usage: scripts/test-summary.sh [--scheme NAME] [--filter SUITE] [--destination DEST] [--verbose]
+#   --scheme      default: CameraKit (package scheme, the common case)
+#                 use `eva-swift-stitch` for app-level tests
+#   --filter      passed as `-only-testing:<value>` (e.g. CameraKitTests/Stage01Tests)
+#   --destination override sim/device destination
+#   --verbose     dump full xcodebuild log at the end
 #
 # Destination: physical iPad preferred, Mac "Designed for iPad" fallback.
 # Simulators are NEVER used (memory constraint on this machine — see CLAUDE.md §6).
-# Raw log always persists at .build-logs/<ts>-build-<scheme>.log;
-# structured xcsift JSON at .build-logs/<ts>-build-<scheme>.json.
-# Read either at any time — this script never loses output to a pipe.
+# Raw log persists at .build-logs/<ts>-test-<scheme>.log; structured xcsift JSON
+# at .build-logs/<ts>-test-<scheme>.json. Read either at any time.
 set -uo pipefail
 
-SCHEME="eva-swift-stitch"
+SCHEME="CameraKit"
+FILTER=""
 DESTINATION=""
 VERBOSE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --verbose) VERBOSE=1; shift ;;
     --scheme) SCHEME="$2"; shift 2 ;;
+    --filter) FILTER="$2"; shift 2 ;;
     --destination) DESTINATION="$2"; shift 2 ;;
+    --verbose) VERBOSE=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
 if [[ -z "$DESTINATION" ]]; then
   # Hard rule: NEVER use iOS simulators on this machine (memory constraint).
-  # Prefer physical iPad; fall back to Mac "Designed for iPad" (native, not a sim).
-  # If neither is available, ERROR — never silently fall through to a simulator.
+  # Prefer physical iPad; fall back to Mac "Designed for iPad". If neither,
+  # ERROR — never silently use a simulator.
+  #
+  # Caveat: CameraKitTests is tool-hosted. Running `xcodebuild test` against
+  # a physical device fails with "Tool-hosted testing is unavailable on device
+  # destinations" until the target is wired to a host app. Mac "Designed for
+  # iPad" may work where physical iPad does not, since Mac is not a "device
+  # destination" in the iOS sense. See CLAUDE.md §8.
   DESTS=$(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
   DEVICE_UUID=$(echo "$DESTS" \
     | grep -E '\{ *platform:iOS, ' \
@@ -35,7 +47,7 @@ if [[ -z "$DESTINATION" ]]; then
     | sed -E 's/.*id:([A-Fa-f0-9-]+).*/\1/')
   if [[ -n "$DEVICE_UUID" ]]; then
     DESTINATION="platform=iOS,id=$DEVICE_UUID"
-    echo "DEST: physical iPad $DEVICE_UUID"
+    echo "DEST: physical iPad $DEVICE_UUID (will fail if test target is tool-hosted — see CLAUDE.md §8)"
   elif echo "$DESTS" | grep -qE 'platform:macOS.*variant:Designed for iPad'; then
     DESTINATION="platform=macOS,arch=arm64,variant=Designed for iPad"
     echo "DEST: Mac 'Designed for iPad' (no physical device connected)"
@@ -48,13 +60,20 @@ fi
 
 mkdir -p .build-logs
 TS=$(date +%Y%m%d-%H%M%S)
-LOG=".build-logs/${TS}-build-${SCHEME}.log"
-JSON=".build-logs/${TS}-build-${SCHEME}.json"
+LOG=".build-logs/${TS}-test-${SCHEME}.log"
+JSON=".build-logs/${TS}-test-${SCHEME}.json"
+
+CMD=(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" \
+     -destination "$DESTINATION" test)
+if [[ -n "$FILTER" ]]; then
+  CMD+=(-only-testing:"$FILTER")
+fi
 
 echo "LOG: $LOG"
 echo "JSON: $JSON"
+echo "CMD: ${CMD[*]}"
 
-xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -destination "$DESTINATION" build 2>&1 \
+"${CMD[@]}" 2>&1 \
   | tee "$LOG" \
   | xcsift --format json > "$JSON" || true
 XC_STATUS=${PIPESTATUS[0]}
@@ -67,21 +86,25 @@ fi
 
 ERRORS=0
 WARNINGS=0
+FAIL_CASES=0
 if command -v jq >/dev/null 2>&1 && [[ -s "$JSON" ]]; then
   ERRORS=$(jq -r '(.errors // []) | length' "$JSON" 2>/dev/null || echo 0)
   WARNINGS=$(jq -r '(.warnings // []) | length' "$JSON" 2>/dev/null || echo 0)
+  FAIL_CASES=$(jq -r '(.failed_tests // []) | length' "$JSON" 2>/dev/null || echo 0)
 fi
 
-printf "BUILD: %s\nErrors: %d  Warnings: %d\nLog: %s\nJSON: %s\n" \
-  "$STATUS" "$ERRORS" "$WARNINGS" "$LOG" "$JSON"
+printf "TESTS: %s\nBuild errors: %d  Warnings: %d  Failed cases: %d\nLog: %s\nJSON: %s\n" \
+  "$STATUS" "$ERRORS" "$WARNINGS" "$FAIL_CASES" "$LOG" "$JSON"
 
 if [[ "$STATUS" == fail ]]; then
   echo "---"
   if command -v jq >/dev/null 2>&1 && [[ -s "$JSON" ]]; then
     jq -r '(.errors // []) | .[0:10] | .[] | "\(.file // "?"):\(.line // "?"): \(.message // .)"' "$JSON" 2>/dev/null \
       || grep -E 'error: ' "$LOG" | head -5
+    jq -r '(.failed_tests // []) | .[0:10] | .[] | "FAIL \(.test // "?") @ \(.file // "?"):\(.line // "?") — \(.message // "")"' "$JSON" 2>/dev/null || true
   else
     grep -E 'error: ' "$LOG" | head -5
+    grep -E '(Test Case .* failed|✘ Test .+ (failed|recorded an issue))' "$LOG" | head -5 || true
   fi
   exit 1
 fi

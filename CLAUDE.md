@@ -100,35 +100,57 @@ the stage-index ordering and invalidates `state.md` as proof of progress.
 
 ## 6. Common operations
 
-```bash
-# Build + tests — ALWAYS through the xcodeproj for an iOS destination.
-# DO NOT `swift build --package-path CameraKit/` or `swift test --package-path …`.
-# SPM defaults to the host triple (macOS); CameraKit uses iOS-only AVFoundation APIs
-# (videoZoomFactor, setExposureTargetBias, …), the host build fails, and that failure
-# cascades into phantom SourceKit "cannot find type Size/WhiteBalanceGains" errors
-# across unrelated files. If SourceKit goes sideways: `rm -rf CameraKit/.build`,
-# clear DerivedData for eva-swift-stitch, rebuild via xcodeproj.
-xcodebuild -project eva-swift-stitch.xcodeproj -scheme eva-swift-stitch \
-  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' build
-xcodebuild -project eva-swift-stitch.xcodeproj -scheme eva-swift-stitch \
-  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' \
-  test -only-testing:CameraKitTests/StageNNTests
+> **Hard rule: never use iOS simulators on this machine.** The developer
+> macbook does not have the memory to run them. Destination order for every
+> build, run, and test: **(1) physical iPad; (2) Mac "Designed for iPad"**
+> (native — not a simulator); **(3) error out, never fall through to a
+> simulator**. This applies to Bash, XcodeBuildMCP (`*_device` variants only,
+> never `*_sim`), and any documentation/examples. If a brief or subagent
+> asks for a simulator, flag it back — do not comply silently.
 
+**Builds and tests go through XcodeBuildMCP.** Use `mcp__XcodeBuildMCP__build_run_device`,
+`..._test_device`, or the Mac-equivalent — **never** the `*_sim` variants. They
+return structured JSON directly in-context: no log to tail, no pipe to drain,
+no timeout to manage. Call `session_show_defaults` once per session; if
+project/scheme/destination are set, subsequent calls can run with empty args.
+
+Fallback — **only** when XcodeBuildMCP is unavailable (MCP not connected,
+per-session permission prompt declined) — use the shell wrappers:
+
+```bash
+scripts/build-summary.sh                                   # iOS build
+scripts/test-summary.sh                                    # CameraKit tests (default)
+scripts/test-summary.sh --filter CameraKitTests/Stage01Tests
+scripts/test-summary.sh --scheme eva-swift-stitch          # app-level tests
+```
+
+Both wrappers pipe `xcodebuild` through `xcsift` (structured JSON output in
+`.build-logs/<ts>-*.json`), tee the raw log to `.build-logs/<ts>-*.log`, and
+enforce the device-only destination order: physical iPad → Mac "Designed for
+iPad" → error. The JSON file is the first thing to read on failure — it has
+file/line/message per error, not a grep approximation.
+
+**Never invoke `xcodebuild build` or `xcodebuild test` directly** in a Bash tool
+call. `swift build --package-path CameraKit/` and `swift test --package-path …`
+are also forbidden: SPM defaults to the host triple (macOS); CameraKit uses
+iOS-only AVFoundation APIs, the host build fails, and the failure cascades into
+phantom SourceKit "cannot find type Size/WhiteBalanceGains" errors across
+unrelated files. If SourceKit goes sideways: `rm -rf CameraKit/.build`, clear
+DerivedData for eva-swift-stitch, rebuild via the MCP or wrapper.
+
+Other operations:
+
+```bash
 # Scaffold inventory — live slugs must ≥1 hit; retired slugs must 0.
 grep -rn 'NN:slug' CameraKit/Sources/
 
-# Package tests are tool-hosted — NEVER a device destination; always a simulator.
-xcodebuild test -scheme CameraKit \
-  -destination 'platform=iOS Simulator,id=<uuid>' \
-  -only-testing:CameraKitTests/StageNNTests
-
-# Authoritative destination list (simctl may lie about scheme validity):
+# Destination introspection (when you need to see what xcodebuild considers valid):
 xcodebuild -scheme eva-swift-stitch -showdestinations
 
-# Reference destinations
--destination 'platform=iOS Simulator,name=iPad (A16)'
--destination 'platform=macOS,arch=arm64,variant=Designed for iPad'
--destination 'platform=iOS,id=<udid>'     # `xcrun xctrace list devices`
+# Destination string formats (for --destination on wrappers) — DEVICE ONLY:
+#   platform=iOS,id=<udid>                                   (physical iPad; from `xcrun xctrace list devices`)
+#   platform=macOS,arch=arm64,variant=Designed for iPad      (native Mac fallback)
+# NEVER `platform=iOS Simulator,...` — simulators are disallowed on this machine.
 
 swiftlint lint       --config .swiftlint.yml
 swiftlint lint --fix --config .swiftlint.yml
@@ -145,13 +167,11 @@ p = Xcodeproj::Project.open('eva-swift-stitch.xcodeproj')
 p.save"
 ```
 
-Prefer **XcodeBuildMCP** over raw `xcodebuild` for build/run/test/simulator/LLDB/UI
-automation. Call `session_show_defaults` first each session; if project/scheme/
-destination are set, go straight to `build_run_sim` or the device/Mac equivalent.
-The **`xcode` MCP** is only for actions that need Xcode itself running (navigator
-issues, preview rendering, the open window) — reach for it rarely. **Fastlane** is
-release only (`match` → `gym` → `pilot`). If the user names a specific MCP and it
-is unavailable, stop and say so — never silently substitute.
+**MCP ecosystem** — XcodeBuildMCP owns build/run/test/LLDB/UI on device
+targets (see above; simulators are disallowed on this machine). The **`xcode` MCP** is only for actions that need Xcode itself running
+(navigator issues, preview rendering, the open window) — reach for it rarely.
+**Fastlane** is release only (`match` → `gym` → `pilot`). If the user names a
+specific MCP and it is unavailable, stop and say so — never silently substitute.
 
 **Apple API reference** — primary is **`mcp__xcode__DocumentationSearch`**:
 semantic matching over discussion prose, `frameworks` filter, content returned
@@ -168,16 +188,16 @@ when xcode is offline. `context7` covers third-party libraries; xcode
 
 Run targets, preferred order: **physical iPad** (required for R-21 camera-indicator
 and R-22 off-main `startRunning`); **Mac "Designed for iPad"** (day-to-day —
-exercises real capture); **iPad simulator** (no camera — skip for capture paths).
-Per-stage HITL / DEFERRED evidence lands under `measurements/stage-NN/`; each
-brief's §12 names the exact file paths.
+exercises real capture). **Simulators are not an option on this machine** (see
+top of §6). Per-stage HITL / DEFERRED evidence lands under `measurements/stage-NN/`;
+each brief's §12 names the exact file paths.
 
 ### 6.0 One-time host setup
 
 Each development machine needs this once:
 
 ```bash
-brew install xcode-build-server fswatch swift-format ripgrep repomix
+brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq
 xcode-build-server config -project eva-swift-stitch.xcodeproj \
                           -scheme eva-swift-stitch
 ```
@@ -202,9 +222,29 @@ coordinator-inlined source and re-reads after edits dominate token burn.
   Grep is for literal patterns; LSP is for semantic queries.
 - **Never `Read` after `Edit` / `Write`.** The validator already confirmed
   the change; re-reading burns context. Trust the tool.
-- **Build output always grep-filtered.** Run `scripts/build-summary.sh`
-  instead of raw `xcodebuild`; the wrapper returns `BUILD`, `Swift errors`,
-  `Metal errors`, `Warnings` and only expands full output on `--verbose`.
+- **Builds/tests via XcodeBuildMCP; wrappers only when MCP unavailable.**
+  `mcp__XcodeBuildMCP__build_run_device` and `..._test_device` return
+  structured JSON in-context — no log to tail. **Never** `*_sim` variants
+  (top of §6). Fallback wrappers `scripts/build-summary.sh` /
+  `scripts/test-summary.sh` pipe xcodebuild through xcsift and persist both
+  the raw log and a structured JSON summary under `.build-logs/`. Never
+  invoke `xcodebuild build` or `xcodebuild test` directly.
+- **Never pipe any long-running command through `| tail -N` inline.** Applies
+  to xcodebuild, the summary wrappers, every streaming build/test tool. The
+  log is lost, progress can't be monitored, and errors past the tail window
+  vanish — you sit staring at a spinner with no idea what's going on. Rule:
+  redirect to a file and read the file. `scripts/build-summary.sh` and
+  `scripts/test-summary.sh` already persist to `.build-logs/*.log` so you
+  can `tail -f` live and grep the file for context on failure. For ad-hoc
+  commands, `cmd > /tmp/out.log 2>&1` then `Read`/grep the log.
+- **Destination resolution: physical iPad, then Mac "Designed for iPad", then
+  error.** Both wrappers try a connected physical iPad first; if none,
+  Mac "Designed for iPad" (native, not a simulator); if neither, they exit
+  with an error. **Simulators are never used** (top of §6).
+  `test-summary.sh` defaults to scheme `CameraKit`; the `eva-swift-stitch`
+  scheme does **not** include `CameraKitTests` in its plan and
+  `-only-testing:CameraKitTests/...` against it fails with "isn't a member
+  of the specified test plan or scheme".
 - **Build log is ground truth; navigator issues are advisory.** Xcode's Issue
   Navigator (`mcp__xcode__XcodeListNavigatorIssues` and the `(SourceKit)`-tagged
   list returned by `BuildProject` / `build_run_*`) reads from a cache that lags
@@ -234,7 +274,8 @@ Pick the tool that fits the question. Match row by row, top-down:
 | What's the type/doc of symbol at file:line? | `LSP hover` | `LSP` MCP tool |
 | Find literal pattern (scaffold slug, TODO, string occurrence) | `Grep` | Claude `Grep` tool or `rg` |
 | List active scaffolds as a table | `scripts/scaffold-inventory.sh` | — |
-| Build & verify iOS target | `scripts/build-summary.sh` | Not raw `xcodebuild`. |
+| Build iOS target | `mcp__XcodeBuildMCP__build_run_device` (primary) or `scripts/build-summary.sh` (fallback) | Device-only on this machine (no sims). Wrapper pipes xcodebuild→xcsift→`.build-logs/*.json` + raw log. |
+| Run CameraKit or app tests | `mcp__XcodeBuildMCP__test_device` (primary) or `scripts/test-summary.sh` (fallback) | Device-only (no sims). Wrapper defaults to scheme CameraKit; structured JSON via xcsift. Tool-hosted tests fail on device — see §8. |
 | Stage kickoff coherence checks | `scripts/stage-preflight.sh` | Run as first action of a new stage. |
 | Refresh CONTRACTS.md explicitly | `scripts/regen-contracts.sh` | Auto-runs on pre-commit; rarely needed by hand. |
 | Log a subagent decision | Append one line to `CameraKit/DECISIONS.md` | Stigmergy; coordinator won't re-read. |
@@ -308,6 +349,16 @@ underlying issue and ask again — do not `--amend` around it.
 
 ## 8. Load-bearing invariants
 
+- **Tests use a host app, not tool-hosted.** `xcodebuild test` against a
+  tool-hosted target on a physical-iPad destination fails with `Tool-hosted
+  testing is unavailable on device destinations`. CameraKitTests must run
+  with the `eva-swift-stitch` app as test host. Because simulators are
+  disallowed on this machine (see §6), there is **no simulator fallback**:
+  until the host-app wiring lands, tests run on physical iPad only (if the
+  target is not tool-hosted) or on Mac "Designed for iPad" (which is not an
+  iOS device destination and may accept tool-hosted tests). If both fail,
+  tests are blocked and the host-app wiring must be fixed before tests can
+  run.
 - **The current brief is the source of truth for its stage.** If `architecture/`
   or `ios-platform-guide/` appears to contradict the brief, the brief wins; log
   the conflict in `CameraKit/state.md` under "Decisions taken that weren't in
