@@ -11,6 +11,12 @@ Compaction: at stage boundaries, fold entries into `state.md`'s "Decisions taken
 
 ---
 
-## Stage 02 (in progress)
+## Stage 02 (complete — folded into state.md §Decisions)
+
+No subagent entries this stage; coordinator worked inline.
+
+---
+
+## Stage 03 (in progress)
 
 <!-- new entries go above this line; keep the stage header last -->
