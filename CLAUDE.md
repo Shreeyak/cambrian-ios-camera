@@ -11,10 +11,9 @@ Swift source under `CameraKit/Sources/CameraKit/`, swift-testing unit tests unde
 `CameraKit/Tests/CameraKitTests/`, and a running `CameraKit/state.md` that records
 what scaffolding is live, what is permanent, and what public API has shipped.
 
-The upstream repo is a 6-stage clean-room prompt pipeline (AUDIT → EXTRACT →
-ARCHITECT → REVIEW → BRIEF WRITER → IMPLEMENT); this repo is Stage 6. See
-`/Users/shrek/work/cambrian/ios-translation/CLAUDE.md` for producer context —
-that discipline does not apply here.
+This repo is Stage 6 (IMPLEMENT) of an upstream clean-room pipeline; producer
+discipline does not apply here. See `/Users/shrek/work/cambrian/ios-translation/CLAUDE.md`
+for producer context if needed.
 
 ## 2. Repo layout
 
@@ -22,18 +21,18 @@ that discipline does not apply here.
 .
 ├── eva-swift-stitch.xcodeproj        # app host; owns Info.plist, signing, schemes
 ├── eva-swift-stitch/                 # app target files
-│   ├── eva_swift_stitchApp.swift     # after Stage 01: imports CameraKit + presents CameraView()
-│   ├── ContentView.swift             # placeholder until Stage 01 swaps in CameraView()
-│   ├── CameraCapabilitiesReporter.swift
+│   ├── eva_swift_stitchApp.swift     # app entry point; hosts CameraKit's root view
 │   ├── Info.plist                    # (NSCameraUsageDescription via build setting, see §5)
 │   └── Assets.xcassets + Preview Content/
 ├── eva-swift-stitchTests/            # existing XCTest — app-level; library tests live under CameraKit/
 ├── eva-swift-stitchUITests/          # existing XCUITest
 ├── CameraKit/                        # local Swift package (library-only)
-│   ├── Package.swift                 # present; CameraKit lib + tests; iOS 26; Swift 6
-│   ├── Sources/CameraKit/            # empty today — Stage 01 populates it
-│   ├── Tests/CameraKitTests/         # empty today — Stage 01 populates it
-│   └── state.md                      # created by Stage 01; updated after every stage
+│   ├── Package.swift                 # swift-tools-version:6.2; iOS 26; strict concurrency
+│   ├── Sources/CameraKit/            # library source
+│   ├── Tests/CameraKitTests/         # swift-testing suites, one per stage
+│   ├── CONTRACTS.md                  # auto-regenerated current shape (§6.2)
+│   ├── DECISIONS.md                  # append-only subagent decision log
+│   └── state.md                      # per-stage progress ledger — read for current state
 ├── implementation/                   # READ-ONLY upstream symlinks
 │   ├── briefs/             → …/ios-translation/implementation/briefs
 │   ├── architecture/       → …/ios-translation/implementation/architecture
@@ -45,13 +44,14 @@ that discipline does not apply here.
 └── docs/                             # progress-report.md + superpowers/
 ```
 
-Current checkpoint: `CameraKit/Package.swift` is bootstrapped; `Sources/CameraKit/`
-is empty; no `state.md`. **Stage 01 has not landed.** Branch is `stage-01`.
+For current stage, live scaffolds, and what's shipped, read `CameraKit/state.md` —
+that file is the source of truth for project state; CLAUDE.md only documents
+structure and rules.
 
 ## 3. Pipeline role and stage discipline
 
-This repo is Stage 6 (IMPLEMENT). Each brief at `implementation/briefs/stage-NN.md`
-is the authoritative spec for its stage. Per-stage workflow:
+Each brief at `implementation/briefs/stage-NN.md` is the authoritative spec for
+its stage. Per-stage workflow:
 
 1. Read `CameraKit/state.md` from the prior stage.
 2. **Pre-flight inventory**: for every entry under "Scaffolding still live",
@@ -66,12 +66,9 @@ is the authoritative spec for its stage. Per-stage workflow:
    `xcodebuild` pass §11 calls for), then update `state.md` per §12.
 7. Stop. Request user approval before any git operation.
 
-Every brief follows a 12-section schema: frontmatter · starting state · goal ·
-files to create/modify/delete · architecture refs · domain refs · contracts &
-invariants · tests to write · tests preserved · acceptance criteria · verification
-· state.md updates. **FEATURE** stages add user-visible capability and may introduce
-scaffolds; **MIGRATION** stages retire ≥1 scaffold with a production primitive,
-preserve every prior test, and add no user-visible capability.
+**FEATURE** stages add user-visible capability and may introduce scaffolds;
+**MIGRATION** stages retire ≥1 scaffold with a production primitive, preserve
+every prior test, and add no user-visible capability.
 
 **Stage kickoff rule:** the first action of any new stage is
 `scripts/stage-preflight.sh`. It validates state.md ↔ source slug coherence,
@@ -87,7 +84,7 @@ it, do not split it across lines. A scaffold may only be retired by the stage
 whose §1 `Retires scaffolding from: …` entry names it — early retirement breaks
 the stage-index ordering and invalidates `state.md` as proof of progress.
 
-## 5. Target shape locked by Stage 01
+## 5. Target shape
 
 - Package lives in a subdirectory (`CameraKit/`), not at the repo root.
 - `eva-swift-stitch.xcodeproj` remains the app host: owns `Info.plist`, signing,
@@ -160,8 +157,7 @@ is unavailable, stop and say so — never silently substitute.
 semantic matching over discussion prose, `frameworks` filter, content returned
 inline in one call. If the call fails or the xcode MCP is not connected (the
 per-session permission prompt wasn't accepted yet), **tell the user immediately**
-before falling back — they often miss the prompt and need to know the stronger
-tool just dropped off. Fallback is **`dash-api`** (local, offline): docset name
+before falling back. Fallback is **`dash-api`** (local, offline): docset name
 `"Apple API Reference - Swift"`, identifier `tkaubcqb-swift`. Call
 `mcp__dash-api__search_documentation` with `docset_identifiers="tkaubcqb-swift"`,
 then `mcp__dash-api__load_documentation_page` on the returned `load_url`. FTS is
@@ -203,13 +199,25 @@ coordinator-inlined source and re-reads after edits dominate token burn.
   first." That file is regenerated by `scripts/regen-contracts.sh` and is the
   canonical current-shape document.
 - **Use the toolchain decision tree** (§6.2) for every code-shape query.
-  Grep is for literal patterns; LSP is for semantic queries; IndexStoreDB
-  is for offline batch cross-file work.
+  Grep is for literal patterns; LSP is for semantic queries.
 - **Never `Read` after `Edit` / `Write`.** The validator already confirmed
   the change; re-reading burns context. Trust the tool.
 - **Build output always grep-filtered.** Run `scripts/build-summary.sh`
   instead of raw `xcodebuild`; the wrapper returns `BUILD`, `Swift errors`,
   `Metal errors`, `Warnings` and only expands full output on `--verbose`.
+- **Build log is ground truth; navigator issues are advisory.** Xcode's Issue
+  Navigator (`mcp__xcode__XcodeListNavigatorIssues` and the `(SourceKit)`-tagged
+  list returned by `BuildProject` / `build_run_*`) reads from a cache that lags
+  behind the compiler — especially after adding files, changing targets, or
+  editing across module boundaries. Symptoms: "Cannot find type
+  `UIViewRepresentable`/`ScenePhase`/`Context`" when SDK imports are obviously
+  fine. Rule: check the build log (`scripts/build-summary.sh` exit code, or the
+  `BUILD SUCCEEDED` / `BUILD FAILED` line in MCP build output) *first*. If the
+  build succeeded, discard every `(SourceKit)`-tagged issue from that run. If
+  it failed, trust compiler errors from the log text and cross-reference before
+  quoting a navigator entry. Never base a decision on navigator issues alone.
+  Persistent phantoms across rebuilds → nuke
+  `~/Library/Developer/Xcode/DerivedData/eva-swift-stitch-*` and rebuild.
 - **Bound agent return format** per §6.3 below.
 
 ### 6.2 Tools: decision tree and usage
@@ -232,11 +240,6 @@ Pick the tool that fits the question. Match row by row, top-down:
 | Log a subagent decision | Append one line to `CameraKit/DECISIONS.md` | Stigmergy; coordinator won't re-read. |
 
 #### `CONTRACTS.md` vs `.swiftinterface` — when to use each
-
-They capture different layers. `CONTRACTS.md` is repomix-compressed source
-including internal helpers and private state; `.swiftinterface` is the
-compiler-emitted public contract with everything the compiler deduced
-(isolation, Sendable, synthesized members).
 
 **Default to `CONTRACTS.md`.** It's always fresh (pre-commit regen),
 shows internal wiring, and is the natural first read.
@@ -263,9 +266,6 @@ standalone LSP can't resolve `Bundle.module` or platform-framework imports.
 Use the wrapper for leaf files (value types, enums, constants); use the MCP
 tool for everything else.
 
-swift-syntax is **not** used in this project — every use case is covered
-by LSP, IndexStoreDB, repomix, and `.swiftinterface`.
-
 **SourceKit cross-file false positives are common and usually meaningless.**
 If inline diagnostics say "Cannot find type X in scope" but `scripts/build-summary.sh`
 reports `BUILD: success`, trust the build. SourceKit resolution lag across modules
@@ -273,9 +273,7 @@ produces phantom errors after edits; they clear on rebuild. Don't chase them.
 
 ### 6.3 Subagent return schema
 
-Every subagent dispatch prompt must end with this return schema. The goal
-is bounded nuance: enough structure to capture assumptions and flags without
-unbounded prose.
+Every subagent dispatch prompt must end with this return schema.
 
 ```xml
 <status>DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT | DEFERRED</status>
