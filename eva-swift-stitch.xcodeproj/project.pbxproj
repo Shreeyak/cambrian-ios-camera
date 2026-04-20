@@ -13,7 +13,10 @@
 		14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */; };
 		14E07E352F8E513F00E9F7FC /* eva_swift_stitchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */; };
 		14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */; };
+		3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */; };
 		5411DD80E5D86868D71B4EF9 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4EFB126527016EEBF27C9B62 /* CameraKit */; };
+		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
+		F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45007E7AF3327300AB0630E3 /* Stage02Tests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +47,8 @@
 		14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITests.swift; sourceTree = "<group>"; };
 		14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		14E07E432F8E51EC00E9F7FC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		45007E7AF3327300AB0630E3 /* Stage02Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage02Tests.swift; sourceTree = "<group>"; };
+		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -59,6 +64,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +78,16 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		06A512ED5FC2EDE614E14D0D /* CameraKitTests */ = {
+			isa = PBXGroup;
+			children = (
+				CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */,
+				45007E7AF3327300AB0630E3 /* Stage02Tests.swift */,
+			);
+			name = CameraKitTests;
+			path = CameraKit/Tests/CameraKitTests;
+			sourceTree = "<group>";
+		};
 		14E07E0D2F8E513D00E9F7FC = {
 			isa = PBXGroup;
 			children = (
@@ -79,6 +95,7 @@
 				14E07E292F8E513F00E9F7FC /* eva-swift-stitchTests */,
 				14E07E332F8E513F00E9F7FC /* eva-swift-stitchUITests */,
 				14E07E172F8E513D00E9F7FC /* Products */,
+				06A512ED5FC2EDE614E14D0D /* CameraKitTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -165,6 +182,9 @@
 				14E07E282F8E513F00E9F7FC /* PBXTargetDependency */,
 			);
 			name = "eva-swift-stitchTests";
+			packageProductDependencies = (
+				774759B7C7A55D0C56E89D14 /* CameraKit */,
+			);
 			productName = "eva-swift-stitchTests";
 			productReference = 14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -273,6 +293,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */,
+				3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */,
+				F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -610,6 +632,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		4EFB126527016EEBF27C9B62 /* CameraKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */;
+			productName = CameraKit;
+		};
+		774759B7C7A55D0C56E89D14 /* CameraKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */;
 			productName = CameraKit;

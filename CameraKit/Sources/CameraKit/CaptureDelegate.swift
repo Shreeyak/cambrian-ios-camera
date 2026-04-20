@@ -10,11 +10,15 @@ import CoreMedia
 /// - `@unchecked Sendable`: the instance is captured in `@Sendable` closures on
 ///   `delivery`. `onSampleBuffer` is set by `CameraEngine` on `sessionQueue` before
 ///   `startRunning()` — no concurrent mutation occurs during streaming.
+/// - GPU submission gate (ADR-09, D-06) is enforced inside `MetalPipeline.encode()`
+///   after CPU-side work and immediately before `commandBuffer.commit()`. The
+///   `captureOutput(_:didOutput:from:)` path passes through that gate check.
 final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
 
     // MARK: - Properties
 
     /// Called on the `delivery` queue for every successfully delivered frame.
+    ///
     /// Set by `CameraEngine` on `sessionQueue` before the session starts running.
     /// This is the Metal pipeline's entry point (Stage 08+).
     var onSampleBuffer: (@Sendable (CMSampleBuffer) -> Void)?
@@ -28,6 +32,7 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
 
     /// Invoked on the `delivery` queue for each frame that AVFoundation delivers.
+    ///
     /// Forwards the buffer directly to `onSampleBuffer`; no actor hops (ADR-02).
     func captureOutput(
         _ output: AVCaptureOutput,
@@ -38,6 +43,7 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     }
 
     /// Invoked on the `delivery` queue when a frame is dropped.
+    ///
     /// Drop accounting is deferred to a later stage; no-op here (Stage 01).
     func captureOutput(
         _ output: AVCaptureOutput,
