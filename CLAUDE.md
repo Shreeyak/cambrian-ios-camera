@@ -152,10 +152,28 @@ exercises real capture); **iPad simulator** (no camera — skip for capture path
 Per-stage HITL / DEFERRED evidence lands under `measurements/stage-NN/`; each
 brief's §12 names the exact file paths.
 
+### 6.0 One-time host setup
+
+Each development machine needs this once:
+
+```bash
+brew install xcode-build-server fswatch swift-format ripgrep repomix
+xcode-build-server config -project eva-swift-stitch.xcodeproj \
+                          -scheme eva-swift-stitch
+```
+
+The second command generates `buildServer.json` at the repo root, bridging
+sourcekit-lsp to Xcode's build system. It is gitignored (contains a
+machine-specific DerivedData path); re-run after cloning or changing scheme.
+
+**Full tool reference:** `docs/tooling.md`. Read it alongside this section if
+you're unsure which script to reach for.
+
 ### 6.1 Coordinator discipline
 
 When orchestrating subagents, follow these rules. They exist because Stage 01
-consumed ~80% of a 1M-token window largely from coordinator bloat.
+consumed ~80% of a 1M-token window largely from coordinator bloat. The
+rationale is in `.claude/plans/jolly-pondering-tiger.md`.
 
 - **Never inline source code in a subagent prompt.** Give file:line pointers
   and let the subagent do its own reads. `Read "CameraEngine.swift:34–100"` is
@@ -176,27 +194,36 @@ consumed ~80% of a 1M-token window largely from coordinator bloat.
 
 ### 6.2 Toolchain decision tree
 
-For any "understand the code shape" question, match to the tool:
+Pick the right tool for the question. The authoritative task-by-task table
+is in `docs/tooling.md` §Decision tree — consult that first. The summary:
 
 ```
-Are you analyzing committed, built code?
-  → IndexStoreDB via scripts/lsp-symbol.sh or .build/index/store reads
-Live editor-style, dirty buffers?
-  → SourceKit-LSP via the LSP MCP tool or scripts/lsp-symbol.sh
-Pattern match with no name resolution needed?
-  → Grep (scaffold slugs, TODO hunts, literal string search)
+Committed, built code?           → IndexStoreDB (offline batch)
+Live buffers, semantic queries?  → LSP MCP tool (preferred in-session)
+                                   or scripts/lsp-symbol.sh (scripted)
+Pattern match, no names needed?  → Grep  (scaffold slugs, TODO hunts)
 ```
 
-`LSP documentSymbol` returns a file's entire API surface in ~15 structured
-lines — prefer it over reading full source for orientation. `LSP
-workspaceSymbol` finds a declaration project-wide without opening any file.
-`LSP prepareCallHierarchy` + `incomingCalls` answers "who calls X" directly.
+Common in-session workflows:
 
-The `LSP` MCP tool is the in-session path; `scripts/lsp-symbol.sh` is the
-one-shot CLI path for scripted use. The xcodeproj is bridged to sourcekit-lsp
-via `buildServer.json` (created by `xcode-build-server config`). SwiftPM
-packages (CameraKit/) work natively. swift-syntax is **not** used in this
-project — every use case is covered by LSP + IndexStoreDB.
+- **Get a file's API surface** → `LSP documentSymbol` (~15 lines vs. 200).
+- **Resolve a symbol by name** → `LSP workspaceSymbol`.
+- **Who calls X?** → `LSP prepareCallHierarchy` + `incomingCalls`.
+- **Build & verify** → `scripts/build-summary.sh` (not raw xcodebuild).
+- **Scaffold inventory** → `scripts/scaffold-inventory.sh`.
+- **Stage kickoff checks** → `scripts/stage-preflight.sh`.
+
+**Preferred path is the `LSP` MCP tool** — it auto-configures via the
+`buildServer.json` BSP bridge. The shell wrapper `scripts/lsp-symbol.sh`
+is a fallback; it crashes sourcekit-lsp (`Illegal instruction: 4`) on
+actor-heavy files like `CameraEngine.swift` because standalone LSP can't
+resolve `Bundle.module` or platform-framework imports. Use the wrapper
+for leaf files (value types, enums, constants) and for batch scripts;
+use the MCP tool for everything else. Detail in `docs/tooling.md`.
+
+swift-syntax is **not** used in this project — every use case is covered
+by LSP + IndexStoreDB. See the plan at
+`.claude/plans/jolly-pondering-tiger.md` for the audit.
 
 ### 6.3 Subagent return schema
 
@@ -263,6 +290,20 @@ underlying issue and ask again — do not `--amend` around it.
   a MainActor caller or races `lockForConfiguration()` against itself.
 
 ## 9. Background reading (only when needed)
+
+**In-repo (always resolvable):**
+
+- `CameraKit/CONTRACTS.md` — current API surface + active scaffolds; every
+  subagent's first read. Auto-regenerated; do not edit.
+- `CameraKit/DECISIONS.md` — append-only stigmergy log for subagent decisions.
+- `CameraKit/state.md` — per-stage history, what's built permanently,
+  deferred HITL evidence.
+- `docs/tooling.md` — full reference for scripts and MCP tools; decision
+  tree for picking the right tool.
+- `.claude/plans/jolly-pondering-tiger.md` — rationale behind the §6
+  coordinator-discipline rules; root-cause analysis of Stage 01 context burn.
+
+**Upstream (symlinked, read-only):**
 
 - `/Users/shrek/work/cambrian/ios-translation/CLAUDE.md` — upstream producer
   pipeline and clean-room discipline.
