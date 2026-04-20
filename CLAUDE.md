@@ -166,14 +166,10 @@ The second command generates `buildServer.json` at the repo root, bridging
 sourcekit-lsp to Xcode's build system. It is gitignored (contains a
 machine-specific DerivedData path); re-run after cloning or changing scheme.
 
-**Full tool reference:** `docs/tooling.md`. Read it alongside this section if
-you're unsure which script to reach for.
-
 ### 6.1 Coordinator discipline
 
-When orchestrating subagents, follow these rules. They exist because Stage 01
-consumed ~80% of a 1M-token window largely from coordinator bloat. The
-rationale is in `.claude/plans/jolly-pondering-tiger.md`.
+When orchestrating subagents, follow these rules. They exist because
+coordinator-inlined source and re-reads after edits dominate token burn.
 
 - **Never inline source code in a subagent prompt.** Give file:line pointers
   and let the subagent do its own reads. `Read "CameraEngine.swift:34–100"` is
@@ -192,38 +188,59 @@ rationale is in `.claude/plans/jolly-pondering-tiger.md`.
   `Metal errors`, `Warnings` and only expands full output on `--verbose`.
 - **Bound agent return format** per §6.3 below.
 
-### 6.2 Toolchain decision tree
+### 6.2 Tools: decision tree and usage
 
-Pick the right tool for the question. The authoritative task-by-task table
-is in `docs/tooling.md` §Decision tree — consult that first. The summary:
+Pick the tool that fits the question. Match row by row, top-down:
 
-```
-Committed, built code?           → IndexStoreDB (offline batch)
-Live buffers, semantic queries?  → LSP MCP tool (preferred in-session)
-                                   or scripts/lsp-symbol.sh (scripted)
-Pattern match, no names needed?  → Grep  (scaffold slugs, TODO hunts)
-```
+| Question | Tool | How |
+|----------|------|-----|
+| What's the current public API + internal shape? | `CameraKit/CONTRACTS.md` | Read it. Every subagent's first read. |
+| What's the compiler-validated public contract? Is X `nonisolated`? Does Y conform to `Sendable`? | `.swiftinterface` | `scripts/dump-interface.sh` → `/tmp/CameraKit.swiftinterface` |
+| What symbols does file F define? | `LSP documentSymbol` | `LSP` MCP tool (preferred) or `scripts/lsp-symbol.sh outline F` |
+| Where is symbol X declared? | `LSP workspaceSymbol` | `LSP` MCP tool or `scripts/lsp-symbol.sh workspace X` |
+| Who calls function X? | `LSP prepareCallHierarchy` + `incomingCalls` | `LSP` MCP tool |
+| What's the type/doc of symbol at file:line? | `LSP hover` | `LSP` MCP tool |
+| Find literal pattern (scaffold slug, TODO, string occurrence) | `Grep` | Claude `Grep` tool or `rg` |
+| List active scaffolds as a table | `scripts/scaffold-inventory.sh` | — |
+| Build & verify iOS target | `scripts/build-summary.sh` | Not raw `xcodebuild`. |
+| Stage kickoff coherence checks | `scripts/stage-preflight.sh` | Run as first action of a new stage. |
+| Refresh CONTRACTS.md explicitly | `scripts/regen-contracts.sh` | Auto-runs on pre-commit; rarely needed by hand. |
+| Log a subagent decision | Append one line to `CameraKit/DECISIONS.md` | Stigmergy; coordinator won't re-read. |
 
-Common in-session workflows:
+#### `CONTRACTS.md` vs `.swiftinterface` — when to use each
 
-- **Get a file's API surface** → `LSP documentSymbol` (~15 lines vs. 200).
-- **Resolve a symbol by name** → `LSP workspaceSymbol`.
-- **Who calls X?** → `LSP prepareCallHierarchy` + `incomingCalls`.
-- **Build & verify** → `scripts/build-summary.sh` (not raw xcodebuild).
-- **Scaffold inventory** → `scripts/scaffold-inventory.sh`.
-- **Stage kickoff checks** → `scripts/stage-preflight.sh`.
+They capture different layers. `CONTRACTS.md` is repomix-compressed source
+including internal helpers and private state; `.swiftinterface` is the
+compiler-emitted public contract with everything the compiler deduced
+(isolation, Sendable, synthesized members).
 
-**Preferred path is the `LSP` MCP tool** — it auto-configures via the
-`buildServer.json` BSP bridge. The shell wrapper `scripts/lsp-symbol.sh`
-is a fallback; it crashes sourcekit-lsp (`Illegal instruction: 4`) on
-actor-heavy files like `CameraEngine.swift` because standalone LSP can't
-resolve `Bundle.module` or platform-framework imports. Use the wrapper
-for leaf files (value types, enums, constants) and for batch scripts;
-use the MCP tool for everything else. Detail in `docs/tooling.md`.
+**Default to `CONTRACTS.md`.** It's always fresh (pre-commit regen),
+shows internal wiring, and is the natural first read.
+
+**Reach for `.swiftinterface` when any of these apply:**
+- You need to answer: "is this `@MainActor`?", "is this `nonisolated`?"
+- You need to confirm a Sendable conformance (including compiler-synthesized).
+- You need exact `@available` annotations.
+- You're reasoning about actor boundaries or concurrency semantics.
+- You need the synthesized `==`/`hash(into:)` signatures of a Hashable struct.
+- You're drafting API-contract tests and need precise public shape.
+
+Run `scripts/dump-interface.sh` to produce `/tmp/CameraKit.swiftinterface`.
+It works even when source has SwiftPM-specific errors (Bundle.module) —
+the interface is emitted from compiler-deduced structure, not source text.
+
+#### LSP usage
+
+Prefer the `LSP` MCP tool for in-session semantic queries — it auto-configures
+through `buildServer.json`. The shell wrapper `scripts/lsp-symbol.sh` is a
+fallback for scripted/batch use; it crashes sourcekit-lsp (`Illegal
+instruction: 4`) on actor-heavy files like `CameraEngine.swift` because
+standalone LSP can't resolve `Bundle.module` or platform-framework imports.
+Use the wrapper for leaf files (value types, enums, constants); use the MCP
+tool for everything else.
 
 swift-syntax is **not** used in this project — every use case is covered
-by LSP + IndexStoreDB. See the plan at
-`.claude/plans/jolly-pondering-tiger.md` for the audit.
+by LSP, IndexStoreDB, repomix, and `.swiftinterface`.
 
 ### 6.3 Subagent return schema
 
@@ -298,10 +315,6 @@ underlying issue and ask again — do not `--amend` around it.
 - `CameraKit/DECISIONS.md` — append-only stigmergy log for subagent decisions.
 - `CameraKit/state.md` — per-stage history, what's built permanently,
   deferred HITL evidence.
-- `docs/tooling.md` — full reference for scripts and MCP tools; decision
-  tree for picking the right tool.
-- `.claude/plans/jolly-pondering-tiger.md` — rationale behind the §6
-  coordinator-discipline rules; root-cause analysis of Stage 01 context burn.
 
 **Upstream (symlinked, read-only):**
 

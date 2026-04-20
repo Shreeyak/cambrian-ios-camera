@@ -145,6 +145,27 @@ $ scripts/watch-contracts.sh
 watching /Users/shrek/.../CameraKit/Sources — CONTRACTS.md will refresh on save
 ```
 
+### `scripts/dump-interface.sh`
+
+Emits `/tmp/CameraKit.swiftinterface` (or `$1` if provided) — the
+compiler-validated public API surface of the CameraKit module.
+
+```bash
+$ scripts/dump-interface.sh
+wrote /tmp/CameraKit.swiftinterface (465 lines, public API only, compiler-validated)
+```
+
+Complements `CONTRACTS.md` — see CLAUDE.md §6.2 for the "when to use each"
+guidance. In short: `.swiftinterface` is the authoritative answer for
+isolation semantics (`@MainActor`, `nonisolated`), Sendable conformances,
+compiler-synthesized members, and exact `@available` annotations.
+`CONTRACTS.md` is better for seeing internal wiring.
+
+Known quirk: source references to `Bundle.module` (SwiftPM-specific)
+produce a compile error at invocation, but the interface is emitted
+before the error fires — the script swallows the error and reports
+success iff the interface file was produced.
+
 ### `scripts/lsp-symbol.sh`
 
 One-shot sourcekit-lsp client for scripted queries. Prefer the `LSP`
