@@ -73,6 +73,11 @@ invariants · tests to write · tests preserved · acceptance criteria · verifi
 scaffolds; **MIGRATION** stages retire ≥1 scaffold with a production primitive,
 preserve every prior test, and add no user-visible capability.
 
+**Stage kickoff rule:** the first action of any new stage is
+`scripts/stage-preflight.sh`. It validates state.md ↔ source slug coherence,
+freshness of `CameraKit/CONTRACTS.md`, and that the build passes. Don't start
+editing sources until it exits 0.
+
 ## 4. Scaffold-slug convention
 
 Scaffolds are marked inline by an exact-string code comment `// scaffolding:NN:kebab-slug`,
@@ -115,6 +120,14 @@ xcodebuild -project eva-swift-stitch.xcodeproj -scheme eva-swift-stitch \
 # Scaffold inventory — live slugs must ≥1 hit; retired slugs must 0.
 grep -rn 'NN:slug' CameraKit/Sources/
 
+# Package tests are tool-hosted — NEVER a device destination; always a simulator.
+xcodebuild test -scheme CameraKit \
+  -destination 'platform=iOS Simulator,id=<uuid>' \
+  -only-testing:CameraKitTests/StageNNTests
+
+# Authoritative destination list (simctl may lie about scheme validity):
+xcodebuild -scheme eva-swift-stitch -showdestinations
+
 # Reference destinations
 -destination 'platform=iOS Simulator,name=iPad (A16)'
 -destination 'platform=macOS,arch=arm64,variant=Designed for iPad'
@@ -122,6 +135,17 @@ grep -rn 'NN:slug' CameraKit/Sources/
 
 swiftlint lint       --config .swiftlint.yml
 swiftlint lint --fix --config .swiftlint.yml
+```
+
+For programmatic xcodeproj edits (package dependencies, build-setting flips,
+orientation locks, untracking user-state), use the system-installed Ruby
+`xcodeproj` gem — **never** hand-edit `project.pbxproj`:
+
+```bash
+ruby -e "require 'xcodeproj'
+p = Xcodeproj::Project.open('eva-swift-stitch.xcodeproj')
+# ...mutations...
+p.save"
 ```
 
 Prefer **XcodeBuildMCP** over raw `xcodebuild` for build/run/test/simulator/LLDB/UI
@@ -241,6 +265,11 @@ tool for everything else.
 
 swift-syntax is **not** used in this project — every use case is covered
 by LSP, IndexStoreDB, repomix, and `.swiftinterface`.
+
+**SourceKit cross-file false positives are common and usually meaningless.**
+If inline diagnostics say "Cannot find type X in scope" but `scripts/build-summary.sh`
+reports `BUILD: success`, trust the build. SourceKit resolution lag across modules
+produces phantom errors after edits; they clear on rebuild. Don't chase them.
 
 ### 6.3 Subagent return schema
 
