@@ -400,6 +400,26 @@ underlying issue and ask again — do not `--amend` around it.
   `swift-format -i` fixes most rules automatically but NOT
   `BeginDocumentationCommentWithOneLineSummary` — that one requires manual
   splitting.
+- **XcodeBuildMCP: set the session default scheme before calling `test_device`
+  or `build_device`.** These tools prepend `-scheme <default>` automatically.
+  Passing `-scheme` via `extraArgs` produces "option may only be provided once".
+  Always call `session_set_defaults { scheme: "..." }` first; never override
+  scheme through `extraArgs`.
+- **xcodeproj gem: SPM package products use `product_ref`, not `fileRef`.**
+  `frameworks_build_phase.add_file_reference(dep)` raises a type-checking error
+  for `XCSwiftPackageProductDependency`. Correct pattern:
+  `bf = p.new(Xcodeproj::Project::Object::PBXBuildFile); bf.product_ref = dep;
+  target.frameworks_build_phase.files << bf`.
+- **Creating `xcshareddata/xcschemes/` stops Xcode auto-generating schemes.**
+  Once that directory exists every scheme must be an explicit `.xcscheme` file.
+  The shared app scheme lives at
+  `eva-swift-stitch.xcodeproj/xcshareddata/xcschemes/eva-swift-stitch.xcscheme`.
+- **Device log capture (`start_device_log_cap`) fails on Shreeyak's iPad**
+  ("No provider was found") over both network and USB. For no-crash evidence,
+  pull system crash logs instead:
+  `xcrun devicectl device copy from --device DAD37FD5-685B-50E0-911E-F9BC40BBDBE5
+  --domain-type systemCrashLogs --source "/" --destination /tmp/crash/` —
+  absence of the app bundle name in results confirms no process termination.
 
 ## 9. Background reading (only when needed)
 
