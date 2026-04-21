@@ -1,7 +1,7 @@
-# state.md — Stage 03
+# state.md — Stage 04
 
 ## Current stage
-Stage 03 complete.
+Stage 04 complete.
 
 ## Scaffolding still live
 
@@ -9,70 +9,67 @@ Stage 03 complete.
 |------|------|------|-----------|
 | `01:simple-metal-passthrough` | `TexturePoolManager.swift`, `MetalPipeline.swift` | texture pool + encode path | Stage 08 |
 | `01:skip-completion-guard` | `MetalPipeline.swift` | `addCompletedHandler` | Stage 09 |
+| `04:unlocked-uniforms` | `CameraEngine.swift`, `MetalPipeline.swift` | host write + per-frame snapshot | Stage 05 |
 
-Pre-flight grep command (Stage 04 must run before modifying sources):
-`grep -rn '01:simple-metal-passthrough\|01:skip-completion-guard' CameraKit/Sources/`
-Both slugs returned ≥1 hit as of Stage 03.
+Pre-flight grep command (Stage 05 must run before modifying sources):
+```
+grep -rn '01:simple-metal-passthrough\|01:skip-completion-guard\|04:unlocked-uniforms' CameraKit/Sources/
+```
+All three slugs returned ≥1 hit as of Stage 04.
 
 ## What's built this stage (permanent)
 
-- `Settings.swift` — `CameraSettings.merging(onto:)` (07-settings.md §Merge model); `SettingsCoupling.apply(rules:latched:)` implementing Rules 1/2 propagation and Rule 3 latch; `EngineError.settingsConflict(reason:)` on pre-first-readback.
-- `SettingsPersistence.swift` — `UserDefaults` adapter keyed by `"CameraKit.CameraSettings"`; JSON-encoded via `Codable`.
-- `KVOAsyncStream.swift` — `DeviceKVOObserver` + Tokens-box pattern (ios-platform-guide/04-avfoundation.md); two factories: `makeStream(avDevice:)` (production, uses `nonisolated(unsafe)` capture for `AVCaptureDevice`) and `makeStream(source: FakeKVODevice)` (test-only, defined in `Stage03Tests.swift`). Buffering: `.bufferingOldest(Constants.stateStreamBufferSize)`.
-- `CaptureDeviceProviding` gains `snapshotStream() -> AsyncStream<DeviceStateSnapshot>` and `var lastSnapshot: DeviceStateSnapshot? { get async }`. `LiveCaptureDevice` owns a `DeviceKVOObserver` + ingest task that populates `_lastSnapshot`. `avDevice` marked `nonisolated(unsafe) let` to allow nonisolated factory access.
-- `CameraSession.applySettings(_:on:)` — single `lockForConfiguration()` window committing ISO+exposure (coupled via `setExposureModeCustom`), focus, white balance, zoom, EV — all on the device actor (ADR-07 discipline).
-- `CameraSession.reconfigureSize(_:)` — format re-selection on `sessionQueue`; pool-resize placeholder until Stage 06 trio.
-- `CameraEngine.updateSettings(_:)` — real implementation: merge → couple → validate → commit → persist.
-- `CameraEngine.setResolution(size:)` — session-only teardown + re-pipeline + restart.
-- `CameraEngine.frameResultStream()` — 3 Hz heartbeat (`frameRateTargetFPS / frameResultHeartbeatIntervalFrames`); `.bufferingNewest(1)`.
-- `CameraEngine.open()` applies persisted settings (swallows Rule-3 pre-first-readback); `close()` cancels KVO ingest and finishes frame-result stream.
-- `SessionCapabilities.isoRange` + `SessionCapabilities.exposureDurationRangeNs`.
-- `ViewModel` observable `currentSettings`, `deviceSnapshot`, `lastFrameResult`; per-control update helpers (`updateISO`, `updateShutterNs`, `updateFocus`, `updateZoom`); `frameResultTask` consumer.
-- `CameraView` expanded bottom bar (4 slider cells: ISO / Shutter / Focus / Zoom).
-- `Tests/CameraKitTests/Stage03Tests.swift` — 7 `@Test` functions covering brief §8 TESTABLEs.
+- `Constants.swift` adds `centerPatchSizePx`, `centerPatchTrimPercent`, `frameLatencyBudgetMs`, `processedPixelFormat`.
+- `TexturePoolManager.makeIOSurfaceBackedRGBA16F(size:)` — vends `(CVPixelBuffer, MTLTexture)` pair (.shared / IOSurface, kCVPixelFormatType_64RGBAHalf / .rgba16Float).
+- `MetalPipeline` — `naturalTex` migrated from `.private` to IOSurface-backed `.shared`; new IOSurface-backed `processedTex`; Pass 2 (`colorTransform`) compiled + dispatched after Pass 1; `UniformsHost` (color + crop) snapshotted per frame; `dispatchCenterPatch()` async sampler; test seams `naturalBufferForTest`, `processedBufferForTest`, `encodePass2Only()`.
+- `Shaders/ColorShaders.metal` — `colorTransform` kernel (black balance → brightness → contrast → saturation → gamma; identity at defaults).
+- `Shaders/CenterPatchKernel.metal` — `centerPatchHistogram` flat-buffer sampler.
+- `Shaders/YUVToRGBA.metal` — extended with `CropUniform` (default = full texture).
+- `SettingsPersistence.saveProcessing` / `loadProcessing` keyed `"CameraKit.ProcessingParameters"`.
+- `CameraEngine` — `setProcessingParameters(_:)`, `setCropRegion(_:)`, `sampleCenterPatch()`, `nonisolated getPersistedProcessingParameters()`, `nonisolated currentProcessedTexture()`; persisted-`ProcessingParameters` load in `open()`.
+- `ViewModel` — `currentProcessing: ProcessingParameters` observable; `processedTex`; `updateProcessing(_:)` / `resetProcessing()`; persisted load on first appear.
+- `CameraView` — split preview (left natural / right processed) HStack; "Calibrate Color" toggle; color-calibration sidebar (Brightness, Contrast, Saturation, Gamma, BlackR/G/B sliders + Reset).
+- `Tests/CameraKitTests/Stage04Tests.swift` — 4 `@Test` functions covering brief §8 TESTABLEs.
+- `eva-swift-stitchTests` — Stage04Tests.swift wired into the host-app test runner.
 
-## Public API exposed so far (Stage 03 additions)
+## Public API exposed so far (Stage 04 additions)
 
 ```swift
-public func updateSettings(_ settings: CameraSettings) async throws       // was stub
-public func setResolution(size: Size) async throws                        // new
-public func frameResultStream() -> AsyncStream<FrameResult>               // new
-public let SessionCapabilities.isoRange: ClosedRange<Float>               // new
-public let SessionCapabilities.exposureDurationRangeNs: ClosedRange<Int64> // new
+public func setProcessingParameters(_ params: ProcessingParameters) async
+public func setCropRegion(_ rect: Rect) async throws
+public func sampleCenterPatch() async throws -> RgbSample
+public nonisolated func getPersistedProcessingParameters() -> ProcessingParameters?
+public nonisolated func currentProcessedTexture() -> (any MTLTexture)?
 ```
 
 ## Manual test evidence
 
 | Test ID | Status | Notes |
 |---------|--------|-------|
-| `03:settings-merge-non-nil-fields` | PASS | Stage03Tests/settingsMergeNonNilFields — unit. |
-| `03:iso-shutter-auto-switch` | PASS | Stage03Tests/isoShutterAutoSwitch — Rules 1/2 + Rule 3 latch. |
-| `03:rule3-manual-latch-from-last-readback` | PASS | Stage03Tests/rule3ManualWithoutLatchThrows — failure path. |
-| `03:userdefaults-persistence-roundtrip` | PASS | Stage03Tests/userDefaultsPersistenceRoundtrip — per-test UUID suite. |
-| `03:kvo-asyncstream-adapter-emits-on-change` | PASS | Stage03Tests/kvoAsyncStreamAdapterEmitsOnChange — FakeKVODevice mutation. |
-| `03:focus-distance-identity` | PASS | Stage03Tests/focusDistanceIdentity — Float(0.5) → lensPosition identity. |
-| `03:settings-conflict-throws` | PASS | Stage03Tests/settingsConflictThrows — throws EngineError.notOpen via nil-session guard. |
-| `03:iso-slider-updates-exposure-live` | PASS | measurements/stage-03/controls.md — ISO slider (28–1728) changes preview luminance smoothly. |
-| `03:restart-restores-settings` | PASS | measurements/stage-03/controls.md — all four sliders restored after force-quit. Three bugs fixed (see Decision #20). |
+| `04:color-pipeline-golden-frame` | PASS | Stage04Tests/colorPipelineGoldenFrame — identity + brightness +0.2. |
+| `04:processing-params-persistence-roundtrip` | PASS | Stage04Tests/processingParamsPersistenceRoundtrip — per-test UUID suite. |
+| `04:center-patch-trimmed-mean` | PASS | Stage04Tests/centerPatchTrimmedMean — uniform fill + 10% outliers. |
+| `04:set-crop-region-updates-uniform` | PASS | Stage04Tests/setCropRegionUpdatesUniform — happy + out-of-bounds throw. |
+| `04:color-slider-visual-correctness` | DEFERRED | `measurements/stage-04/color.md`. |
+| `04:rapid-slider-stress-sees-occasional-torn-frame` | DEFERRED | `measurements/stage-04/color.md`. |
 
 ## Decisions taken that weren't in briefs
 
-(Continuing from Stage 02, numbered from 11.)
+(Continuing numbering from Stage 03's #15.)
 
-11. **`Settings.swift` holds behavior, not type declarations.** Brief §4 says "create Settings.swift" with `CameraSettings`, `ProcessingParameters`, `WhiteBalanceMode`, `CameraMode`, `WhiteBalanceGains`, `TrackerQuality`, `CameraPosition`. Stage 01 already placed those types in `Capabilities.swift` / `FrameSet.swift` / `CaptureDeviceProviding.swift` (per Stage 02 Decision #3). Stage 03's `Settings.swift` holds only `CameraSettings.merging(onto:)` and `SettingsCoupling` — redeclaring would break existing call sites.
-12. **`FakeKVODevice`-targeted `DeviceKVOObserver.makeStream(source:)` lives in `Stage03Tests.swift`.** Swift's typed-keypath KVO can't be generic over `NSObject` subclasses, so the adapter needs a separate factory per source type. Rather than leak `FakeKVODevice` into the production module, the test-only factory is declared as a `@testable` extension on `DeviceKVOObserver` inside `Stage03Tests.swift`.
-13. **`DeviceStateSnapshot` still only has `isAdjustingExposure`, not `isAdjustingFocus`.** Stage 03 ships `frameResultStream` with `focusDistance = Double(snap.lensPosition)` unconditionally — the AF-mid-scan `nil` semantic lands when the snapshot type gains `isAdjustingFocus`.
-14. **`CameraEngine.updateSettings` throws `.notOpen` when session is nil, not `.settingsConflict`.** Test 7 creates a bare engine without `open()`; `EngineError.notOpen` is the accurate cause.
-15. **`setResolution` pool-resize is a placeholder until Stage 06.** Session-only teardown + format re-select runs correctly; true pool-resize via the trio lands with Stage 06.
-16. **`avDevice` marked `nonisolated(unsafe) let` in `LiveCaptureDevice`.** Required so the `nonisolated snapshotStream()` factory can pass it to `DeviceKVOObserver.makeStream(avDevice:)` without an actor hop. Safe because `AVCaptureDevice` mutations are always gated by `lockForConfiguration()` on `sessionQueue` (ADR-07).
-17. **`DeviceKVOObserver.Tokens` marked `@unchecked Sendable`.** Required by Swift 6 strict concurrency: `Tokens` is captured in the `@Sendable` build closure of `AsyncStream`. Thread-safe by construction: mutations only happen inside the `AsyncStream` build closure (single-threaded), and `deinit` invalidates all tokens deterministically.
-18. **Test-only KVO factory uses `[.new]` option (not `[.initial, .new]`) for `iso`.** Using `.initial` causes the stream to emit the starting value (100.0) before the test mutation, which makes `receivedOne` resolve to 100.0 instead of 800.0. Production `makeStream(avDevice:)` retains `.initial` for the real device to populate `_lastSnapshot` immediately on open.
-19. **HITL evidence DEFERRED for this session.** `xcodebuild` CLI cannot deploy to the physical iPad (iOS 26.4.1 device, Xcode 26.5 beta active; CLI uses `generic/platform=iOS` requiring iOS 26.5 platform components). Xcode GUI can build and run. Device smoke tests to be completed when CLI deployment is unblocked.
-20. **Three post-stage bugs fixed during HITL verification.** (A) Persisted ISO exceeding `device.isoRange` caused `updateSettings` to throw and silently abort the entire restore — zoom and focus never reached their commit path. Fixed by clamping ISO to `device.isoRange` in `open()`. (B) `ViewModel.currentSettings` was never seeded from the engine after `open()` — sliders all showed defaults. Fixed by calling `engine.currentSettingsSnapshot()` after open and seeding the ViewModel. (C) ISO slider range hardcoded to `30...3200` instead of `capabilities.isoRange`. Fixed in `CameraView`.
+16. **`naturalTex` IOSurface migration ships in Stage 04, not Stage 01.** Stage 01 allocated `naturalTex` as `.private` (`MetalPipeline.swift:94`). Brief §7 + architecture `04-metal-pipeline.md` §D-02 require `.shared` IOSurface-backed from Stage 01. Migration deferred to Stage 04 because no consumer needed CPU readback before now (the `04:color-pipeline-golden-frame` test is the first reader). Task 1 + Task 2 implement the migration cleanly.
+
+17. **Stage-04 contrast formula is linear, not piecewise sigmoid.** `architecture/07-settings.md` §Processing order calls for "piecewise sigmoid around 0.5 midpoint". Stage 04 ships a linear `(c - 0.5) * contrast + 0.5` because (a) brief §7 only requires "identity when all params at defaults" and (b) sigmoid curve choice is unspecified (ramp shape, knee location). Stage 11 polish or a future ADR should pin the curve before swapping in.
+
+18. **`setCropRegion` has no Stage-04 TESTABLE for the device-driven path.** Test 4 verifies the uniform-write contract (the only behavioral assertion the brief §8 names). End-to-end visual verification (cropped preview matches expected rect on a known scene) is brought in Stage 06 with the pool trio and downstream pixel-sink delivery.
+
+19. **`MTKViewRepresentable` parameterized by closure, not generic over KeyPath.** Stage 02 had a single MTKView wrapping `viewModel.naturalTex`; Stage 04 needs a second one for `viewModel.processedTex`. Refactor uses a `textureAccessor: () -> MTLTexture?` closure rather than a `KeyPath<ViewModel, MTLTexture?>`-generic struct. Closure is one extra allocation per drawn frame; negligible at 30 fps.
+
+20. **`04:unlocked-uniforms` slug at TWO sites.** Brief §4 says "around the engine writing shader uniforms directly without `OSAllocatedUnfairLock<UniformStorage>`". Both the host write in `CameraEngine.setProcessingParameters` and the per-frame snapshot read in `MetalPipeline.encode()` are unsynchronised — Stage 05's lock install will protect both sides. Both sites carry the slug so the Stage-05 retirement grep finds them.
 
 ## Open questions for next stage
 
-1. **`isAdjustingFocus` wiring** — Stage 04 (or wherever `DeviceStateSnapshot` grows an `isAdjustingFocus` field) must update the KVO adapter to observe `\.isAdjustingFocus` and flow it into both the snapshot and the `frameResultStream` focus-distance-nil semantic.
-2. **`setResolution` budget enforcement** — `Constants.resolutionResizeTimeoutSeconds = 5.0` is declared but the full budget isn't enforced end-to-end. Full 5 s envelope with pre-resize state restore on timeout arrives with Stage 06 trio.
-3. **HITL measurements** — `measurements/stage-03/controls.md` entries are DEFERRED; device smoke tests to be completed when the Xcode CLI destination issue is resolved (iOS 26.5 platform components download completion, or device updated to 26.5).
-4. **Xcode CLI → device deploy** — `xcodebuild build_device` uses `generic/platform=iOS` which requires the iOS 26.5 platform package. Install via Xcode > Settings > Platforms > iOS 26.5, or update device to iOS 26.5. Once resolved, test-summary.sh and XcodeBuildMCP `test_device` will work.
+1. **Inv 6 lock install (Stage 05)** — wrap `UniformsHost.color` + `UniformsHost.crop` in `OSAllocatedUnfairLock<UniformStorage>`; engine acquires-writes-releases; pipeline acquires-snapshots-releases. Both `04:unlocked-uniforms` sites retire.
+2. **Sigmoid contrast curve** — pin formula choice via ADR or 07-settings §Processing-order amendment before Stage 11 polish.
+3. **Crop visual verification** — Stage 06 (pool trio) provides the device-driven crop rendering test that proves uniform → pixel correspondence end-to-end.
+4. **HITL evidence DEFERRED** — `04:color-slider-visual-correctness` and `04:rapid-slider-stress-sees-occasional-torn-frame` require manual device interaction; pending physical iPad session.

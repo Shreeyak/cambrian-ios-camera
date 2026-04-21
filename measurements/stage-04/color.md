@@ -1,6 +1,6 @@
 # Stage 04 HITL evidence
 
-Device: iPad (physical device, platform=iOS)
+Device: Shreeyak's iPad (iOS 26.4.1, device ID 00008027-000539EA0184402E)
 Date: 2026-04-21
 Build: eva-swift-stitch (Debug configuration)
 
