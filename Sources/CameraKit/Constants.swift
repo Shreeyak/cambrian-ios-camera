@@ -29,4 +29,20 @@ enum Constants {
     static let frameLatencyBudgetMs: Int = 33
     /// IOSurface-backed working-texture pixel format — pairs with .rgba16Float MTLTexture views.
     static let processedPixelFormat: OSType = kCVPixelFormatType_64RGBAHalf
+
+    // MARK: - Stage 06 — Pool trio + tracker stream
+
+    /// Tracker texture height in pixels; width is aspect-preserved and
+    /// even-pixel-rounded in `MetalPipeline` (domain 02-frame-delivery §Parallel
+    /// Stream Outputs, U-15 resolved; constants.md#TRACKER_HEIGHT_PX).
+    static let trackerHeightPx: Int = 480
+
+    /// `kCVPixelBufferPoolMinimumBufferCountKey` — 1 current mailbox ref +
+    /// 1 GPU write slot + 1 slack (constants.md#POOL_MIN_BUFFER_COUNT, ADR-19).
+    static let poolMinBufferCount: Int = 3
+
+    /// `kCVPixelBufferPoolMaximumBufferAgeKey` — CF ages out unused buffers
+    /// after this many seconds of disuse (constants.md#POOL_MAX_BUFFER_AGE_SECONDS,
+    /// ADR-19).
+    static let poolMaxBufferAgeSeconds: Double = 1.0
 }

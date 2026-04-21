@@ -4,8 +4,15 @@ import Foundation
 
 /// Atomic unit of publication per ADR-18.
 ///
-/// Full construction arrives Stage 06. @unchecked Sendable: CVPixelBuffer is not yet Sendable on iOS 26 (G-13).
-/// IOSurface backing + GPU-completion-before-construction guarantee safe cross-thread use.
+/// Stage 06: constructed in `MetalPipeline.addCompletedHandler` from three
+/// IOSurface-backed `CVPixelBuffer`s (natural/processed/tracker), the
+/// `CMSampleBuffer` capture metadata, and the per-frame `ProcessingMetadata`
+/// snapshot from the `Mutex<UniformStorage>` read in `encode()`. Published to
+/// subscribed lanes via `ConsumerRegistry.yield(_:stream:)`.
+///
+/// `@unchecked Sendable` per G-13: `CVPixelBuffer` is not yet `Sendable` on
+/// iOS 26; IOSurface backing plus the GPU-completion-before-construction
+/// ordering in the completion handler make cross-thread use safe.
 public struct FrameSet: @unchecked Sendable, Hashable {
     public let frameNumber: UInt64
     public let captureTime: CMTime
