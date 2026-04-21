@@ -140,26 +140,30 @@ struct Stage01Tests {
         #expect(Constants.captureOrientationAngleDeg == 90)
     }
 
-    // MARK: Test 5 — Consumer registry register / deregister
+    // MARK: Test 5 — Consumer registry subscribe / unregister (Stage 06 actor API)
 
-    /// Verifies ConsumerRegistry issues unique tokens and survives broadcast on empty registry.
-    @Test func consumerRegistryRegisterDeregister() {
+    /// Verifies ConsumerRegistry.subscribe returns an AsyncStream and unregister does not crash.
+    ///
+    /// Stage 06 replaced the Stage-01 class-based ConsumerRegistry with an actor.
+    /// The old register/deregister API is gone; subscribe(stream:)/unregister(token:) are the
+    /// production paths. This test verifies the new contract.
+    @Test func consumerRegistrySubscribeUnregister() async {
         let registry = ConsumerRegistry()
 
-        // Registering callbacks returns a token.
-        let token = registry.register(PixelSinkCallbacks())
-        #expect(token.id > 0)
+        // subscribe() returns an AsyncStream — verified at compile time.
+        let stream1: AsyncStream<FrameSet> = await registry.subscribe(stream: .natural)
+        _ = stream1
 
-        // A second registration yields a different token.
-        let token2 = registry.register(PixelSinkCallbacks())
-        #expect(token2 != token)
+        // subscriberCount nonisolated accessor reflects the registration.
+        #expect(registry.subscriberCount(for: .natural) == 1)
 
-        // Deregistering both does not crash.
-        registry.deregister(token)
-        registry.deregister(token2)
+        // A second subscription increments the count.
+        let stream2: AsyncStream<FrameSet> = await registry.subscribe(stream: .natural)
+        _ = stream2
+        #expect(registry.subscriberCount(for: .natural) == 2)
 
-        // broadcast on now-empty registry must not crash (it is a no-op stub in Stage 01).
-        // FrameSet requires CVPixelBuffer — we do not construct one. The no-op stub
-        // is verified by the fact that the call simply returns; no assertion needed.
+        // release() finishes all continuations — does not crash.
+        await registry.release()
+        #expect(registry.subscriberCount(for: .natural) == 0)
     }
 }

@@ -19,7 +19,13 @@ public actor CameraEngine {
     private var cameraSession: CameraSession?
     private var captureDelegate: CaptureDelegate?
     private var metalPipeline: MetalPipeline?
-    private var consumerRegistry: ConsumerRegistry = ConsumerRegistry()
+    /// Stage 06: public consumer registry per D-01 / D-03.
+    ///
+    /// Lifetime matches the engine; every `open()` passes this same instance to
+    /// the `MetalPipeline` so publication (nonisolated `yield` on the delivery
+    /// queue) and subscription (actor-isolated `subscribe` from Swift callers)
+    /// share state.
+    public nonisolated let consumers: ConsumerRegistry = ConsumerRegistry()
     private var deliveryQueue: DispatchQueue?
     private var stateContinuation: AsyncStream<SessionState>.Continuation?
     private var cachedStateStream: AsyncStream<SessionState>?
@@ -43,6 +49,11 @@ public actor CameraEngine {
     // Same pattern as _naturalTex: written once in open() before the GPU
     // pipeline is consumed; read by ViewModel from MainActor without actor hop.
     nonisolated(unsafe) private var _processedTex: (any MTLTexture)?
+
+    // Stage 06: tracker texture mailbox — see latestTrackerTex on MetalPipeline (G-13).
+    // Written on the delivery queue via the pipeline's completedHandler; read by
+    // ViewModel without actor hop (nonisolated(unsafe) — single writer: delivery queue).
+    nonisolated(unsafe) private var _metalPipeline: MetalPipeline?
 
     // MARK: - Public API
 
@@ -81,20 +92,25 @@ public actor CameraEngine {
         guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
             throw EngineError.metal(MetalError.unsupportedFormat)
         }
-        let pipeline = try MetalPipeline(device: mtlDevice, captureSize: captureSize, gate: submissionGate)
+        let pipeline = try MetalPipeline(
+            device: mtlDevice,
+            captureSize: captureSize,
+            gate: submissionGate,
+            consumers: consumers
+        )
 
         // 5. Wire sample buffer → Metal encode.
         //    Closure runs on delivery queue (ADR-02); pipeline is @unchecked Sendable.
         delegate.onSampleBuffer = { [weak pipeline] sampleBuffer in
             try? pipeline?.encode(sampleBuffer: sampleBuffer)
         }
-        delegate.pipeline = pipeline
         delegate.engine = self
 
         // 6. Store state.
         self.cameraSession = session
         self.captureDelegate = delegate
         self.metalPipeline = pipeline
+        self._metalPipeline = pipeline
         self._naturalTex = pipeline.currentTexture()
         self._processedTex = pipeline.currentProcessedTex()
         self.deliveryQueue = delivery
@@ -176,9 +192,11 @@ public actor CameraEngine {
         frameResultContinuation = nil
         cachedFrameResultStream = nil
         frameCounter = 0
+        await consumers.release()
         cameraSession = nil
         captureDelegate = nil
         metalPipeline = nil
+        _metalPipeline = nil
         _naturalTex = nil
         _processedTex = nil
         deliveryQueue = nil
@@ -305,6 +323,7 @@ public actor CameraEngine {
 
         await session.stopRunningAsync()
         metalPipeline = nil
+        _metalPipeline = nil
         _naturalTex = nil
         _processedTex = nil
 
@@ -314,21 +333,18 @@ public actor CameraEngine {
             throw EngineError.metal(MetalError.unsupportedFormat)
         }
         let pipeline = try MetalPipeline(
-            device: mtlDevice, captureSize: size, gate: submissionGate)
+            device: mtlDevice,
+            captureSize: size,
+            gate: submissionGate,
+            consumers: consumers
+        )
         metalPipeline = pipeline
+        _metalPipeline = pipeline
         _naturalTex = pipeline.currentTexture()
         _processedTex = pipeline.currentProcessedTex()
 
         submissionGate.store(true, ordering: .sequentiallyConsistent)
         await session.startRunningAsync()
-    }
-
-    public func registerPixelSink(_ callbacks: PixelSinkCallbacks) async -> ConsumerToken {
-        consumerRegistry.register(callbacks)
-    }
-
-    public func deregisterPixelSink(_ token: ConsumerToken) async {
-        consumerRegistry.deregister(token)
     }
 
     /// Signals the app entered background.
@@ -370,6 +386,15 @@ public actor CameraEngine {
         _processedTex
     }
 
+    /// Stage 06: returns the latest tracker texture for external consumers.
+    ///
+    /// nonisolated so callers can access synchronously without an actor hop.
+    /// Reads `latestTrackerTex` from the pipeline's nonisolated(unsafe) mailbox
+    /// (G-13). Returns nil if no frame has been encoded yet or the engine is closed.
+    public nonisolated func currentTrackerTexture() -> (any MTLTexture)? {
+        _metalPipeline?.latestTrackerTex
+    }
+
     /// Stage 05: writes color-transform uniforms through `Mutex<UniformStorage>` (ADR-34, D-17, Inv 6).
     ///
     /// Wholesale replacement (no merge — `ProcessingParameters` is non-nullable per
@@ -393,8 +418,8 @@ public actor CameraEngine {
     ///   (zero width/height) or extends past the capture bounds.
     public func setCropRegion(_ rect: Rect) async throws {
         guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-        let texW = pipeline.naturalTex.width
-        let texH = pipeline.naturalTex.height
+        let texW = pipeline.captureSize.width
+        let texH = pipeline.captureSize.height
         guard rect.width > 0, rect.height > 0,
             rect.x >= 0, rect.y >= 0,
             rect.x + rect.width <= texW,

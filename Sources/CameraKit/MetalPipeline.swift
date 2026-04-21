@@ -69,17 +69,51 @@ struct PatchUniform {
 /// `drainLastBuffer()` — safe under the @unchecked Sendable assertion.
 final class MetalPipeline: @unchecked Sendable {
 
-    // scaffolding:01:simple-metal-passthrough — only Pass 1 (YUV→RGBA) runs into
-    // naturalTex; Pass 2 (color transform) writes processedTex; Pass 3+ (blit,
-    // tracker, encoder, still readback) arrive Stage 06+.
-    private(set) var naturalTex: MTLTexture
-    private(set) var processedTex: MTLTexture
+    // scaffolding:01:simple-metal-passthrough — pool-backed per-frame textures replace
+    // single-buffer shape. Stage 06: naturalPool/processedPool/trackerPool each vend
+    // one IOSurface-backed buffer per frame; latest* mailboxes expose the most recent
+    // texture to the MTKView draw pass without an actor hop (G-13).
 
-    // Retain the IOSurface-backed CVPixelBuffers for the session lifetime so the
-    // CVMetalTexture views stay valid (Apple docs: "maintain a strong reference
-    // to textureOut until the GPU finishes execution").
-    private let naturalBuffer: CVPixelBuffer
-    private let processedBuffer: CVPixelBuffer
+    // MARK: - Per-frame pool properties (Stage 06)
+
+    private let naturalPool: CVPixelBufferPool
+    private let processedPool: CVPixelBufferPool
+    private let trackerPool: CVPixelBufferPool
+
+    private(set) var captureSize: Size
+    private let trackerSize: Size
+
+    /// Preview-facing "latest" textures.
+    ///
+    /// Written on the delivery queue after each successful encode; read by
+    /// MTKView.draw via `currentTexture()` without an actor hop.
+    /// `nonisolated(unsafe)` per G-13 / Stage 06 design: two pointer-sized stores
+    /// accepted as a Stage 06 trade-off (single writer: delivery queue).
+    nonisolated(unsafe) private(set) var latestNaturalTex: MTLTexture?
+    nonisolated(unsafe) private(set) var latestProcessedTex: MTLTexture?
+    nonisolated(unsafe) private(set) var latestTrackerTex: MTLTexture?
+
+    nonisolated(unsafe) private var latestNaturalBuffer: CVPixelBuffer?
+    nonisolated(unsafe) private var latestProcessedBuffer: CVPixelBuffer?
+    nonisolated(unsafe) private var latestTrackerBuffer: CVPixelBuffer?
+
+    // MARK: - Pass 4 — tracker downsample (Stage 06)
+
+    /// Pass-4 tracker downsample PSO + sampler.
+    ///
+    /// Compiled in init().
+    private let trackerDownsamplePSO: MTLComputePipelineState
+    private let trackerSampler: MTLSamplerState
+
+    /// Frame counter incremented per encode.
+    ///
+    /// Delivery-queue only.
+    private var frameNumber: UInt64 = 0
+
+    /// Consumer registry handed in from CameraEngine.
+    let consumers: ConsumerRegistry
+
+    // MARK: - Shared properties
 
     private let commandQueue: MTLCommandQueue
     private let yuvToRgbaPSO: MTLComputePipelineState
@@ -88,6 +122,7 @@ final class MetalPipeline: @unchecked Sendable {
     private let patchBufferR: MTLBuffer
     private let patchBufferG: MTLBuffer
     private let patchBufferB: MTLBuffer
+
     /// Stage 05: `Mutex<UniformStorage>` protecting host-written shader params (ADR-34, D-17, Inv 6).
     ///
     /// Both color-transform and crop uniforms live inside `UniformStorage` so a single
@@ -113,21 +148,25 @@ final class MetalPipeline: @unchecked Sendable {
     // Internal; used by 02:gate-closes-on-inactive to verify gate-before-commit (ADR-09).
     internal private(set) var commitCount: Int = 0
 
-    /// Stage 05: most recent per-frame ProcessingMetadata snapshot from the mutex.
-    ///
-    /// Written on the delivery queue inside `encode()` immediately after the
-    /// `uniforms.withLock` snapshot. Read by `CaptureDelegate` on the same delivery
-    /// queue; population of downstream `FrameSet.processing` arrives in Stage 06.
-    internal private(set) var lastProcessingMetadata: ProcessingMetadata?
-
     /// - Parameters:
     ///   - device: From `MTLCreateSystemDefaultDevice()`.
     ///   - captureSize: Dimensions reported by `CameraSession.configure()`.
     ///   - gate: Shared `ManagedAtomic<Bool>` owned by `CameraEngine` (ADR-09).
+    ///   - consumers: `ConsumerRegistry` owned by `CameraEngine`; used to publish
+    ///     `FrameSet` values on the delivery queue.
     /// - Throws: `MetalError.pipelineStateCompilation` if the Metal library or
     ///   kernel cannot be loaded, or if PSO compilation fails.
-    init(device: MTLDevice, captureSize: Size, gate: ManagedAtomic<Bool>) throws {
+    init(device: MTLDevice, captureSize: Size, gate: ManagedAtomic<Bool>, consumers: ConsumerRegistry) throws {
         submissionGate = gate
+        self.consumers = consumers
+        self.captureSize = captureSize
+
+        // Tracker dimensions: preserve capture aspect ratio, scale to trackerHeightPx.
+        let trackerH = Constants.trackerHeightPx
+        let aspect = Double(captureSize.width) / Double(captureSize.height)
+        let rawW = Int((Double(trackerH) * aspect).rounded())
+        let trackerW = rawW - (rawW % 2)
+        self.trackerSize = Size(width: trackerW, height: trackerH)
 
         // 1. Texture pool (CVMetalTextureCache wrapper).
         texturePool = try TexturePoolManager(device: device)
@@ -164,7 +203,7 @@ final class MetalPipeline: @unchecked Sendable {
             throw MetalError.pipelineStateCompilation(error.localizedDescription)
         }
 
-        // 4d. Center-patch sampler.
+        // 4c. Center-patch sampler.
         guard let patchFunction = library.makeFunction(name: "centerPatchHistogram") else {
             throw MetalError.pipelineStateCompilation("centerPatchHistogram not found")
         }
@@ -186,7 +225,7 @@ final class MetalPipeline: @unchecked Sendable {
         patchBufferG = bufG
         patchBufferB = bufB
 
-        // 4c. Host-side uniforms — Stage 05 mutex-protected storage (ADR-34, D-17).
+        // 4d. Host-side uniforms — Stage 05 mutex-protected storage (ADR-34, D-17).
         uniforms = Mutex(
             UniformStorage(
                 color: .identity,
@@ -196,21 +235,35 @@ final class MetalPipeline: @unchecked Sendable {
         // 5. Command queue.
         commandQueue = device.makeCommandQueue()!
 
-        // 6. Working textures — IOSurface-backed .shared CVPixelBuffers wrapped
-        //    as RGBA16F MTLTextures (D-02, ADR-20 start-simple default; brief §7).
-        let (naturalBuf, naturalTexture) = try texturePool.makeIOSurfaceBackedRGBA16F(size: captureSize)
-        let (processedBuf, processedTexture) = try texturePool.makeIOSurfaceBackedRGBA16F(size: captureSize)
-        self.naturalBuffer = naturalBuf
-        self.naturalTex = naturalTexture
-        self.processedBuffer = processedBuf
-        self.processedTex = processedTexture
+        // 6. Per-stream CVPixelBufferPools (Stage 06 pool-backed lineage).
+        naturalPool = try texturePool.makeWorkingFormatPool(size: captureSize)
+        processedPool = try texturePool.makeWorkingFormatPool(size: captureSize)
+        trackerPool = try texturePool.makeWorkingFormatPool(size: trackerSize)
+
+        // 7. Pass-4 tracker downsample PSO + sampler.
+        guard let trackerFunction = library.makeFunction(name: "trackerDownsample") else {
+            throw MetalError.pipelineStateCompilation("trackerDownsample not found")
+        }
+        do {
+            trackerDownsamplePSO = try device.makeComputePipelineState(function: trackerFunction)
+        } catch {
+            throw MetalError.pipelineStateCompilation(error.localizedDescription)
+        }
+        let samplerDesc = MTLSamplerDescriptor()
+        samplerDesc.minFilter = .linear
+        samplerDesc.magFilter = .linear
+        samplerDesc.sAddressMode = .clampToEdge
+        samplerDesc.tAddressMode = .clampToEdge
+        guard let sampler = device.makeSamplerState(descriptor: samplerDesc) else {
+            throw MetalError.pipelineStateCompilation("tracker sampler state")
+        }
+        trackerSampler = sampler
     }
 
-    /// Encodes a YUV→RGBA compute pass for one camera frame.
+    /// Encodes a YUV→RGBA + color-transform + tracker-downsample compute pass for one camera frame.
     ///
     /// Must be called on the `delivery` DispatchQueue (ADR-02).
-    /// Frames that cannot be processed are silently dropped; Stage 01 does not
-    /// propagate per-frame errors upstream.
+    /// Frames that cannot be processed are silently dropped.
     func encode(sampleBuffer: CMSampleBuffer) throws {
         // 1. Unwrap the pixel buffer; drop frame if unavailable.
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
@@ -227,7 +280,28 @@ final class MetalPipeline: @unchecked Sendable {
             return  // drop frame on texture-wrap failure
         }
 
-        // 3. Snapshot uniforms — Stage 05 Mutex<UniformStorage> (ADR-34, D-17, Inv 6).
+        // 3. Dequeue per-frame pool buffers.
+        let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)
+        let processedPair: (buffer: CVPixelBuffer, texture: MTLTexture)
+        do {
+            naturalPair = try texturePool.dequeuePoolTexture(
+                pool: naturalPool, width: captureSize.width, height: captureSize.height)
+            processedPair = try texturePool.dequeuePoolTexture(
+                pool: processedPool, width: captureSize.width, height: captureSize.height)
+        } catch {
+            return  // pool exhausted — drop frame
+        }
+
+        // Tracker buffer only when someone is subscribed to .tracker (no wasteful alloc).
+        let trackerPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
+        if consumers.hasSubscriber(.tracker) {
+            trackerPair = try? texturePool.dequeuePoolTexture(
+                pool: trackerPool, width: trackerSize.width, height: trackerSize.height)
+        } else {
+            trackerPair = nil
+        }
+
+        // 4. Snapshot uniforms — Stage 05 Mutex<UniformStorage> (ADR-34, D-17, Inv 6).
         //    `withLock` critical section contains only the struct-copy snapshot;
         //    no Metal encode or commit call appears inside the closure (05:mutex-scope-is-tight).
         let (colorSnapshot, cropSnapshot, metadataSnapshot): (ColorUniform, CropUniform, ProcessingMetadata) =
@@ -236,52 +310,113 @@ final class MetalPipeline: @unchecked Sendable {
                 let r = storage.crop
                 return (c, r, ProcessingMetadata(color: c, crop: r))
             }
-        // Store for downstream attachment to FrameSet (Stage 06 populates consumer path).
-        lastProcessingMetadata = metadataSnapshot
 
-        // 4. Command buffer.
+        // 5. Command buffer.
         let commandBuffer = commandQueue.makeCommandBuffer()!
 
-        // 5. Pass 1: YUV → RGBA into naturalTex, with crop uniform.
+        let naturalTexI = naturalPair.texture
+        let processedTexI = processedPair.texture
+
+        // 6. Pass 1: YUV → RGBA into naturalTexI, with crop uniform.
         let pass1 = commandBuffer.makeComputeCommandEncoder()!
         pass1.setComputePipelineState(yuvToRgbaPSO)
         pass1.setTexture(yTexture, index: 0)
         pass1.setTexture(cbcrTexture, index: 1)
-        pass1.setTexture(naturalTex, index: 2)
+        pass1.setTexture(naturalTexI, index: 2)
         var cropLocal = cropSnapshot  // setBytes needs a mutable address
         pass1.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
         let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
         let threadGroups = MTLSize(
-            width: (naturalTex.width + 15) / 16,
-            height: (naturalTex.height + 15) / 16,
+            width: (naturalTexI.width + 15) / 16,
+            height: (naturalTexI.height + 15) / 16,
             depth: 1
         )
         pass1.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
         pass1.endEncoding()
 
-        // 6. Pass 2: color transform naturalTex → processedTex with ColorUniform.
+        // 7. Pass 2: color transform naturalTexI → processedTexI with ColorUniform.
         let pass2 = commandBuffer.makeComputeCommandEncoder()!
         pass2.setComputePipelineState(colorTransformPSO)
-        pass2.setTexture(naturalTex, index: 0)
-        pass2.setTexture(processedTex, index: 1)
+        pass2.setTexture(naturalTexI, index: 0)
+        pass2.setTexture(processedTexI, index: 1)
         var colorLocal = colorSnapshot
         pass2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
         pass2.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
         pass2.endEncoding()
 
-        // 7. Gate check (ADR-09, D-06). Strict policy: every .inactive gates.
+        // 8. Pass 4: tracker downsample naturalTexI → trackerTexI (when subscribed).
+        if let trackerPair {
+            let trackerTexI = trackerPair.texture
+            let pass4 = commandBuffer.makeComputeCommandEncoder()!
+            pass4.setComputePipelineState(trackerDownsamplePSO)
+            pass4.setTexture(naturalTexI, index: 0)
+            pass4.setTexture(trackerTexI, index: 1)
+            pass4.setSamplerState(trackerSampler, index: 0)
+            let tgTracker = MTLSize(width: 16, height: 16, depth: 1)
+            let groupsTracker = MTLSize(
+                width: (trackerTexI.width + 15) / 16,
+                height: (trackerTexI.height + 15) / 16,
+                depth: 1
+            )
+            pass4.dispatchThreadgroups(groupsTracker, threadsPerThreadgroup: tgTracker)
+            pass4.endEncoding()
+        }
+
+        // 9. Gate check (ADR-09, D-06). Strict policy: every .inactive gates.
         guard submissionGate.load(ordering: .acquiring) else { return }
+
+        // Capture all frame-local values before the completion handler. CMSampleBuffer
+        // is not Sendable; capture derived values (CMTime, metadata snapshot) instead.
+        let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let captureMeta = CaptureMetadata.placeholder()
+        let meta = metadataSnapshot
+        let fn = frameNumber
+        let naturalBuf = naturalPair.buffer
+        let processedBuf = processedPair.buffer
+        let trackerBuf = trackerPair?.buffer
+        let trackerTex = trackerPair?.texture
+        let consumers = self.consumers
+        let trackerForSet: CVPixelBuffer = trackerBuf ?? naturalBuf
 
         // scaffolding:01:skip-completion-guard — addCompletedHandler does not
         // check sessionState before touching flush state. D-10 guard arrives
         // Stage 09.
         commandBuffer.addCompletedHandler { [weak self] _ in
-            self?.texturePool.flush()
+            // Construct FrameSet from delivery-queue-local captures only.
+            let fs = FrameSet(
+                frameNumber: fn,
+                captureTime: captureTime,
+                natural: naturalBuf,
+                processed: processedBuf,
+                tracker: trackerForSet,
+                capture: captureMeta,
+                processing: meta,
+                blurScore: 0.0,
+                trackerQuality: .good
+            )
+            // Publish to subscribed lanes (nonisolated — no actor hop).
+            consumers.yield(fs, stream: .natural)
+            consumers.yield(fs, stream: .processed)
+            if trackerBuf != nil {
+                consumers.yield(fs, stream: .tracker)
+            }
+            // Update preview mailboxes for MTKView draw pass.
+            guard let self else { return }
+            self.latestNaturalBuffer = naturalBuf
+            self.latestNaturalTex = naturalTexI
+            self.latestProcessedBuffer = processedBuf
+            self.latestProcessedTex = processedTexI
+            if let tBuf = trackerBuf, let tTex = trackerTex {
+                self.latestTrackerBuffer = tBuf
+                self.latestTrackerTex = tTex
+            }
+            self.texturePool.flush()
         }
 
-        // 8. Track for drain (ADR-09 waitUntilScheduled path) and increment.
+        // 10. Track for drain (ADR-09 waitUntilScheduled path) and increment.
         lastCommandBuffer = commandBuffer
         commitCount += 1
+        frameNumber &+= 1
         commandBuffer.commit()
     }
 
@@ -293,27 +428,46 @@ final class MetalPipeline: @unchecked Sendable {
         lastCommandBuffer?.waitUntilScheduled()
     }
 
-    /// Returns the current output texture for the MTKView draw pass.
+    /// Returns the latest natural texture for the MTKView draw pass.
     ///
-    /// Thread-safe: `naturalTex` is read-only after `init`.
+    /// Reads `latestNaturalTex` mailbox (nonisolated(unsafe) per G-13).
+    /// Falls back to dequeuing a blank pool buffer on the first call before any frame arrives.
     func currentTexture() -> MTLTexture {
-        return naturalTex
+        if let t = latestNaturalTex { return t }
+        if let pair = try? texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: captureSize.width, height: captureSize.height
+        ) {
+            latestNaturalBuffer = pair.buffer
+            latestNaturalTex = pair.texture
+            return pair.texture
+        }
+        fatalError("MetalPipeline.currentTexture: no preview texture available")
     }
 
-    /// Stage 04: returns the processedTex for the right-half MTKView.
+    /// Returns the latest processed texture for the right-half MTKView.
     ///
-    /// Thread-safe: `processedTex` is read-only after `init`.
+    /// Reads `latestProcessedTex` mailbox (nonisolated(unsafe) per G-13).
+    /// Falls back to dequeuing a blank pool buffer on the first call before any frame arrives.
     func currentProcessedTex() -> MTLTexture {
-        return processedTex
+        if let t = latestProcessedTex { return t }
+        if let pair = try? texturePool.dequeuePoolTexture(
+            pool: processedPool, width: captureSize.width, height: captureSize.height
+        ) {
+            latestProcessedBuffer = pair.buffer
+            latestProcessedTex = pair.texture
+            return pair.texture
+        }
+        fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
     }
 
-    /// Stage 04: encodes the center-patch sampler over `processedTex` and returns one RgbSample.
+    /// Stage 04: encodes the center-patch sampler over the latest processed texture and returns one RgbSample.
     ///
     /// Awaits completion, then computes per-channel trimmed mean from the readback buffers.
     func dispatchCenterPatch() async throws -> RgbSample {
         let patchSize = Constants.centerPatchSizePx
-        let texW = processedTex.width
-        let texH = processedTex.height
+        let tex = currentProcessedTex()
+        let texW = tex.width
+        let texH = tex.height
         guard texW >= patchSize, texH >= patchSize else {
             throw MetalError.unsupportedFormat
         }
@@ -332,7 +486,7 @@ final class MetalPipeline: @unchecked Sendable {
         }
 
         encoder.setComputePipelineState(centerPatchPSO)
-        encoder.setTexture(processedTex, index: 0)
+        encoder.setTexture(tex, index: 0)
         encoder.setBuffer(patchBufferR, offset: 0, index: 0)
         encoder.setBuffer(patchBufferG, offset: 0, index: 1)
         encoder.setBuffer(patchBufferB, offset: 0, index: 2)
@@ -382,11 +536,16 @@ final class MetalPipeline: @unchecked Sendable {
 
     // MARK: - Internal test seams
 
-    /// Convenience init that creates its own gate.
+    /// Convenience init that creates its own gate and an empty ConsumerRegistry.
     ///
     /// Used by Stage02Tests to build a standalone pipeline without needing to import Atomics.
     convenience init(device: MTLDevice, captureSize: Size, gateOpen: Bool = true) throws {
-        try self.init(device: device, captureSize: captureSize, gate: ManagedAtomic<Bool>(gateOpen))
+        try self.init(
+            device: device,
+            captureSize: captureSize,
+            gate: ManagedAtomic<Bool>(gateOpen),
+            consumers: ConsumerRegistry()
+        )
     }
 
     /// Opens or closes the pipeline's submission gate.
@@ -398,15 +557,32 @@ final class MetalPipeline: @unchecked Sendable {
 
     // MARK: - Test seams (internal — accessed via @testable import)
 
-    // Test-only: returns the IOSurface-backed CVPixelBuffer for naturalTex,
-    // for direct CPU read/write through CVPixelBufferLockBaseAddress.
-    var naturalBufferForTest: CVPixelBuffer { naturalBuffer }
-    var processedBufferForTest: CVPixelBuffer { processedBuffer }
+    // Stage 06: pool-backed buffer accessors replace the removed single-buffer properties.
+    var latestNaturalBufferForTest: CVPixelBuffer? { latestNaturalBuffer }
+    var latestProcessedBufferForTest: CVPixelBuffer? { latestProcessedBuffer }
+    var latestTrackerBufferForTest: CVPixelBuffer? { latestTrackerBuffer }
 
-    // Test-only: dispatches Pass 2 (color transform) over the current
-    // `naturalTex` contents, awaits scheduled, and returns. Use after
-    // writing test-pattern bytes into `naturalBufferForTest` via lock/unlock.
+    var texturePoolForTest: TexturePoolManager { texturePool }
+    var naturalPoolForTest: CVPixelBufferPool { naturalPool }
+    var processedPoolForTest: CVPixelBufferPool { processedPool }
+    var trackerPoolForTest: CVPixelBufferPool { trackerPool }
+    var trackerSizeForTest: Size { trackerSize }
+
+    func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
+        latestNaturalBuffer = buffer
+        latestNaturalTex = texture
+    }
+
+    func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
+        latestProcessedBuffer = buffer
+        latestProcessedTex = texture
+    }
+
+    // Test-only: dispatches Pass 2 (color transform) over the latest natural texture,
+    // awaits scheduled, and returns. Use after writing test-pattern bytes via lock/unlock.
     func encodePass2Only() async throws {
+        let natTex = currentTexture()
+        let procTex = currentProcessedTex()
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             throw MetalError.commandBufferFailed(code: -1)
         }
@@ -415,13 +591,13 @@ final class MetalPipeline: @unchecked Sendable {
         }
         var color: ColorUniform = uniforms.withLock { $0.color }
         encoder.setComputePipelineState(colorTransformPSO)
-        encoder.setTexture(naturalTex, index: 0)
-        encoder.setTexture(processedTex, index: 1)
+        encoder.setTexture(natTex, index: 0)
+        encoder.setTexture(procTex, index: 1)
         encoder.setBytes(&color, length: MemoryLayout<ColorUniform>.stride, index: 0)
         let tg = MTLSize(width: 16, height: 16, depth: 1)
         let groups = MTLSize(
-            width: (processedTex.width + 15) / 16,
-            height: (processedTex.height + 15) / 16,
+            width: (procTex.width + 15) / 16,
+            height: (procTex.height + 15) / 16,
             depth: 1
         )
         encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
