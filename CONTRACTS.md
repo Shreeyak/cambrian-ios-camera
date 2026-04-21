@@ -17,21 +17,6 @@
 
 # Files
 
-## File: CameraKit/Sources/CameraKit/ProcessingMetadata.swift
-```swift
-public struct ProcessingMetadata: Sendable, Hashable {
-public let cropRegion: Rect
-public let brightness: Float
-public let contrast: Float
-public let saturation: Float
-public let gamma: Float
-public let whiteBalanceGains: WhiteBalanceGains
-⋮----
-public init(
-⋮----
-init(color: ColorUniform, crop: CropUniform) {
-```
-
 ## File: CameraKit/Sources/CameraKit/AsyncWithTimeout.swift
 ```swift
 func runOnQueue(
@@ -66,67 +51,6 @@ public init(filePath: String) { self.filePath = filePath }
 public enum StillCaptureError: Error, Sendable {
 ```
 
-## File: CameraKit/Sources/CameraKit/FrameSet.swift
-```swift
-public struct FrameSet: @unchecked Sendable, Hashable {
-public let frameNumber: UInt64
-public let captureTime: CMTime
-public let natural: CVPixelBuffer
-public let processed: CVPixelBuffer
-public let tracker: CVPixelBuffer
-public let capture: CaptureMetadata
-public let processing: ProcessingMetadata
-public let blurScore: Float
-public let trackerQuality: TrackerQuality
-⋮----
-public init(
-⋮----
-public func hash(into hasher: inout Hasher) {
-⋮----
-public enum TrackerQuality: String, Sendable, Hashable {
-⋮----
-public struct CaptureMetadata: Sendable, Hashable {
-public let iso: Float
-public let exposureDurationNs: Int64
-public let whiteBalanceGains: WhiteBalanceGains
-public let whiteBalanceModeActive: WhiteBalanceMode
-public let lensPosition: Float
-public let focusModeActive: CameraMode
-public let exposureModeActive: CameraMode
-public let zoomFactor: Double
-public let cameraPosition: CameraPosition
-⋮----
-public struct WhiteBalanceGains: Sendable, Hashable {
-public let red: Float
-public let green: Float
-public let blue: Float
-public init(red: Float, green: Float, blue: Float) {
-⋮----
-public enum CameraPosition: String, Sendable, Hashable {
-⋮----
-public struct FrameDeliveryStats: Sendable, Hashable {
-public let producedByLane: [StreamId: UInt64]
-public let deliveredByLane: [StreamId: UInt64]
-public let droppedByLane: [StreamId: UInt64]
-public let holdOverBudgetByLane: [StreamId: UInt64]
-public let poolExhaustion: UInt64
-public let cppOverwriteByLane: [StreamId: UInt64]
-⋮----
-public struct FrameResult: Sendable, Hashable {
-public var iso: Int?
-public var exposureTimeNs: Int64?
-public var focusDistance: Double?
-public var wbGainR: Double?
-public var wbGainG: Double?
-public var wbGainB: Double?
-⋮----
-public struct RgbSample: Sendable, Hashable {
-public var r: Double
-public var g: Double
-public var b: Double
-public init(r: Double, g: Double, b: Double) {
-```
-
 ## File: CameraKit/Sources/CameraKit/PixelSink.swift
 ```swift
 public struct ConsumerToken: Sendable, Hashable {
@@ -152,6 +76,21 @@ let token = ConsumerToken(id: nextId)
 func deregister(_ token: ConsumerToken) {
 ⋮----
 func broadcast(_ frame: FrameSet) {
+```
+
+## File: CameraKit/Sources/CameraKit/ProcessingMetadata.swift
+```swift
+public struct ProcessingMetadata: Sendable, Hashable {
+public let cropRegion: Rect
+public let brightness: Float
+public let contrast: Float
+public let saturation: Float
+public let gamma: Float
+public let whiteBalanceGains: WhiteBalanceGains
+⋮----
+public init(
+⋮----
+init(color: ColorUniform, crop: CropUniform) {
 ```
 
 ## File: CameraKit/Sources/CameraKit/SessionState.swift
@@ -249,6 +188,67 @@ public var blackB: Double
 public var gamma: Double
 ⋮----
 public static let identity = ProcessingParameters()
+```
+
+## File: CameraKit/Sources/CameraKit/FrameSet.swift
+```swift
+public struct FrameSet: @unchecked Sendable, Hashable {
+public let frameNumber: UInt64
+public let captureTime: CMTime
+public let natural: CVPixelBuffer
+public let processed: CVPixelBuffer
+public let tracker: CVPixelBuffer
+public let capture: CaptureMetadata
+public let processing: ProcessingMetadata
+public let blurScore: Float
+public let trackerQuality: TrackerQuality
+⋮----
+public init(
+⋮----
+public func hash(into hasher: inout Hasher) {
+⋮----
+public enum TrackerQuality: String, Sendable, Hashable {
+⋮----
+public struct CaptureMetadata: Sendable, Hashable {
+public let iso: Float
+public let exposureDurationNs: Int64
+public let whiteBalanceGains: WhiteBalanceGains
+public let whiteBalanceModeActive: WhiteBalanceMode
+public let lensPosition: Float
+public let focusModeActive: CameraMode
+public let exposureModeActive: CameraMode
+public let zoomFactor: Double
+public let cameraPosition: CameraPosition
+⋮----
+public struct WhiteBalanceGains: Sendable, Hashable {
+public let red: Float
+public let green: Float
+public let blue: Float
+public init(red: Float, green: Float, blue: Float) {
+⋮----
+public enum CameraPosition: String, Sendable, Hashable {
+⋮----
+public struct FrameDeliveryStats: Sendable, Hashable {
+public let producedByLane: [StreamId: UInt64]
+public let deliveredByLane: [StreamId: UInt64]
+public let droppedByLane: [StreamId: UInt64]
+public let holdOverBudgetByLane: [StreamId: UInt64]
+public let poolExhaustion: UInt64
+public let cppOverwriteByLane: [StreamId: UInt64]
+⋮----
+public struct FrameResult: Sendable, Hashable {
+public var iso: Int?
+public var exposureTimeNs: Int64?
+public var focusDistance: Double?
+public var wbGainR: Double?
+public var wbGainG: Double?
+public var wbGainB: Double?
+⋮----
+public struct RgbSample: Sendable, Hashable {
+public var r: Double
+public var g: Double
+public var b: Double
+public init(r: Double, g: Double, b: Double) {
 ```
 
 ## File: CameraKit/Sources/CameraKit/KVOAsyncStream.swift

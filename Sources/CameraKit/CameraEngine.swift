@@ -2,6 +2,7 @@ import AVFoundation
 import Atomics
 import CoreMedia
 import Metal
+import Synchronization
 
 /// The public actor that orchestrates the entire camera pipeline.
 /// This is the ONLY type callers interact with at the API layer.
@@ -87,6 +88,7 @@ public actor CameraEngine {
         delegate.onSampleBuffer = { [weak pipeline] sampleBuffer in
             try? pipeline?.encode(sampleBuffer: sampleBuffer)
         }
+        delegate.pipeline = pipeline
         delegate.engine = self
 
         // 6. Store state.
@@ -368,18 +370,15 @@ public actor CameraEngine {
         _processedTex
     }
 
-    /// Stage 04: writes color-transform uniforms into the MetalPipeline's field, then persists.
+    /// Stage 05: writes color-transform uniforms through `Mutex<UniformStorage>` (ADR-34, D-17, Inv 6).
     ///
     /// Wholesale replacement (no merge — `ProcessingParameters` is non-nullable per
     /// architecture/07-settings.md §ProcessingParameters).
-    ///
-    /// scaffolding:04:unlocked-uniforms — host writes are unsynchronised against
-    /// the GPU thread's read in `MetalPipeline.encode()`. Torn reads are possible
-    /// under rapid slider motion; perceptually benign this stage. Stage 05 wraps
-    /// `UniformsHost` in OSAllocatedUnfairLock per Inv 6.
     public func setProcessingParameters(_ params: ProcessingParameters) async {
-        // scaffolding:04:unlocked-uniforms — direct write, no lock.
-        metalPipeline?.uniforms.color = ColorUniform(params)
+        // Route through the mutex so the delivery-queue snapshot in encode() is always coherent.
+        metalPipeline?.uniforms.withLock { storage in
+            storage.color = ColorUniform(params)
+        }
         // Persist on every successful update (07-settings.md §Write path).
         let toSave = params
         Task.detached { SettingsPersistence.saveProcessing(toSave) }
@@ -404,12 +403,15 @@ public actor CameraEngine {
             throw EngineError.settingsConflict(
                 reason: "crop rect \(rect) outside capture bounds \(texW)x\(texH)")
         }
-        pipeline.uniforms.crop = CropUniform(
-            originX: UInt32(rect.x),
-            originY: UInt32(rect.y),
-            width: UInt32(rect.width),
-            height: UInt32(rect.height)
-        )
+        // Route through the mutex so the delivery-queue snapshot in encode() is always coherent (Inv 6).
+        pipeline.uniforms.withLock { storage in
+            storage.crop = CropUniform(
+                originX: UInt32(rect.x),
+                originY: UInt32(rect.y),
+                width: UInt32(rect.width),
+                height: UInt32(rect.height)
+            )
+        }
     }
 
     /// Stage 04: dispatches the center-patch sampler and returns per-channel trimmed mean.
