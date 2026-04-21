@@ -16,4 +16,21 @@ enum SettingsPersistence {
         guard let data = defaults.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(CameraSettings.self, from: data)
     }
+
+    // MARK: - Stage 04 — ProcessingParameters persistence
+    // Key per architecture/07-settings.md §Persistence.
+    static let processingKey = "CameraKit.ProcessingParameters"
+
+    static func saveProcessing(
+        _ params: ProcessingParameters,
+        defaults: UserDefaults = .standard
+    ) {
+        guard let data = try? JSONEncoder().encode(params) else { return }
+        defaults.set(data, forKey: processingKey)
+    }
+
+    static func loadProcessing(defaults: UserDefaults = .standard) -> ProcessingParameters? {
+        guard let data = defaults.data(forKey: processingKey) else { return nil }
+        return try? JSONDecoder().decode(ProcessingParameters.self, from: data)
+    }
 }
