@@ -50,8 +50,8 @@ public nonisolated func currentProcessedTexture() -> (any MTLTexture)?
 | `04:processing-params-persistence-roundtrip` | PASS | Stage04Tests/processingParamsPersistenceRoundtrip — per-test UUID suite. |
 | `04:center-patch-trimmed-mean` | PASS | Stage04Tests/centerPatchTrimmedMean — uniform fill + 10% outliers. |
 | `04:set-crop-region-updates-uniform` | PASS | Stage04Tests/setCropRegionUpdatesUniform — happy + out-of-bounds throw. |
-| `04:color-slider-visual-correctness` | DEFERRED | `measurements/stage-04/color.md`. |
-| `04:rapid-slider-stress-sees-occasional-torn-frame` | DEFERRED | `measurements/stage-04/color.md`. |
+| `04:color-slider-visual-correctness` | PASS | `measurements/stage-04/color.md`. Verified Shreeyak's iPad iOS 26.4.1. |
+| `04:rapid-slider-stress-sees-occasional-torn-frame` | PASS | `measurements/stage-04/color.md`. 0 glitches observed in ~10s stress. |
 
 ## Decisions taken that weren't in briefs
 
@@ -72,4 +72,4 @@ public nonisolated func currentProcessedTexture() -> (any MTLTexture)?
 1. **Inv 6 lock install (Stage 05)** — wrap `UniformsHost.color` + `UniformsHost.crop` in `OSAllocatedUnfairLock<UniformStorage>`; engine acquires-writes-releases; pipeline acquires-snapshots-releases. Both `04:unlocked-uniforms` sites retire.
 2. **Sigmoid contrast curve** — pin formula choice via ADR or 07-settings §Processing-order amendment before Stage 11 polish.
 3. **Crop visual verification** — Stage 06 (pool trio) provides the device-driven crop rendering test that proves uniform → pixel correspondence end-to-end.
-4. **HITL evidence DEFERRED** — `04:color-slider-visual-correctness` and `04:rapid-slider-stress-sees-occasional-torn-frame` require manual device interaction; pending physical iPad session.
+4. **HITL evidence PASS** — `04:color-slider-visual-correctness`, `04:rapid-slider-stress-sees-occasional-torn-frame`, and persistence all verified on Shreeyak's iPad (iOS 26.4.1), 2026-04-21.
