@@ -235,4 +235,75 @@ final class CameraSession: @unchecked Sendable {
             stopRunning()
         }
     }
+
+    /// Commits a fully-resolved `CameraSettings` to the device inside a single
+    /// `lockForConfiguration()` window on `sessionQueue` (ADR-07).
+    ///
+    /// The caller (`CameraEngine.updateSettings`) is responsible for having
+    /// already run `merging(onto:)`, `SettingsCoupling.apply(rules:latched:)`,
+    /// and range validation — this function only commits.
+    ///
+    /// ISO + exposure are coupled by `setExposureModeCustom(durationNs:iso:)`'s
+    /// API shape (07-settings.md §Commit shape). Focus, white balance, zoom,
+    /// and EV bias commit independently inside the same lock window.
+    func applySettings(
+        _ settings: CameraSettings,
+        on device: any CaptureDeviceProviding
+    ) async throws {
+        try await device.lockForConfiguration()
+        do {
+            // Exposure + ISO — coupled commit when both manual.
+            if settings.exposureMode == .manual,
+               let durationNs = settings.exposureTimeNs,
+               let iso = settings.iso {
+                try await device.setExposureModeCustom(
+                    durationNs: durationNs,
+                    iso: Float(iso))
+            } else if settings.exposureMode == .auto {
+                try await device.setContinuousAutoExposure()
+            }
+
+            // Focus.
+            if settings.focusMode == .manual, let d = settings.focusDistance {
+                try await device.setFocusModeLocked(lensPosition: Float(d))
+            } else if settings.focusMode == .auto {
+                try await device.setContinuousAutoFocus()
+            }
+
+            // White balance.
+            if let mode = settings.wbMode {
+                switch mode {
+                case .manual:
+                    if let r = settings.wbGainR,
+                       let g = settings.wbGainG,
+                       let b = settings.wbGainB {
+                        try await device.setWhiteBalanceModeLocked(
+                            gains: WhiteBalanceGains(
+                                red: Float(r),
+                                green: Float(g),
+                                blue: Float(b)))
+                    }
+                case .locked:
+                    try await device.setWhiteBalanceLocked()
+                case .auto:
+                    try await device.setContinuousAutoWhiteBalance()
+                }
+            }
+
+            // Zoom.
+            if let z = settings.zoomRatio {
+                try await device.setZoomFactor(z)
+            }
+
+            // EV compensation (effective only in auto exposure per domain).
+            if let ev = settings.evCompensation {
+                try await device.setExposureCompensation(ev)
+            }
+
+            await device.unlockForConfiguration()
+        } catch {
+            await device.unlockForConfiguration()
+            throw error
+        }
+    }
 }
