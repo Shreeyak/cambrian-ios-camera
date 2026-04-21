@@ -1,6 +1,6 @@
-import Metal
-import CoreVideo
 import CoreMedia
+import CoreVideo
+import Metal
 
 /// Wraps `CVMetalTextureCache` to vend `MTLTexture` views over `CVPixelBuffer` planes
 /// delivered by AVFoundation sample buffers.
@@ -64,6 +64,69 @@ final class TexturePoolManager: @unchecked Sendable {
         CVMetalTextureCacheFlush(textureCache!, 0)
     }
 
+    // MARK: - Stage 04 — IOSurface-backed working textures
+
+    /// Allocates a single IOSurface-backed `CVPixelBuffer` of pixel format
+    /// `kCVPixelFormatType_64RGBAHalf` and returns a paired `MTLTexture` view
+    /// of the same memory (zero-copy, format `.rgba16Float`).
+    ///
+    /// Storage mode: `.shared` (D-02, ADR-20 start-simple default). The buffer
+    /// is retained by the caller (`MetalPipeline`) for the session lifetime —
+    /// the GPU writes through the `MTLTexture` view and tests read through
+    /// `CVPixelBufferLockBaseAddress` (ADR-06: never `MTLTexture.getBytes`).
+    ///
+    /// - Parameter size: Texture dimensions in pixels.
+    /// - Returns: The retained `CVPixelBuffer` (caller must keep) and the
+    ///   `MTLTexture` view backed by its IOSurface.
+    /// - Throws: `MetalError.unsupportedFormat` if buffer creation fails;
+    ///   `MetalError.textureWrapFailed` if the texture cache rejects the buffer.
+    func makeIOSurfaceBackedRGBA16F(size: Size) throws -> (buffer: CVPixelBuffer, texture: MTLTexture) {
+        // 1. Allocate the CVPixelBuffer with IOSurface + Metal compatibility.
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferMetalCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        ]
+        var pixelBufferOut: CVPixelBuffer?
+        let createStatus = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            size.width,
+            size.height,
+            kCVPixelFormatType_64RGBAHalf,
+            attrs as CFDictionary,
+            &pixelBufferOut
+        )
+        guard createStatus == kCVReturnSuccess, let pixelBuffer = pixelBufferOut else {
+            throw MetalError.unsupportedFormat
+        }
+
+        // 2. Wrap as an MTLTexture (zero-copy view onto the IOSurface).
+        var cvTexOut: CVMetalTexture?
+        let wrapStatus = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault,
+            textureCache!,
+            pixelBuffer,
+            nil,
+            .rgba16Float,
+            size.width,
+            size.height,
+            0,
+            &cvTexOut
+        )
+        guard wrapStatus == kCVReturnSuccess, let cvTex = cvTexOut,
+            let mtlTex = CVMetalTextureGetTexture(cvTex)
+        else {
+            throw MetalError.textureWrapFailed(code: wrapStatus)
+        }
+
+        // 3. Caller retains both `pixelBuffer` (via the returned tuple) and
+        //    the `MTLTexture` (via storage in MetalPipeline). The intermediate
+        //    `cvTex` reference is implicitly held by the cache — flush() will
+        //    release it eventually. (Apple docs: "maintain a strong reference
+        //    to textureOut until the GPU finishes…" — caller stores `mtlTex`
+        //    and `pixelBuffer` for the session, satisfying that contract.)
+        return (buffer: pixelBuffer, texture: mtlTex)
+    }
+
     // MARK: - Private
 
     private func makeTexture(
@@ -71,7 +134,7 @@ final class TexturePoolManager: @unchecked Sendable {
         planeIndex: Int,
         pixelFormat: MTLPixelFormat
     ) throws -> MTLTexture {
-        let width  = CVPixelBufferGetWidthOfPlane(pixelBuffer, planeIndex)
+        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, planeIndex)
         let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, planeIndex)
 
         var cvTexture: CVMetalTexture?
