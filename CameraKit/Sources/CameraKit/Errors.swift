@@ -2,25 +2,25 @@ import Foundation
 
 /// Domain-public error-code taxonomy per domain-revised/10-api-contract.md §ErrorCode.
 public enum ErrorCode: String, Sendable, Hashable {
-    case cameraNotFound       = "CAMERA_NOT_FOUND"
-    case cameraInUse          = "CAMERA_IN_USE"
-    case permissionDenied     = "PERMISSION_DENIED"
-    case cameraAccessError    = "CAMERA_ACCESS_ERROR"
-    case cameraDisconnected   = "CAMERA_DISCONNECTED"
-    case configurationFailed  = "CONFIGURATION_FAILED"
-    case captureFailure       = "CAPTURE_FAILURE"
+    case cameraNotFound = "CAMERA_NOT_FOUND"
+    case cameraInUse = "CAMERA_IN_USE"
+    case permissionDenied = "PERMISSION_DENIED"
+    case cameraAccessError = "CAMERA_ACCESS_ERROR"
+    case cameraDisconnected = "CAMERA_DISCONNECTED"
+    case configurationFailed = "CONFIGURATION_FAILED"
+    case captureFailure = "CAPTURE_FAILURE"
     case recordingStartFailed = "RECORDING_START_FAILED"
-    case recordingFailed      = "RECORDING_FAILED"
-    case recordingTruncated   = "RECORDING_TRUNCATED"
-    case frameStall           = "FRAME_STALL"
-    case maxRetriesExceeded   = "MAX_RETRIES_EXCEEDED"
-    case unknownError         = "UNKNOWN_ERROR"
-    case settingsConflict     = "SETTINGS_CONFLICT"
-    case invalidFormat        = "INVALID_FORMAT"
-    case fpsDegraded          = "FPS_DEGRADED"
+    case recordingFailed = "RECORDING_FAILED"
+    case recordingTruncated = "RECORDING_TRUNCATED"
+    case frameStall = "FRAME_STALL"
+    case maxRetriesExceeded = "MAX_RETRIES_EXCEEDED"
+    case unknownError = "UNKNOWN_ERROR"
+    case settingsConflict = "SETTINGS_CONFLICT"
+    case invalidFormat = "INVALID_FORMAT"
+    case fpsDegraded = "FPS_DEGRADED"
     case aeConvergenceTimeout = "AE_CONVERGENCE_TIMEOUT"
-    case invalidState         = "INVALID_STATE"
-    case hardwareError        = "HARDWARE_ERROR"
+    case invalidState = "INVALID_STATE"
+    case hardwareError = "HARDWARE_ERROR"
 }
 
 /// onError payload per domain-revised/10-api-contract.md §Error.
@@ -30,11 +30,15 @@ public struct CameraError: Sendable, Error, Hashable {
     public let isFatal: Bool
 
     public init(code: ErrorCode, message: String, isFatal: Bool) {
-        self.code = code; self.message = message; self.isFatal = isFatal
+        self.code = code
+        self.message = message
+        self.isFatal = isFatal
     }
 }
 
-/// Typed throws per ADR-25. Wraps framework errors without losing root cause.
+/// Typed throws per ADR-25.
+///
+/// Wraps framework errors without losing root cause.
 public enum EngineError: Error, Sendable {
     case alreadyOpen
     case notOpen
@@ -61,6 +65,9 @@ public enum MetalError: Error, Sendable {
 public enum InteropError: Error, Sendable {
     case pixelSinkRegistrationRejected(code: Int32)
     case pipelineHandleUnavailable
+    /// Stage 06: `ConsumerRegistry.registerCallback(stream:callbacks:)` throws this
+    /// as a scaffolding guard — the C-ABI path lands in Stage 08 (D-01, D-03).
+    case notWired
 }
 
 public enum RecordingError: Error, Sendable {
@@ -72,13 +79,17 @@ public enum RecordingError: Error, Sendable {
 
 // MARK: - Still capture types (compressed here per Stage 01 type-compression decision)
 
-/// Output of a successful captureImage() call. Full implementation Stage 06.
+/// Output of a successful captureImage() call.
+///
+/// Full implementation Stage 06.
 public struct StillCaptureOutput: Sendable, Hashable {
     public let filePath: String
     public init(filePath: String) { self.filePath = filePath }
 }
 
-/// Errors specific to still capture. Full implementation Stage 06.
+/// Errors specific to still capture.
+///
+/// Full implementation Stage 06.
 public enum StillCaptureError: Error, Sendable {
     case captureInProgress
     case metalReadbackFailed
