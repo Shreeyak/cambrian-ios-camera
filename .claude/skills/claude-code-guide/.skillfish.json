@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "claude-code-guide",
+  "owner": "leepokai",
+  "repo": "claude-code-guide",
+  "path": "skills/claude-code-guide",
+  "branch": "main",
+  "sha": "ba58aacd649d4d86a150510aa5e7313f37bbd810",
+  "source": "manual"
+}

@@ -1,0 +1,16 @@
+.xcodebuildmcp/
+Gemfile.lock
+docs/tmp/
+
+# xcode-build-server output (machine-specific DerivedData path)
+buildServer.json
+
+# SwiftPM build artifacts
+.build/
+.swiftpm/
+
+# Persistent xcodebuild logs from scripts/{build,test}-summary.sh
+.build-logs/
+
+# Xcode user data
+**/xcuserdata/
