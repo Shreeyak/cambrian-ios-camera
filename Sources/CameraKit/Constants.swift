@@ -15,4 +15,9 @@ enum Constants {
     static let stateStreamBufferSize: Int = 64
     /// ADR-30: Deadline for startRunning() / stopRunning() awaited from @MainActor.
     static let sessionLifecycleTimeoutSeconds: Double = 2.0
+    // Frame-result heartbeat (07-settings.md §Frame-result heartbeat).
+    static let frameResultHeartbeatHz: Int = 3
+    static let frameResultHeartbeatIntervalFrames: Int = 10  // 30 fps ÷ 3 Hz
+    // Session-only teardown budget for setResolution (03-camera-session.md).
+    static let resolutionResizeTimeoutSeconds: Double = 5.0
 }
