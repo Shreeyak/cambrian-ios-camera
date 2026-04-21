@@ -20,12 +20,17 @@ import Metal
 /// `drainLastBuffer()` — safe under the @unchecked Sendable assertion.
 final class MetalPipeline: @unchecked Sendable {
 
-    /// The output texture from Pass 1 (YUV→RGBA).
-    /// Created once at init with `Constants.workingPixelFormat` (.rgba16Float).
-    /// Storage mode: `.private` (GPU-only). Readable from the MTKView delegate.
-    // scaffolding:01:simple-metal-passthrough — only Pass 1 (YUV→RGBA) is wired;
-    // processed and tracker passes arrive Stage 02+.
+    // scaffolding:01:simple-metal-passthrough — only Pass 1 (YUV→RGBA) runs into
+    // naturalTex; Pass 2 (color transform) writes processedTex; Pass 3+ (blit,
+    // tracker, encoder, still readback) arrive Stage 06+.
     private(set) var naturalTex: MTLTexture
+    private(set) var processedTex: MTLTexture
+
+    // Retain the IOSurface-backed CVPixelBuffers for the session lifetime so the
+    // CVMetalTexture views stay valid (Apple docs: "maintain a strong reference
+    // to textureOut until the GPU finishes execution").
+    private let naturalBuffer: CVPixelBuffer
+    private let processedBuffer: CVPixelBuffer
 
     private let commandQueue: MTLCommandQueue
     private let yuvToRgbaPSO: MTLComputePipelineState
@@ -83,16 +88,14 @@ final class MetalPipeline: @unchecked Sendable {
         // 5. Command queue.
         commandQueue = device.makeCommandQueue()!
 
-        // 6. Output texture — GPU-private RGBA16Float, same dimensions as capture.
-        let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: Constants.workingPixelFormat,
-            width: captureSize.width,
-            height: captureSize.height,
-            mipmapped: false
-        )
-        desc.usage = [.shaderRead, .shaderWrite]
-        desc.storageMode = .private
-        naturalTex = device.makeTexture(descriptor: desc)!
+        // 6. Working textures — IOSurface-backed .shared CVPixelBuffers wrapped
+        //    as RGBA16F MTLTextures (D-02, ADR-20 start-simple default; brief §7).
+        let (naturalBuf, naturalTexture) = try texturePool.makeIOSurfaceBackedRGBA16F(size: captureSize)
+        let (processedBuf, processedTexture) = try texturePool.makeIOSurfaceBackedRGBA16F(size: captureSize)
+        self.naturalBuffer = naturalBuf
+        self.naturalTex = naturalTexture
+        self.processedBuffer = processedBuf
+        self.processedTex = processedTexture
     }
 
     /// Encodes a YUV→RGBA compute pass for one camera frame.
@@ -164,6 +167,13 @@ final class MetalPipeline: @unchecked Sendable {
     /// Thread-safe: `naturalTex` is read-only after `init`.
     func currentTexture() -> MTLTexture {
         return naturalTex
+    }
+
+    /// Stage 04: returns the processedTex for the right-half MTKView.
+    ///
+    /// Thread-safe: `processedTex` is read-only after `init`.
+    func currentProcessedTex() -> MTLTexture {
+        return processedTex
     }
 
     // MARK: - Internal test seams
