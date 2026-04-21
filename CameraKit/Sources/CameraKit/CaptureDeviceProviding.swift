@@ -168,13 +168,36 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
         avDevice.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: Int32(maxFrameDurationFps))
     }
 
-    // Placeholder type until Task 4 creates DeviceKVOObserver
-    private var kvoObserver: AnyObject?
+    private var kvoObserver: DeviceKVOObserver?
     private var _lastSnapshot: DeviceStateSnapshot?
+    private var ingestTask: Task<Void, Never>?
 
     var lastSnapshot: DeviceStateSnapshot? { _lastSnapshot }
 
     nonisolated func snapshotStream() -> AsyncStream<DeviceStateSnapshot> {
-        AsyncStream { $0.finish() }
+        let (stream, _) = DeviceKVOObserver.makeStream(avDevice: avDevice)
+        return stream
+    }
+
+    func installKVOIngest() {
+        guard ingestTask == nil else { return }
+        let (stream, observer) = DeviceKVOObserver.makeStream(avDevice: avDevice)
+        kvoObserver = observer
+        ingestTask = Task { [weak self] in
+            for await snap in stream {
+                if Task.isCancelled { return }
+                await self?.setLastSnapshot(snap)
+            }
+        }
+    }
+
+    func cancelKVO() {
+        ingestTask?.cancel()
+        ingestTask = nil
+        kvoObserver = nil
+    }
+
+    private func setLastSnapshot(_ snap: DeviceStateSnapshot) {
+        _lastSnapshot = snap
     }
 }
