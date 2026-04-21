@@ -24,6 +24,9 @@ public actor CameraEngine {
     private var cachedStateStream: AsyncStream<SessionState>?
     private var isOpen: Bool = false
     private var currentSettings: CameraSettings?
+    private var frameResultContinuation: AsyncStream<FrameResult>.Continuation?
+    private var cachedFrameResultStream: AsyncStream<FrameResult>?
+    private var frameCounter: UInt64 = 0
 
     // ADR-09: GPU submission gate. Shared by reference with MetalPipeline.
     // Reads: delivery queue (.acquiring load). Writes: engine actor (.sequentiallyConsistent store).
@@ -77,6 +80,7 @@ public actor CameraEngine {
         delegate.onSampleBuffer = { [weak pipeline] sampleBuffer in
             try? pipeline?.encode(sampleBuffer: sampleBuffer)
         }
+        delegate.engine = self
 
         // 6. Store state.
         self.cameraSession = session
@@ -120,13 +124,17 @@ public actor CameraEngine {
             width: Constants.cropDefaultWidthPx,
             height: Constants.cropDefaultHeightPx
         )
+        let isoRange = await device.isoRange
+        let exposureDurationRangeNs = await device.exposureDurationRangeNs
         return SessionCapabilities(
             supportedSizes: supportedSizes,
             previewTextureId: 0,  // stub: texture IDs arrive Stage 05
             naturalTextureId: 0,  // stub: texture IDs arrive Stage 05
             activeCaptureResolution: captureSize,
             activeCropRegion: activeCropRegion,
-            streamPixelFormat: "420f"
+            streamPixelFormat: "420f",
+            isoRange: isoRange,
+            exposureDurationRangeNs: exposureDurationRangeNs
         )
     }
 
@@ -141,6 +149,10 @@ public actor CameraEngine {
         if let live = cameraSession?.device as? LiveCaptureDevice {
             await live.cancelKVO()
         }
+        frameResultContinuation?.finish()
+        frameResultContinuation = nil
+        cachedFrameResultStream = nil
+        frameCounter = 0
         cameraSession = nil
         captureDelegate = nil
         metalPipeline = nil
@@ -166,6 +178,46 @@ public actor CameraEngine {
         }
         cachedStateStream = stream
         return stream
+    }
+
+    /// Sensor-metadata heartbeat at `frameRateTargetFPS / frameResultHeartbeatIntervalFrames` Hz.
+    /// `.bufferingNewest(1)` per ADR-22 (frame-rate stream).
+    public func frameResultStream() -> AsyncStream<FrameResult> {
+        if let existing = cachedFrameResultStream { return existing }
+        let stream = AsyncStream<FrameResult>(
+            FrameResult.self,
+            bufferingPolicy: .bufferingNewest(1)
+        ) { [weak self] continuation in
+            Task { await self?.setFrameResultContinuation(continuation) }
+        }
+        cachedFrameResultStream = stream
+        return stream
+    }
+
+    private func setFrameResultContinuation(_ c: AsyncStream<FrameResult>.Continuation) {
+        frameResultContinuation = c
+    }
+
+    /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
+    nonisolated func tickFrame() {
+        Task { await self.onFrameTick() }
+    }
+
+    private func onFrameTick() async {
+        frameCounter &+= 1
+        guard frameCounter % UInt64(Constants.frameResultHeartbeatIntervalFrames) == 0,
+            let device = cameraSession?.device,
+            let snap = await device.lastSnapshot,
+            let cont = frameResultContinuation
+        else { return }
+        let r = FrameResult(
+            iso: Int(snap.iso),
+            exposureTimeNs: snap.exposureDurationNs,
+            focusDistance: Double(snap.lensPosition),
+            wbGainR: Double(snap.whiteBalanceGains.red),
+            wbGainG: Double(snap.whiteBalanceGains.green),
+            wbGainB: Double(snap.whiteBalanceGains.blue))
+        cont.yield(r)
     }
 
     /// Full settings merge→couple→validate→commit→persist pipeline (Stage 03).
@@ -214,6 +266,35 @@ public actor CameraEngine {
         // 5. Persist. Detached so the actor doesn't block on I/O.
         let toSave = resolved
         Task.detached { SettingsPersistence.save(toSave) }
+    }
+
+    /// Session-only teardown + re-select format + restart for new resolution.
+    ///
+    /// Pool-resize is a placeholder until Stage 06 introduces the trio (brief §4).
+    ///
+    /// - Throws: `EngineError.notOpen` if not yet open.
+    public func setResolution(size: Size) async throws {
+        guard let session = cameraSession else { throw EngineError.notOpen }
+
+        submissionGate.store(false, ordering: .sequentiallyConsistent)
+        await drainSubmittedFrame()
+
+        await session.stopRunningAsync()
+        metalPipeline = nil
+        _naturalTex = nil
+
+        try await session.reconfigureSize(size)
+
+        guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
+            throw EngineError.metal(MetalError.unsupportedFormat)
+        }
+        let pipeline = try MetalPipeline(
+            device: mtlDevice, captureSize: size, gate: submissionGate)
+        metalPipeline = pipeline
+        _naturalTex = pipeline.currentTexture()
+
+        submissionGate.store(true, ordering: .sequentiallyConsistent)
+        await session.startRunningAsync()
     }
 
     public func registerPixelSink(_ callbacks: PixelSinkCallbacks) async -> ConsumerToken {

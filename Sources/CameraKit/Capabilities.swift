@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 // MARK: - Core geometry types
 
@@ -18,7 +18,10 @@ public struct Rect: Sendable, Hashable {
     public let width: Int
     public let height: Int
     public init(x: Int, y: Int, width: Int, height: Int) {
-        self.x = x; self.y = y; self.width = width; self.height = height
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
     }
 }
 
@@ -32,6 +35,8 @@ public struct SessionCapabilities: Sendable, Hashable {
     public let activeCaptureResolution: Size
     public let activeCropRegion: Rect
     public let streamPixelFormat: String
+    public let isoRange: ClosedRange<Float>
+    public let exposureDurationRangeNs: ClosedRange<Int64>
 
     public init(
         supportedSizes: [Size],
@@ -39,7 +44,9 @@ public struct SessionCapabilities: Sendable, Hashable {
         naturalTextureId: Int,
         activeCaptureResolution: Size,
         activeCropRegion: Rect,
-        streamPixelFormat: String
+        streamPixelFormat: String,
+        isoRange: ClosedRange<Float>,
+        exposureDurationRangeNs: ClosedRange<Int64>
     ) {
         self.supportedSizes = supportedSizes
         self.previewTextureId = previewTextureId
@@ -47,6 +54,8 @@ public struct SessionCapabilities: Sendable, Hashable {
         self.activeCaptureResolution = activeCaptureResolution
         self.activeCropRegion = activeCropRegion
         self.streamPixelFormat = streamPixelFormat
+        self.isoRange = isoRange
+        self.exposureDurationRangeNs = exposureDurationRangeNs
     }
 }
 
@@ -69,20 +78,22 @@ public struct OpenConfiguration: Sendable, Hashable {
 
 // MARK: - Settings types (compressed here per Stage 01 type-compression decision)
 
-public enum CameraMode: String, Sendable, Hashable {
+public enum CameraMode: String, Sendable, Hashable, Codable {
     case auto
     case manual
 }
 
-public enum WhiteBalanceMode: String, Sendable, Hashable {
+public enum WhiteBalanceMode: String, Sendable, Hashable, Codable {
     case auto
     case locked
     case manual
 }
 
-/// Partial-update settings object per domain-revised/10-api-contract.md §CameraSettings.
+/// Partial-update settings object.
+///
+/// Per domain-revised/10-api-contract.md §CameraSettings.
 /// Every field is optional; null = "do not change." Full merge logic arrives Stage 03.
-public struct CameraSettings: Sendable, Hashable {
+public struct CameraSettings: Sendable, Hashable, Codable {
     public var isoMode: CameraMode?
     public var iso: Int?
     public var exposureMode: CameraMode?
@@ -110,16 +121,25 @@ public struct CameraSettings: Sendable, Hashable {
         zoomRatio: Double? = nil,
         evCompensation: Int? = nil
     ) {
-        self.isoMode = isoMode; self.iso = iso
-        self.exposureMode = exposureMode; self.exposureTimeNs = exposureTimeNs
-        self.focusMode = focusMode; self.focusDistance = focusDistance
-        self.wbMode = wbMode; self.wbGainR = wbGainR; self.wbGainG = wbGainG; self.wbGainB = wbGainB
-        self.zoomRatio = zoomRatio; self.evCompensation = evCompensation
+        self.isoMode = isoMode
+        self.iso = iso
+        self.exposureMode = exposureMode
+        self.exposureTimeNs = exposureTimeNs
+        self.focusMode = focusMode
+        self.focusDistance = focusDistance
+        self.wbMode = wbMode
+        self.wbGainR = wbGainR
+        self.wbGainG = wbGainG
+        self.wbGainB = wbGainB
+        self.zoomRatio = zoomRatio
+        self.evCompensation = evCompensation
     }
 }
 
-/// GPU color-processing shader parameters. All fields required. Full implementation Stage 04.
-public struct ProcessingParameters: Sendable, Hashable {
+/// GPU color-processing shader parameters.
+///
+/// All fields required. Full implementation Stage 04.
+public struct ProcessingParameters: Sendable, Hashable, Codable {
     public var brightness: Double
     public var contrast: Double
     public var saturation: Double
@@ -137,8 +157,13 @@ public struct ProcessingParameters: Sendable, Hashable {
         blackB: Double = 0.0,
         gamma: Double = 1.0
     ) {
-        self.brightness = brightness; self.contrast = contrast; self.saturation = saturation
-        self.blackR = blackR; self.blackG = blackG; self.blackB = blackB; self.gamma = gamma
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        self.blackR = blackR
+        self.blackG = blackG
+        self.blackB = blackB
+        self.gamma = gamma
     }
 
     public static let identity = ProcessingParameters()
