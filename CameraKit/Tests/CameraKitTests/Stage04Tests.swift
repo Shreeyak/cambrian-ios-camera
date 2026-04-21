@@ -1,6 +1,7 @@
 import CoreVideo
 import Foundation
 import Metal
+import Synchronization
 import Testing
 
 @testable import CameraKit
@@ -10,8 +11,9 @@ struct Stage04Tests {
 
     // MARK: - Test 1 — 04:color-pipeline-golden-frame
 
-    /// Inject a known half-float RGBA pattern into naturalTex (via IOSurface),
-    /// run Pass 2 with identity ProcessingParameters, and assert processedTex
+    /// Inject a known half-float RGBA pattern into naturalTex (via IOSurface).
+    ///
+    /// Run Pass 2 with identity ProcessingParameters, and assert processedTex
     /// matches naturalTex byte-for-byte modulo rgba16Float ULP. Then apply
     /// brightness=+0.2 and assert the closed-form luminance shift.
     @Test func colorPipelineGoldenFrame() async throws {
@@ -20,7 +22,7 @@ struct Stage04Tests {
         let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
 
         // Identity uniforms → byte-for-byte equality (within rgba16Float ULP).
-        pipeline.uniforms.color = ColorUniform(.identity)
+        pipeline.uniforms.withLock { $0.color = ColorUniform(.identity) }
 
         // Fill naturalTex with a constant mid-gray (R=G=B=0.5).
         try fillBufferUniform(pipeline.naturalBufferForTest, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
@@ -37,7 +39,7 @@ struct Stage04Tests {
         // Brightness +0.2 → exponent = 1 / 1.2 ≈ 0.833. pow(0.5, 0.833) ≈ 0.561.
         var bright = ProcessingParameters.identity
         bright.brightness = 0.2
-        pipeline.uniforms.color = ColorUniform(bright)
+        pipeline.uniforms.withLock { $0.color = ColorUniform(bright) }
         try await pipeline.encodePass2Only()
         let (br, _, _, _) = try sampleCenterPixel(pipeline.processedBufferForTest)
         let expected = Float(pow(0.5, 1.0 / 1.2))
@@ -67,7 +69,8 @@ struct Stage04Tests {
 
     // MARK: - Test 3 — 04:center-patch-trimmed-mean
 
-    /// Inject a uniform fill into processedTex (R=0.4, G=0.6, B=0.2);
+    /// Inject a uniform fill into processedTex (R=0.4, G=0.6, B=0.2).
+    ///
     /// dispatchCenterPatch returns (0.4, 0.6, 0.2) within ULP.
     /// Then inject a gradient + 10% outliers; trimmed mean discards them.
     @Test func centerPatchTrimmedMean() async throws {
@@ -103,16 +106,21 @@ struct Stage04Tests {
 
         // Simulate what CameraEngine.setCropRegion does on the happy path.
         let rect = Rect(x: 100, y: 50, width: 800, height: 600)
-        pipeline.uniforms.crop = CropUniform(
-            originX: UInt32(rect.x),
-            originY: UInt32(rect.y),
-            width: UInt32(rect.width),
-            height: UInt32(rect.height)
-        )
-        #expect(pipeline.uniforms.crop.originX == 100)
-        #expect(pipeline.uniforms.crop.originY == 50)
-        #expect(pipeline.uniforms.crop.width == 800)
-        #expect(pipeline.uniforms.crop.height == 600)
+        pipeline.uniforms.withLock { storage in
+            storage.crop = CropUniform(
+                originX: UInt32(rect.x),
+                originY: UInt32(rect.y),
+                width: UInt32(rect.width),
+                height: UInt32(rect.height)
+            )
+        }
+        let (ox, oy, ow, oh) = pipeline.uniforms.withLock { s in
+            (s.crop.originX, s.crop.originY, s.crop.width, s.crop.height)
+        }
+        #expect(ox == 100)
+        #expect(oy == 50)
+        #expect(ow == 800)
+        #expect(oh == 600)
 
         // Engine-level out-of-bounds throw — exercise via CameraEngine when
         // session is nil → notOpen path. (Open path requires camera hardware.)
@@ -127,8 +135,10 @@ struct Stage04Tests {
 
     /// Writes a uniform RGBA half-float fill into an IOSurface-backed CVPixelBuffer
     /// of pixel format kCVPixelFormatType_64RGBAHalf.
-    private func fillBufferUniform(_ buffer: CVPixelBuffer,
-                                   r: Float, g: Float, b: Float, a: Float) throws {
+    private func fillBufferUniform(
+        _ buffer: CVPixelBuffer,
+        r: Float, g: Float, b: Float, a: Float
+    ) throws {
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         let width = CVPixelBufferGetWidth(buffer)
@@ -153,9 +163,11 @@ struct Stage04Tests {
 
     /// Writes a uniform `base` fill, then overwrites a fraction of pixels
     /// with `outlier` value (used to verify trimmed-mean discard).
-    private func fillBufferWithOutliers(_ buffer: CVPixelBuffer,
-                                        base: Float, outlier: Float,
-                                        outlierFraction: Double) throws {
+    private func fillBufferWithOutliers(
+        _ buffer: CVPixelBuffer,
+        base: Float, outlier: Float,
+        outlierFraction: Double
+    ) throws {
         try fillBufferUniform(buffer, r: base, g: base, b: base, a: 1.0)
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
@@ -209,10 +221,11 @@ struct Stage04Tests {
     private struct HalfPixel { let r, g, b, a: UInt16 }
 
     private func packHalfRGBA(r: Float, g: Float, b: Float, a: Float) -> HalfPixel {
-        HalfPixel(r: Float16(r).bitPattern,
-                  g: Float16(g).bitPattern,
-                  b: Float16(b).bitPattern,
-                  a: Float16(a).bitPattern)
+        HalfPixel(
+            r: Float16(r).bitPattern,
+            g: Float16(g).bitPattern,
+            b: Float16(b).bitPattern,
+            a: Float16(a).bitPattern)
     }
 
     private func unpackHalf(_ bits: UInt16) -> Float {
