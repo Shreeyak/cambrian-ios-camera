@@ -23,6 +23,9 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     /// This is the Metal pipeline's entry point (Stage 08+).
     var onSampleBuffer: (@Sendable (CMSampleBuffer) -> Void)?
 
+    /// Weak reference to the engine for frame-result heartbeat (Stage 03).
+    weak var engine: CameraEngine?
+
     // MARK: - Init
 
     override init() {
@@ -40,6 +43,7 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
         from connection: AVCaptureConnection
     ) {
         onSampleBuffer?(sampleBuffer)
+        engine?.tickFrame()
     }
 
     /// Invoked on the `delivery` queue when a frame is dropped.
