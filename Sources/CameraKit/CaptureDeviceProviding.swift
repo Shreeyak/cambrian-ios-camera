@@ -78,7 +78,10 @@ public enum SystemPressureLevel: String, Sendable, Hashable {
 /// Production implementation: wraps a single back-facing wide-angle AVCaptureDevice (D-08).
 /// CameraSession receives avDevice for sessionQueue work; tests never reach this type.
 final actor LiveCaptureDevice: CaptureDeviceProviding {
-    let avDevice: AVCaptureDevice
+    // nonisolated(unsafe): accessed from nonisolated snapshotStream() factory;
+    // AVCaptureDevice mutations always gate through lockForConfiguration() on
+    // sessionQueue (ADR-07), so cross-isolation reads are safe.
+    nonisolated(unsafe) let avDevice: AVCaptureDevice
 
     init(avDevice: AVCaptureDevice) {
         self.avDevice = avDevice

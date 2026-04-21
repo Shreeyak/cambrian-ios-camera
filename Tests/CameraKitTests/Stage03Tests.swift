@@ -222,7 +222,7 @@ extension DeviceKVOObserver {
     ) -> (AsyncStream<DeviceStateSnapshot>, DeviceKVOObserver) {
         makeStreamFromObservations { cont, box in
             box.values = [
-                source.observe(\.iso, options: [.initial, .new]) { obj, _ in
+                source.observe(\.iso, options: [.new]) { obj, _ in
                     cont.yield(Self.snapshot(fake: obj))
                 },
                 source.observe(\.exposureDuration, options: [.new]) { obj, _ in
