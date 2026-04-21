@@ -22,6 +22,7 @@ final class ViewModel {
     var currentSettings: CameraSettings = CameraSettings()
     var deviceSnapshot: DeviceStateSnapshot?
     var lastFrameResult: FrameResult?
+    var currentProcessing: ProcessingParameters = .identity
 
     // MARK: - Texture handoff
 
@@ -33,6 +34,9 @@ final class ViewModel {
     /// (naturalTex is written exactly once per session, before the coordinator calls draw).
     @ObservationIgnored
     nonisolated(unsafe) var naturalTex: MTLTexture?
+
+    @ObservationIgnored
+    nonisolated(unsafe) var processedTex: MTLTexture?
 
     // MARK: - Engine
 
@@ -62,6 +66,12 @@ final class ViewModel {
             capabilities = caps
             // Grab naturalTex once after open — it's stable for the session lifetime.
             naturalTex = engine.currentTexture()
+            processedTex = engine.currentProcessedTexture()
+            // Pre-populate slider state from persisted ProcessingParameters
+            // (07-settings.md §Load path: nonisolated accessor available before open()).
+            if let persisted = engine.getPersistedProcessingParameters() {
+                currentProcessing = persisted
+            }
             // Seed slider state from whatever open() restored from persistence.
             if let restored = await engine.currentSettingsSnapshot() {
                 currentSettings = restored
@@ -183,6 +193,17 @@ final class ViewModel {
             let url = dir.appendingPathComponent("capabilities.txt")
             try? text.write(to: url, atomically: true, encoding: .utf8)
         }
+    }
+
+    // MARK: - ProcessingParameters update path (08-ui.md §Color calibration sidebar)
+
+    func updateProcessing(_ next: ProcessingParameters) async {
+        currentProcessing = next
+        await engine.setProcessingParameters(next)
+    }
+
+    func resetProcessing() async {
+        await updateProcessing(.identity)
     }
 
     private func applyDelta(_ delta: CameraSettings) async {
