@@ -187,10 +187,11 @@ final class MetalPipeline: @unchecked Sendable {
         patchBufferB = bufB
 
         // 4c. Host-side uniforms — Stage 05 mutex-protected storage (ADR-34, D-17).
-        uniforms = Mutex(UniformStorage(
-            color: .identity,
-            crop: .full(width: captureSize.width, height: captureSize.height)
-        ))
+        uniforms = Mutex(
+            UniformStorage(
+                color: .identity,
+                crop: .full(width: captureSize.width, height: captureSize.height)
+            ))
 
         // 5. Command queue.
         commandQueue = device.makeCommandQueue()!
