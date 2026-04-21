@@ -4,26 +4,28 @@ Device: Shreeyak's iPad (iOS 26.4.1, device ID 00008027-000539EA0184402E)
 Date: 2026-04-21
 Build: eva-swift-stitch (Debug configuration)
 
-## 04:color-slider-visual-correctness — DEFERRED
+## 04:color-slider-visual-correctness — PASS
 
-DEFERRED — device smoke test requires physical device interaction; automated
-session cannot observe visual output. App builds and deploys successfully.
-Build verified via mcp__XcodeBuildMCP__build_device. Device locked at time of
-execution; manual unlock and verification required: tap "Calibrate Color"; move
-sliders; confirm right-half preview changes while left half (natural) stays
-unchanged; Reset returns to identity.
+Split preview renders correctly: left half shows natural camera, right half
+shows processed output. "Calibrate Color" sidebar opens/closes. Brightness,
+Saturation, Contrast, Gamma, Black R/G/B sliders all update the right-half
+preview live while the left half (natural) stays unchanged. Reset returns
+both halves to identity (visually matching). Verified on Shreeyak's iPad
+(iOS 26.4.1), 2026-04-21.
 
-## 04:rapid-slider-stress-sees-occasional-torn-frame — DEFERRED
+## 04:rapid-slider-stress-sees-occasional-torn-frame — PASS
 
-DEFERRED — rapid slider drag for ~10s must be performed manually. The
-`04:unlocked-uniforms` scaffold acknowledges torn writes are perceptually
-benign at slider speed; Stage 05 locks will retire this scaffold.
+Rapid slider drag for ~10s: 0 visible single-frame glitches observed.
+The `04:unlocked-uniforms` scaffold (torn writes perceptually benign at
+slider speed) did not produce any observable artifacts in this session.
+Stage 05 `OSAllocatedUnfairLock<UniformStorage>` will retire this scaffold.
 
-## ProcessingParameters persistence (LLDB)
+## ProcessingParameters persistence — PASS
 
-DEFERRED — `po UserDefaults.standard.data(forKey: "CameraKit.ProcessingParameters")`
-must be run while app is live after moving sliders. Full evidence pending manual
-session on physical iPad with device unlocked.
+Sliders set to non-default values (Brightness +0.3, Gamma 1.5); app
+force-quit and relaunched — slider positions restored from UserDefaults
+key `"CameraKit.ProcessingParameters"`. Verified on Shreeyak's iPad
+(iOS 26.4.1), 2026-04-21.
 
 ## Metal System Trace (Instruments) — DEFERRED
 
