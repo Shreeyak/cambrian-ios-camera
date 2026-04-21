@@ -419,6 +419,98 @@ func stop() async {
 func handleScenePhase(_ phase: ScenePhase) async {
 ```
 
+## File: CameraKit/Sources/CameraKit/CameraSession.swift
+```swift
+final class CameraSession: @unchecked Sendable {
+⋮----
+let sessionQueue: DispatchQueue
+⋮----
+private(set) var device: (any CaptureDeviceProviding)?
+⋮----
+let avSession: AVCaptureSession
+⋮----
+private let videoOutput: AVCaptureVideoDataOutput
+⋮----
+init() {
+⋮----
+func configure(
+⋮----
+let yuvFormats: [AVCaptureDevice.Format] = avDevice.formats.filter { format in
+let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+⋮----
+let sortedByPreference: [AVCaptureDevice.Format] = yuvFormats.sorted { lhs, rhs in
+let lhsFull =
+⋮----
+let rhsFull =
+⋮----
+let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
+let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
+⋮----
+let fps30 = Int32(Constants.frameRateTargetFPS)
+let candidateFormats: [AVCaptureDevice.Format] =
+⋮----
+let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+let w = Int32(dims.width)
+let h = Int32(dims.height)
+⋮----
+let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
+⋮----
+let fallbackW = Constants.captureFallbackWidthPx
+let fallbackH = Constants.captureFallbackHeightPx
+let nearest = sortedByPreference.min { lhs, rhs in
+⋮----
+let lDist = abs(Int(lDims.width) - fallbackW) + abs(Int(lDims.height) - fallbackH)
+let rDist = abs(Int(rDims.width) - fallbackW) + abs(Int(rDims.height) - fallbackH)
+⋮----
+let frameDuration = CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS))
+⋮----
+let deviceInput = try AVCaptureDeviceInput(device: avDevice)
+⋮----
+let liveDevice = LiveCaptureDevice(avDevice: avDevice)
+⋮----
+let angle = Constants.captureOrientationAngleDeg
+⋮----
+func startRunning() {
+⋮----
+func stopRunning() {
+⋮----
+func startRunningAsync() async {
+⋮----
+func stopRunningAsync() async {
+⋮----
+func reconfigureSize(_ size: Size) async throws {
+⋮----
+let currentInput = self.avSession.inputs
+⋮----
+let match = dev.formats.first { fmt in
+let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
+⋮----
+func applySettings(
+```
+
+## File: CameraKit/Sources/CameraKit/Constants.swift
+```swift
+enum Constants {
+static let frameRateTargetFPS: Int = 30
+static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+static let workingPixelFormat: MTLPixelFormat = .rgba16Float
+static let captureDefaultWidthPx: Int = 4160
+static let captureDefaultHeightPx: Int = 3120
+static let captureFallbackWidthPx: Int = 1280
+static let captureFallbackHeightPx: Int = 960
+static let cropDefaultWidthPx: Int = 1600
+static let cropDefaultHeightPx: Int = 1200
+static let captureOrientationAngleDeg: CGFloat = 90
+static let stateStreamBufferSize: Int = 64
+⋮----
+static let sessionLifecycleTimeoutSeconds: Double = 2.0
+⋮----
+static let frameResultHeartbeatHz: Int = 3
+static let frameResultHeartbeatIntervalFrames: Int = 10
+⋮----
+static let resolutionResizeTimeoutSeconds: Double = 5.0
+```
+
 ## File: CameraKit/Sources/CameraKit/CameraEngine.swift
 ```swift
 public actor CameraEngine {
@@ -511,98 +603,6 @@ var isGateOpen: Bool {
 private func setStateContinuation(_ continuation: AsyncStream<SessionState>.Continuation) {
 ⋮----
 private func publishState(_ state: SessionState) {
-```
-
-## File: CameraKit/Sources/CameraKit/CameraSession.swift
-```swift
-final class CameraSession: @unchecked Sendable {
-⋮----
-let sessionQueue: DispatchQueue
-⋮----
-private(set) var device: (any CaptureDeviceProviding)?
-⋮----
-let avSession: AVCaptureSession
-⋮----
-private let videoOutput: AVCaptureVideoDataOutput
-⋮----
-init() {
-⋮----
-func configure(
-⋮----
-let yuvFormats: [AVCaptureDevice.Format] = avDevice.formats.filter { format in
-let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
-⋮----
-let sortedByPreference: [AVCaptureDevice.Format] = yuvFormats.sorted { lhs, rhs in
-let lhsFull =
-⋮----
-let rhsFull =
-⋮----
-let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
-⋮----
-let fps30 = Int32(Constants.frameRateTargetFPS)
-let candidateFormats: [AVCaptureDevice.Format] =
-⋮----
-let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-let w = Int32(dims.width)
-let h = Int32(dims.height)
-⋮----
-let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
-⋮----
-let fallbackW = Constants.captureFallbackWidthPx
-let fallbackH = Constants.captureFallbackHeightPx
-let nearest = sortedByPreference.min { lhs, rhs in
-⋮----
-let lDist = abs(Int(lDims.width) - fallbackW) + abs(Int(lDims.height) - fallbackH)
-let rDist = abs(Int(rDims.width) - fallbackW) + abs(Int(rDims.height) - fallbackH)
-⋮----
-let frameDuration = CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS))
-⋮----
-let deviceInput = try AVCaptureDeviceInput(device: avDevice)
-⋮----
-let liveDevice = LiveCaptureDevice(avDevice: avDevice)
-⋮----
-let angle = Constants.captureOrientationAngleDeg
-⋮----
-func startRunning() {
-⋮----
-func stopRunning() {
-⋮----
-func startRunningAsync() async {
-⋮----
-func stopRunningAsync() async {
-⋮----
-func reconfigureSize(_ size: Size) async throws {
-⋮----
-let currentInput = self.avSession.inputs
-⋮----
-let match = dev.formats.first { fmt in
-let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
-⋮----
-func applySettings(
-```
-
-## File: CameraKit/Sources/CameraKit/Constants.swift
-```swift
-enum Constants {
-static let frameRateTargetFPS: Int = 30
-static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-static let workingPixelFormat: MTLPixelFormat = .rgba16Float
-static let captureDefaultWidthPx: Int = 4160
-static let captureDefaultHeightPx: Int = 3120
-static let captureFallbackWidthPx: Int = 1280
-static let captureFallbackHeightPx: Int = 960
-static let cropDefaultWidthPx: Int = 1600
-static let cropDefaultHeightPx: Int = 1200
-static let captureOrientationAngleDeg: CGFloat = 90
-static let stateStreamBufferSize: Int = 64
-⋮----
-static let sessionLifecycleTimeoutSeconds: Double = 2.0
-⋮----
-static let frameResultHeartbeatHz: Int = 3
-static let frameResultHeartbeatIntervalFrames: Int = 10
-⋮----
-static let resolutionResizeTimeoutSeconds: Double = 5.0
 ```
 
 ## File: CameraKit/Sources/CameraKit/CaptureDeviceProviding.swift

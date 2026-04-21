@@ -236,6 +236,45 @@ final class CameraSession: @unchecked Sendable {
         }
     }
 
+    /// Re-select device format for new resolution.
+    ///
+    /// Stage 03 placeholder for `setResolution` (brief §4): re-select device format.
+    /// Stage 06 replaces with pool-resize. Runs on `sessionQueue` (ADR-07).
+    func reconfigureSize(_ size: Size) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            sessionQueue.async {
+                self.avSession.beginConfiguration()
+                defer { self.avSession.commitConfiguration() }
+
+                let currentInput = self.avSession.inputs
+                    .compactMap { $0 as? AVCaptureDeviceInput }
+                    .first
+                guard let dev = currentInput?.device else {
+                    cont.resume(throwing: EngineError.noBackCamera)
+                    return
+                }
+                let match = dev.formats.first { fmt in
+                    let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
+                    return Int(d.width) == size.width && Int(d.height) == size.height
+                }
+                guard let match else {
+                    cont.resume(
+                        throwing: EngineError.noSupportedFormat(
+                            reason: "no format matching \(size.width)x\(size.height)"))
+                    return
+                }
+                do {
+                    try dev.lockForConfiguration()
+                    dev.activeFormat = match
+                    dev.unlockForConfiguration()
+                    cont.resume()
+                } catch {
+                    cont.resume(throwing: EngineError.lockForConfigurationFailed)
+                }
+            }
+        }
+    }
+
     /// Commits a fully-resolved `CameraSettings` to the device inside a single
     /// `lockForConfiguration()` window on `sessionQueue` (ADR-07).
     ///
@@ -254,8 +293,9 @@ final class CameraSession: @unchecked Sendable {
         do {
             // Exposure + ISO — coupled commit when both manual.
             if settings.exposureMode == .manual,
-               let durationNs = settings.exposureTimeNs,
-               let iso = settings.iso {
+                let durationNs = settings.exposureTimeNs,
+                let iso = settings.iso
+            {
                 try await device.setExposureModeCustom(
                     durationNs: durationNs,
                     iso: Float(iso))
@@ -275,8 +315,9 @@ final class CameraSession: @unchecked Sendable {
                 switch mode {
                 case .manual:
                     if let r = settings.wbGainR,
-                       let g = settings.wbGainG,
-                       let b = settings.wbGainB {
+                        let g = settings.wbGainG,
+                        let b = settings.wbGainB
+                    {
                         try await device.setWhiteBalanceModeLocked(
                             gains: WhiteBalanceGains(
                                 red: Float(r),
