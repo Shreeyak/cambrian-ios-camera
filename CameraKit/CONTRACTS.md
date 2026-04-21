@@ -32,15 +32,6 @@ public init(
 init(color: ColorUniform, crop: CropUniform) {
 ```
 
-## File: CameraKit/Sources/CameraKit/UniformStorage.swift
-```swift
-struct UniformStorage: Sendable, Hashable {
-var color: ColorUniform
-var crop: CropUniform
-⋮----
-static func identity(captureSize: Size) -> UniformStorage {
-```
-
 ## File: CameraKit/Sources/CameraKit/AsyncWithTimeout.swift
 ```swift
 func runOnQueue(
@@ -195,6 +186,15 @@ enum SettingsCoupling {
 ⋮----
 static func apply(rules merged: CameraSettings, latched: DeviceStateSnapshot?) throws -> CameraSettings {
 var out = merged
+```
+
+## File: CameraKit/Sources/CameraKit/UniformStorage.swift
+```swift
+struct UniformStorage: Sendable, Hashable {
+var color: ColorUniform
+var crop: CropUniform
+⋮----
+static func identity(captureSize: Size) -> UniformStorage {
 ```
 
 ## File: CameraKit/Sources/CameraKit/Capabilities.swift
@@ -596,135 +596,6 @@ let srcWidth = min(texture.width, drawable.texture.width)
 let srcHeight = min(texture.height, drawable.texture.height)
 ```
 
-## File: CameraKit/Sources/CameraKit/MetalPipeline.swift
-```swift
-struct ColorUniform: Hashable {
-var brightness: Float
-var contrast: Float
-var saturation: Float
-var blackR: Float
-var blackG: Float
-var blackB: Float
-var gamma: Float
-⋮----
-init(_ p: ProcessingParameters) {
-⋮----
-static let identity = ColorUniform(.identity)
-⋮----
-struct CropUniform: Hashable {
-var originX: UInt32
-var originY: UInt32
-var width: UInt32
-var height: UInt32
-⋮----
-static func full(width: Int, height: Int) -> CropUniform {
-⋮----
-struct PatchUniform {
-var patchSize: UInt32
-var patchOriginX: UInt32
-var patchOriginY: UInt32
-⋮----
-final class MetalPipeline: @unchecked Sendable {
-⋮----
-private(set) var naturalTex: MTLTexture
-private(set) var processedTex: MTLTexture
-⋮----
-private let naturalBuffer: CVPixelBuffer
-private let processedBuffer: CVPixelBuffer
-⋮----
-private let commandQueue: MTLCommandQueue
-private let yuvToRgbaPSO: MTLComputePipelineState
-private let colorTransformPSO: MTLComputePipelineState
-private let centerPatchPSO: MTLComputePipelineState
-private let patchBufferR: MTLBuffer
-private let patchBufferG: MTLBuffer
-private let patchBufferB: MTLBuffer
-⋮----
-let uniforms: Mutex<UniformStorage>
-private let texturePool: TexturePoolManager
-⋮----
-private let submissionGate: ManagedAtomic<Bool>
-⋮----
-internal private(set) var lastCommandBuffer: (any MTLCommandBuffer)?
-⋮----
-internal private(set) var commitCount: Int = 0
-⋮----
-internal private(set) var lastProcessingMetadata: ProcessingMetadata?
-⋮----
-init(device: MTLDevice, captureSize: Size, gate: ManagedAtomic<Bool>) throws {
-⋮----
-let library: MTLLibrary
-⋮----
-let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
-let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
-⋮----
-func encode(sampleBuffer: CMSampleBuffer) throws {
-⋮----
-let yTexture: MTLTexture
-let cbcrTexture: MTLTexture
-⋮----
-let c = storage.color
-let r = storage.crop
-⋮----
-let commandBuffer = commandQueue.makeCommandBuffer()!
-⋮----
-let pass1 = commandBuffer.makeComputeCommandEncoder()!
-⋮----
-var cropLocal = cropSnapshot
-⋮----
-let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
-let threadGroups = MTLSize(
-⋮----
-let pass2 = commandBuffer.makeComputeCommandEncoder()!
-⋮----
-var colorLocal = colorSnapshot
-⋮----
-func drainLastBuffer() {
-⋮----
-func currentTexture() -> MTLTexture {
-⋮----
-func currentProcessedTex() -> MTLTexture {
-⋮----
-func dispatchCenterPatch() async throws -> RgbSample {
-let patchSize = Constants.centerPatchSizePx
-let texW = processedTex.width
-let texH = processedTex.height
-⋮----
-var uniform = PatchUniform(
-⋮----
-let tg = MTLSize(width: 16, height: 16, depth: 1)
-let groups = MTLSize(
-⋮----
-let bufR = patchBufferR
-let bufG = patchBufferG
-let bufB = patchBufferB
-⋮----
-let count = patchSize * patchSize
-let trimCount = (count * Constants.centerPatchTrimPercent) / 100
-let r = trimmedMean(buffer: bufR, count: count, trim: trimCount)
-let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
-let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
-⋮----
-private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {
-let ptr = buffer.contents().bindMemory(to: Float.self, capacity: count)
-var values = Array(UnsafeBufferPointer(start: ptr, count: count))
-⋮----
-let lo = trim
-let hi = count - trim
-var sum: Float = 0
-⋮----
-convenience init(device: MTLDevice, captureSize: Size, gateOpen: Bool = true) throws {
-⋮----
-func setGate(_ open: Bool) {
-⋮----
-var naturalBufferForTest: CVPixelBuffer { naturalBuffer }
-var processedBufferForTest: CVPixelBuffer { processedBuffer }
-⋮----
-func encodePass2Only() async throws {
-⋮----
-var color: ColorUniform = uniforms.withLock { $0.color }
-```
-
 ## File: CameraKit/Sources/CameraKit/ViewModel.swift
 ```swift
 private let scenePhaseLog = Logger(subsystem: "com.cambrian.camerakit", category: "scenePhase")
@@ -891,4 +762,133 @@ var isGateOpen: Bool {
 private func setStateContinuation(_ continuation: AsyncStream<SessionState>.Continuation) {
 ⋮----
 private func publishState(_ state: SessionState) {
+```
+
+## File: CameraKit/Sources/CameraKit/MetalPipeline.swift
+```swift
+struct ColorUniform: Hashable {
+var brightness: Float
+var contrast: Float
+var saturation: Float
+var blackR: Float
+var blackG: Float
+var blackB: Float
+var gamma: Float
+⋮----
+init(_ p: ProcessingParameters) {
+⋮----
+static let identity = ColorUniform(.identity)
+⋮----
+struct CropUniform: Hashable {
+var originX: UInt32
+var originY: UInt32
+var width: UInt32
+var height: UInt32
+⋮----
+static func full(width: Int, height: Int) -> CropUniform {
+⋮----
+struct PatchUniform {
+var patchSize: UInt32
+var patchOriginX: UInt32
+var patchOriginY: UInt32
+⋮----
+final class MetalPipeline: @unchecked Sendable {
+⋮----
+private(set) var naturalTex: MTLTexture
+private(set) var processedTex: MTLTexture
+⋮----
+private let naturalBuffer: CVPixelBuffer
+private let processedBuffer: CVPixelBuffer
+⋮----
+private let commandQueue: MTLCommandQueue
+private let yuvToRgbaPSO: MTLComputePipelineState
+private let colorTransformPSO: MTLComputePipelineState
+private let centerPatchPSO: MTLComputePipelineState
+private let patchBufferR: MTLBuffer
+private let patchBufferG: MTLBuffer
+private let patchBufferB: MTLBuffer
+⋮----
+let uniforms: Mutex<UniformStorage>
+private let texturePool: TexturePoolManager
+⋮----
+private let submissionGate: ManagedAtomic<Bool>
+⋮----
+internal private(set) var lastCommandBuffer: (any MTLCommandBuffer)?
+⋮----
+internal private(set) var commitCount: Int = 0
+⋮----
+internal private(set) var lastProcessingMetadata: ProcessingMetadata?
+⋮----
+init(device: MTLDevice, captureSize: Size, gate: ManagedAtomic<Bool>) throws {
+⋮----
+let library: MTLLibrary
+⋮----
+let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
+let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
+⋮----
+func encode(sampleBuffer: CMSampleBuffer) throws {
+⋮----
+let yTexture: MTLTexture
+let cbcrTexture: MTLTexture
+⋮----
+let c = storage.color
+let r = storage.crop
+⋮----
+let commandBuffer = commandQueue.makeCommandBuffer()!
+⋮----
+let pass1 = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+var cropLocal = cropSnapshot
+⋮----
+let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
+let threadGroups = MTLSize(
+⋮----
+let pass2 = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+var colorLocal = colorSnapshot
+⋮----
+func drainLastBuffer() {
+⋮----
+func currentTexture() -> MTLTexture {
+⋮----
+func currentProcessedTex() -> MTLTexture {
+⋮----
+func dispatchCenterPatch() async throws -> RgbSample {
+let patchSize = Constants.centerPatchSizePx
+let texW = processedTex.width
+let texH = processedTex.height
+⋮----
+var uniform = PatchUniform(
+⋮----
+let tg = MTLSize(width: 16, height: 16, depth: 1)
+let groups = MTLSize(
+⋮----
+let bufR = patchBufferR
+let bufG = patchBufferG
+let bufB = patchBufferB
+⋮----
+let count = patchSize * patchSize
+let trimCount = (count * Constants.centerPatchTrimPercent) / 100
+let r = trimmedMean(buffer: bufR, count: count, trim: trimCount)
+let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
+let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
+⋮----
+private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {
+let ptr = buffer.contents().bindMemory(to: Float.self, capacity: count)
+var values = Array(UnsafeBufferPointer(start: ptr, count: count))
+⋮----
+let lo = trim
+let hi = count - trim
+var sum: Float = 0
+⋮----
+convenience init(device: MTLDevice, captureSize: Size, gateOpen: Bool = true) throws {
+⋮----
+func setGate(_ open: Bool) {
+⋮----
+var naturalBufferForTest: CVPixelBuffer { naturalBuffer }
+var processedBufferForTest: CVPixelBuffer { processedBuffer }
+⋮----
+func encodePass2Only() async throws {
+⋮----
+var color: ColorUniform = uniforms.withLock { $0.color }
 ```
