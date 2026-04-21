@@ -12,7 +12,9 @@ final class DeviceKVOObserver: @unchecked Sendable {
 
     /// Internal visibility so the Stage 03 test-only factory extension
     /// can construct token boxes.
-    final class Tokens {
+    // @unchecked Sendable: mutations are single-threaded (inside the AsyncStream
+    // build closure); deinit is deterministic via onTermination.
+    final class Tokens: @unchecked Sendable {
         var values: [NSKeyValueObservation] = []
         deinit { values.forEach { $0.invalidate() } }
     }
@@ -48,18 +50,22 @@ final class DeviceKVOObserver: @unchecked Sendable {
     static func makeStream(
         avDevice: AVCaptureDevice
     ) -> (AsyncStream<DeviceStateSnapshot>, DeviceKVOObserver) {
-        makeStreamFromObservations { cont, box in
+        // AVCaptureDevice is not Sendable; nonisolated(unsafe) is safe here
+        // because KVO callbacks only read device properties — all mutations are
+        // gated by lockForConfiguration() on sessionQueue (ADR-07).
+        nonisolated(unsafe) let device = avDevice
+        return makeStreamFromObservations { cont, box in
             box.values = [
-                avDevice.observe(\.iso, options: [.initial, .new]) { dev, _ in
+                device.observe(\.iso, options: [.initial, .new]) { dev, _ in
                     cont.yield(Self.snapshot(avDevice: dev))
                 },
-                avDevice.observe(\.exposureDuration, options: [.new]) { dev, _ in
+                device.observe(\.exposureDuration, options: [.new]) { dev, _ in
                     cont.yield(Self.snapshot(avDevice: dev))
                 },
-                avDevice.observe(\.lensPosition, options: [.new]) { dev, _ in
+                device.observe(\.lensPosition, options: [.new]) { dev, _ in
                     cont.yield(Self.snapshot(avDevice: dev))
                 },
-                avDevice.observe(\.deviceWhiteBalanceGains, options: [.new]) { dev, _ in
+                device.observe(\.deviceWhiteBalanceGains, options: [.new]) { dev, _ in
                     cont.yield(Self.snapshot(avDevice: dev))
                 },
             ]
