@@ -88,6 +88,28 @@ public struct CaptureMetadata: Sendable, Hashable {
 
 // ProcessingMetadata extracted to ProcessingMetadata.swift in Stage 05 (brief §4).
 
+// MARK: - CaptureMetadata convenience
+
+extension CaptureMetadata {
+    /// Stage 06 placeholder: zero-valued sensor metadata.
+    ///
+    /// Full attachment-derived implementation lands with sensor-metadata
+    /// plumbing in a later stage.
+    static func placeholder() -> CaptureMetadata {
+        CaptureMetadata(
+            iso: 0,
+            exposureDurationNs: 0,
+            whiteBalanceGains: WhiteBalanceGains(red: 1, green: 1, blue: 1),
+            whiteBalanceModeActive: .auto,
+            lensPosition: 0,
+            focusModeActive: .auto,
+            exposureModeActive: .auto,
+            zoomFactor: 1.0,
+            cameraPosition: .back
+        )
+    }
+}
+
 public struct WhiteBalanceGains: Sendable, Hashable {
     public let red: Float
     public let green: Float

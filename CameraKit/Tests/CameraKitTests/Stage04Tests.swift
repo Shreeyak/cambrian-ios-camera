@@ -24,13 +24,22 @@ struct Stage04Tests {
         // Identity uniforms → byte-for-byte equality (within rgba16Float ULP).
         pipeline.uniforms.withLock { $0.color = ColorUniform(.identity) }
 
-        // Fill naturalTex with a constant mid-gray (R=G=B=0.5).
-        try fillBufferUniform(pipeline.naturalBufferForTest, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
+        // Dequeue a natural buffer from the pool, fill it, then install it as latest.
+        let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
+        try fillBufferUniform(nBuf, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
+        pipeline.setLatestNaturalForTest(buffer: nBuf, texture: nTex)
+
+        // Dequeue a processed buffer to receive the output.
+        let (pBuf, pTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+        pipeline.setLatestProcessedForTest(buffer: pBuf, texture: pTex)
 
         try await pipeline.encodePass2Only()
 
         // Read processedTex.
-        let (pr, pg, pb, _) = try sampleCenterPixel(pipeline.processedBufferForTest)
+        let processedBuf = try #require(pipeline.latestProcessedBufferForTest)
+        let (pr, pg, pb, _) = try sampleCenterPixel(processedBuf)
         // rgba16Float ULP at 0.5 ≈ 2^-11 ≈ 4.88e-4. Use 1e-3 tolerance.
         #expect(abs(pr - 0.5) < 1e-3)
         #expect(abs(pg - 0.5) < 1e-3)
@@ -41,7 +50,8 @@ struct Stage04Tests {
         bright.brightness = 0.2
         pipeline.uniforms.withLock { $0.color = ColorUniform(bright) }
         try await pipeline.encodePass2Only()
-        let (br, _, _, _) = try sampleCenterPixel(pipeline.processedBufferForTest)
+        let processedBuf2 = try #require(pipeline.latestProcessedBufferForTest)
+        let (br, _, _, _) = try sampleCenterPixel(processedBuf2)
         let expected = Float(pow(0.5, 1.0 / 1.2))
         #expect(abs(br - expected) < 5e-3)
     }
@@ -78,8 +88,13 @@ struct Stage04Tests {
         let size = Size(width: 256, height: 256)  // > centerPatchSizePx so center fits
         let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
 
+        // Dequeue a processed buffer from the pool, fill it, then install it as latest.
+        let (pBuf1, pTex1) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+
         // Uniform fill — trimmed mean exactly equals the fill value.
-        try fillBufferUniform(pipeline.processedBufferForTest, r: 0.4, g: 0.6, b: 0.2, a: 1.0)
+        try fillBufferUniform(pBuf1, r: 0.4, g: 0.6, b: 0.2, a: 1.0)
+        pipeline.setLatestProcessedForTest(buffer: pBuf1, texture: pTex1)
         let s1 = try await pipeline.dispatchCenterPatch()
         #expect(abs(s1.r - 0.4) < 1e-3)
         #expect(abs(s1.g - 0.6) < 1e-3)
@@ -88,7 +103,10 @@ struct Stage04Tests {
         // Outliers test: 90% of pixels at 0.5, 10% at 1.0. Trimmed mean
         // (10% from each end discarded) drops the high outliers AND an
         // equal slice from the low end (all 0.5), so the mean stays 0.5.
-        try fillBufferWithOutliers(pipeline.processedBufferForTest, base: 0.5, outlier: 1.0, outlierFraction: 0.10)
+        let (pBuf2, pTex2) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+        try fillBufferWithOutliers(pBuf2, base: 0.5, outlier: 1.0, outlierFraction: 0.10)
+        pipeline.setLatestProcessedForTest(buffer: pBuf2, texture: pTex2)
         let s2 = try await pipeline.dispatchCenterPatch()
         #expect(abs(s2.r - 0.5) < 1e-2)
         #expect(abs(s2.g - 0.5) < 1e-2)
