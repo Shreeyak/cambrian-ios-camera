@@ -389,6 +389,42 @@ convenience init(device: MTLDevice, captureSize: Size, gateOpen: Bool = true) th
 func setGate(_ open: Bool) {
 ```
 
+## File: CameraKit/Sources/CameraKit/CaptureDelegate.swift
+```swift
+final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+⋮----
+var onSampleBuffer: (@Sendable (CMSampleBuffer) -> Void)?
+⋮----
+weak var engine: CameraEngine?
+⋮----
+override init() {
+⋮----
+func captureOutput(
+```
+
+## File: CameraKit/Sources/CameraKit/Constants.swift
+```swift
+enum Constants {
+static let frameRateTargetFPS: Int = 30
+static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+static let workingPixelFormat: MTLPixelFormat = .rgba16Float
+static let captureDefaultWidthPx: Int = 4160
+static let captureDefaultHeightPx: Int = 3120
+static let captureFallbackWidthPx: Int = 1280
+static let captureFallbackHeightPx: Int = 960
+static let cropDefaultWidthPx: Int = 1600
+static let cropDefaultHeightPx: Int = 1200
+static let captureOrientationAngleDeg: CGFloat = 90
+static let stateStreamBufferSize: Int = 64
+⋮----
+static let sessionLifecycleTimeoutSeconds: Double = 2.0
+⋮----
+static let frameResultHeartbeatHz: Int = 3
+static let frameResultHeartbeatIntervalFrames: Int = 10
+⋮----
+static let resolutionResizeTimeoutSeconds: Double = 5.0
+```
+
 ## File: CameraKit/Sources/CameraKit/ViewModel.swift
 ```swift
 private let scenePhaseLog = Logger(subsystem: "com.cambrian.camerakit", category: "scenePhase")
@@ -425,42 +461,6 @@ func updateFocus(_ d: Double) async {
 func updateZoom(_ r: Double) async {
 ⋮----
 private func applyDelta(_ delta: CameraSettings) async {
-```
-
-## File: CameraKit/Sources/CameraKit/CaptureDelegate.swift
-```swift
-final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
-⋮----
-var onSampleBuffer: (@Sendable (CMSampleBuffer) -> Void)?
-⋮----
-weak var engine: CameraEngine?
-⋮----
-override init() {
-⋮----
-func captureOutput(
-```
-
-## File: CameraKit/Sources/CameraKit/Constants.swift
-```swift
-enum Constants {
-static let frameRateTargetFPS: Int = 30
-static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-static let workingPixelFormat: MTLPixelFormat = .rgba16Float
-static let captureDefaultWidthPx: Int = 4160
-static let captureDefaultHeightPx: Int = 3120
-static let captureFallbackWidthPx: Int = 1280
-static let captureFallbackHeightPx: Int = 960
-static let cropDefaultWidthPx: Int = 1600
-static let cropDefaultHeightPx: Int = 1200
-static let captureOrientationAngleDeg: CGFloat = 90
-static let stateStreamBufferSize: Int = 64
-⋮----
-static let sessionLifecycleTimeoutSeconds: Double = 2.0
-⋮----
-static let frameResultHeartbeatHz: Int = 3
-static let frameResultHeartbeatIntervalFrames: Int = 10
-⋮----
-static let resolutionResizeTimeoutSeconds: Double = 5.0
 ```
 
 ## File: CameraKit/Sources/CameraKit/CameraEngine.swift
