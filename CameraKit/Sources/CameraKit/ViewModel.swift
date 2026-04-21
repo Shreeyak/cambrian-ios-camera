@@ -19,6 +19,9 @@ final class ViewModel {
     var sessionState: SessionState = .closed
     var capabilities: SessionCapabilities?
     var error: EngineError?
+    var currentSettings: CameraSettings = CameraSettings()
+    var deviceSnapshot: DeviceStateSnapshot?
+    var lastFrameResult: FrameResult?
 
     // MARK: - Texture handoff
 
@@ -42,6 +45,9 @@ final class ViewModel {
     /// (backgroundResume + gate re-open).
     private var previousPhase: ScenePhase = .active
 
+    private var frameResultTask: Task<Void, Never>?
+    private var deviceSnapshotTask: Task<Void, Never>?
+
     // MARK: - Init
 
     init() {
@@ -63,6 +69,14 @@ final class ViewModel {
             sessionState = .error
         }
 
+        frameResultTask = Task { [weak self] in
+            guard let engine = await self?.engine else { return }
+            for await r in await engine.frameResultStream() {
+                guard let self else { return }
+                await MainActor.run { self.lastFrameResult = r }
+            }
+        }
+
         // Observe state stream (ADR-22).
         for await state in await engine.stateStream() {
             sessionState = state
@@ -70,6 +84,10 @@ final class ViewModel {
     }
 
     func stop() async {
+        frameResultTask?.cancel()
+        frameResultTask = nil
+        deviceSnapshotTask?.cancel()
+        deviceSnapshotTask = nil
         await engine.close()
     }
 
@@ -104,5 +122,45 @@ final class ViewModel {
             break
         }
         previousPhase = phase
+    }
+
+    // MARK: - Settings bindings
+
+    func updateISO(_ iso: Int) async {
+        var delta = CameraSettings()
+        delta.isoMode = .manual
+        delta.iso = iso
+        await applyDelta(delta)
+    }
+
+    func updateShutterNs(_ ns: Int64) async {
+        var delta = CameraSettings()
+        delta.exposureMode = .manual
+        delta.exposureTimeNs = ns
+        await applyDelta(delta)
+    }
+
+    func updateFocus(_ d: Double) async {
+        var delta = CameraSettings()
+        delta.focusMode = .manual
+        delta.focusDistance = d
+        await applyDelta(delta)
+    }
+
+    func updateZoom(_ r: Double) async {
+        var delta = CameraSettings()
+        delta.zoomRatio = r
+        await applyDelta(delta)
+    }
+
+    private func applyDelta(_ delta: CameraSettings) async {
+        do {
+            try await engine.updateSettings(delta)
+            currentSettings = delta.merging(onto: currentSettings)
+        } catch let e as EngineError {
+            self.error = e
+        } catch {
+            // non-EngineError — ignore
+        }
     }
 }
