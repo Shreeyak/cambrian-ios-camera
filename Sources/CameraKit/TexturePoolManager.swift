@@ -127,6 +127,83 @@ final class TexturePoolManager: @unchecked Sendable {
         return (buffer: pixelBuffer, texture: mtlTex)
     }
 
+    // MARK: - Stage 06 — Per-stream CVPixelBufferPool
+
+    /// Creates a `CVPixelBufferPool` that vends IOSurface-backed, Metal-compatible
+    /// RGBA16F `CVPixelBuffer`s at `size` per ADR-19 / D-02.
+    ///
+    /// `POOL_MIN_BUFFER_COUNT` = 3 (mailbox ref + GPU write slot + slack).
+    /// `POOL_MAX_BUFFER_AGE_SECONDS` = 1.0 (CF-managed age-out).
+    /// `kCVPixelBufferIOSurfacePropertiesKey: [:]`.
+    /// `kCVPixelBufferMetalCompatibilityKey: true`.
+    /// `kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_64RGBAHalf`.
+    ///
+    /// Growth past `MinimumBufferCount` is CF-managed; the effective cap is
+    /// `POOL_CAP_RULE = N_active_lanes + 1` which the caller enforces by only
+    /// dequeuing a tracker buffer when a tracker subscriber is active.
+    func makeWorkingFormatPool(size: Size) throws -> CVPixelBufferPool {
+        let poolAttrs: [CFString: Any] = [
+            kCVPixelBufferPoolMinimumBufferCountKey: Constants.poolMinBufferCount,
+            kCVPixelBufferPoolMaximumBufferAgeKey: Constants.poolMaxBufferAgeSeconds,
+        ]
+        let bufferAttrs: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_64RGBAHalf,
+            kCVPixelBufferWidthKey: size.width,
+            kCVPixelBufferHeightKey: size.height,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferMetalCompatibilityKey: true,
+        ]
+        var pool: CVPixelBufferPool?
+        let status = CVPixelBufferPoolCreate(
+            kCFAllocatorDefault,
+            poolAttrs as CFDictionary,
+            bufferAttrs as CFDictionary,
+            &pool
+        )
+        guard status == kCVReturnSuccess, let pool else {
+            throw MetalError.unsupportedFormat
+        }
+        return pool
+    }
+
+    /// Dequeues a buffer from `pool` and wraps it as an `MTLTexture` view through
+    /// the shared `CVMetalTextureCache`.
+    ///
+    /// Zero-copy; the caller retains `buffer` until the GPU completion handler fires
+    /// (Apple CoreVideo contract).
+    ///
+    /// - Throws: `MetalError.unsupportedFormat` on dequeue failure,
+    ///   `MetalError.textureWrapFailed` on cache-wrap failure.
+    func dequeuePoolTexture(
+        pool: CVPixelBufferPool,
+        width: Int,
+        height: Int
+    ) throws -> (buffer: CVPixelBuffer, texture: MTLTexture) {
+        var buf: CVPixelBuffer?
+        let s = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buf)
+        guard s == kCVReturnSuccess, let buffer = buf else {
+            throw MetalError.unsupportedFormat
+        }
+        var cvTexOut: CVMetalTexture?
+        let wrap = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault,
+            textureCache!,
+            buffer,
+            nil,
+            .rgba16Float,
+            width,
+            height,
+            0,
+            &cvTexOut
+        )
+        guard wrap == kCVReturnSuccess, let cvTex = cvTexOut,
+            let mtlTex = CVMetalTextureGetTexture(cvTex)
+        else {
+            throw MetalError.textureWrapFailed(code: wrap)
+        }
+        return (buffer, mtlTex)
+    }
+
     // MARK: - Private
 
     private func makeTexture(
