@@ -62,8 +62,10 @@ its stage. Per-stage workflow:
    `implementation/architecture/api-skeletons/Sources/CameraKit/` stubs for
    every file named in §4.
 5. Implement per §4 in dependency order.
-6. Run §11 verification (`swift build` + `swift test` + scaffold greps + any
-   `xcodebuild` pass §11 calls for), then update `state.md` per §12.
+6. Run §11 verification using the method prescribed in §6 (XcodeBuildMCP or
+   wrapper scripts — never raw `swift build` / `swift test`): build, test filter,
+   scaffold greps, and any device smoke the brief's §11 calls for. Then update
+   `state.md` per §12.
 7. Stop. Request user approval before any git operation.
 
 **FEATURE** stages add user-visible capability and may introduce scaffolds;
@@ -391,9 +393,10 @@ underlying issue and ask again — do not `--amend` around it.
   these queues; they do not replace them. Violating this wedges the session from
   a MainActor caller or races `lockForConfiguration()` against itself.
 - **`withThrowingTaskGroup` blocks on group teardown — do not use for
-  non-blocking timeout.** When a `withCheckedContinuation` task is cancelled
-  inside a group, the group's closure does not return until the continuation
-  resumes — which only happens when the underlying blocking operation completes.
+  non-blocking timeout.** A child task blocked on an unresumed
+  `withCheckedContinuation` cannot respond to cancellation and holds the group
+  open indefinitely — the group's closure does not return until every child task
+  finishes, and a stuck continuation prevents that.
   For ADR-30 async-with-timeout, use a `ManagedAtomic<Bool>` CAS race with
   `withCheckedContinuation` + a `Task { try? await Task.sleep(...) }` deadline
   branch. The CAS ensures exactly-once resume without waiting for the losing
@@ -427,6 +430,23 @@ underlying issue and ask again — do not `--amend` around it.
   `xcrun devicectl device copy from --device DAD37FD5-685B-50E0-911E-F9BC40BBDBE5
   --domain-type systemCrashLogs --source "/" --destination /tmp/crash/` —
   absence of the app bundle name in results confirms no process termination.
+- **Metal drawable: acquire → clear → conditional work → always present.**
+  Never return between `view.currentDrawable` and `commandBuffer.present(drawable)`.
+  Bailing out after acquiring a drawable without presenting it leaves the CAMetalLayer
+  showing uninitialized GPU memory (green artifacts). Guard only on drawable +
+  commandBuffer; the clear runs unconditionally; the blit and any other work are
+  conditional inside the present path.
+- **`MTLBlitCommandEncoder` — do not use non-zero origins on IOSurface-backed
+  textures without validation.** `naturalTex` and `processedTex` are
+  CVPixelBuffer/IOSurface-backed. Non-zero `sourceOrigin` or `destinationOrigin`
+  in a blit silently breaks rendering (both previews go green, no crash, no error
+  without the Metal validation layer enabled). Keep blit origins at `(0,0,0)` until
+  verified with the Metal validation layer enabled on device.
+- **Bottom bar over full-screen content: use `.safeAreaInset(edge: .bottom)` on
+  the root container.** This is the idiomatic SwiftUI pattern for a persistent
+  bottom overlay (toolbar, control bar) over full-screen camera/Metal views. It
+  anchors the bar explicitly at the safe area edge regardless of how the ZStack's
+  children are sized or layered.
 
 ## 9. Background reading (only when needed)
 

@@ -2,12 +2,13 @@ import Atomics
 import CoreMedia
 import CoreVideo
 import Metal
+import Synchronization
 
 // MARK: - Stage 04 uniform structs (host ↔ shader layout)
 
 // Mirrors struct ColorUniform in ColorShaders.metal. Float (32-bit) layout.
 // Fields map 1:1 to the Metal shader struct; no padding.
-struct ColorUniform {
+struct ColorUniform: Hashable {
     var brightness: Float
     var contrast: Float
     var saturation: Float
@@ -31,7 +32,7 @@ struct ColorUniform {
 
 // Mirrors struct CropUniform in YUVToRGBA.metal. UInt32 layout.
 // Fields map 1:1 to the Metal shader struct; no padding.
-struct CropUniform {
+struct CropUniform: Hashable {
     var originX: UInt32
     var originY: UInt32
     var width: UInt32
@@ -49,19 +50,7 @@ struct PatchUniform {
     var patchOriginY: UInt32
 }
 
-/// Host-side mutable holder for color-transform uniforms.
-///
-/// scaffolding:04:unlocked-uniforms — torn writes possible under rapid slider
-/// motion. Stage 05 wraps in OSAllocatedUnfairLock<UniformStorage> per Inv 6
-/// (architecture/02-concurrency.md §Uniform Updates).
-final class UniformsHost: @unchecked Sendable {
-    var color: ColorUniform = .identity
-    var crop: CropUniform
-
-    init(captureSize: Size) {
-        crop = .full(width: captureSize.width, height: captureSize.height)
-    }
-}
+// UniformsHost removed in Stage 05. Replaced by Mutex<UniformStorage> (ADR-34, D-17).
 
 /// Owns the GPU pipeline that converts YUV sample buffers into an RGBA16Float texture
 /// consumed by the MTKView render pass.
@@ -99,10 +88,14 @@ final class MetalPipeline: @unchecked Sendable {
     private let patchBufferR: MTLBuffer
     private let patchBufferG: MTLBuffer
     private let patchBufferB: MTLBuffer
-    // scaffolding:04:unlocked-uniforms — host writes are unsynchronized.
-    // MetalPipeline snapshots `uniforms.color` and `uniforms.crop` at the top
-    // of each `encode()` call. Stage 05 wraps `uniforms` in a lock.
-    let uniforms: UniformsHost
+    /// Stage 05: `Mutex<UniformStorage>` protecting host-written shader params (ADR-34, D-17, Inv 6).
+    ///
+    /// Both color-transform and crop uniforms live inside `UniformStorage` so a single
+    /// lock protects all host→GPU parameter paths. Writes route through
+    /// `uniforms.withLock { $0 = new }` (CameraEngine); per-frame snapshots route
+    /// through `uniforms.withLock { $0 }` at the top of `encode()` — the critical
+    /// section contains only the struct-copy snapshot, never a Metal commit.
+    let uniforms: Mutex<UniformStorage>
     private let texturePool: TexturePoolManager
 
     // ADR-09: GPU submission gate shared with CameraEngine. Loaded on delivery queue
@@ -119,6 +112,13 @@ final class MetalPipeline: @unchecked Sendable {
     // Count of commandBuffer.commit() calls that passed the gate check.
     // Internal; used by 02:gate-closes-on-inactive to verify gate-before-commit (ADR-09).
     internal private(set) var commitCount: Int = 0
+
+    /// Stage 05: most recent per-frame ProcessingMetadata snapshot from the mutex.
+    ///
+    /// Written on the delivery queue inside `encode()` immediately after the
+    /// `uniforms.withLock` snapshot. Read by `CaptureDelegate` on the same delivery
+    /// queue; population of downstream `FrameSet.processing` arrives in Stage 06.
+    internal private(set) var lastProcessingMetadata: ProcessingMetadata?
 
     /// - Parameters:
     ///   - device: From `MTLCreateSystemDefaultDevice()`.
@@ -186,8 +186,11 @@ final class MetalPipeline: @unchecked Sendable {
         patchBufferG = bufG
         patchBufferB = bufB
 
-        // 4c. Host-side uniforms (default identity / full-crop).
-        uniforms = UniformsHost(captureSize: captureSize)
+        // 4c. Host-side uniforms — Stage 05 mutex-protected storage (ADR-34, D-17).
+        uniforms = Mutex(UniformStorage(
+            color: .identity,
+            crop: .full(width: captureSize.width, height: captureSize.height)
+        ))
 
         // 5. Command queue.
         commandQueue = device.makeCommandQueue()!
@@ -223,13 +226,17 @@ final class MetalPipeline: @unchecked Sendable {
             return  // drop frame on texture-wrap failure
         }
 
-        // 3. Snapshot uniforms — scaffolding:04:unlocked-uniforms.
-        //    Host writes (slider input on @MainActor → engine actor → here on
-        //    delivery queue) are unsynchronised. Torn reads are possible across
-        //    these two `var` reads; perceptually benign at slider speed.
-        //    Stage 05 wraps `uniforms` in OSAllocatedUnfairLock per Inv 6.
-        let colorSnapshot = uniforms.color
-        let cropSnapshot = uniforms.crop
+        // 3. Snapshot uniforms — Stage 05 Mutex<UniformStorage> (ADR-34, D-17, Inv 6).
+        //    `withLock` critical section contains only the struct-copy snapshot;
+        //    no Metal encode or commit call appears inside the closure (05:mutex-scope-is-tight).
+        let (colorSnapshot, cropSnapshot, metadataSnapshot): (ColorUniform, CropUniform, ProcessingMetadata) =
+            uniforms.withLock { storage in
+                let c = storage.color
+                let r = storage.crop
+                return (c, r, ProcessingMetadata(color: c, crop: r))
+            }
+        // Store for downstream attachment to FrameSet (Stage 06 populates consumer path).
+        lastProcessingMetadata = metadataSnapshot
 
         // 4. Command buffer.
         let commandBuffer = commandQueue.makeCommandBuffer()!
@@ -405,7 +412,7 @@ final class MetalPipeline: @unchecked Sendable {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw MetalError.commandBufferFailed(code: -2)
         }
-        var color = uniforms.color
+        var color: ColorUniform = uniforms.withLock { $0.color }
         encoder.setComputePipelineState(colorTransformPSO)
         encoder.setTexture(naturalTex, index: 0)
         encoder.setTexture(processedTex, index: 1)
