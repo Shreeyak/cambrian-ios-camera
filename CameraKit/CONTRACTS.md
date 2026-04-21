@@ -9,6 +9,7 @@
 | Slug | File:line |
 |------|-----------|
 | `01:simple-metal-passthrough` | `CameraKit/Sources/CameraKit/MetalPipeline.swift:23` |
+| `01:simple-metal-passthrough` | `CameraKit/Sources/CameraKit/Shaders/ColorShaders.metal:16` |
 | `01:simple-metal-passthrough` | `CameraKit/Sources/CameraKit/TexturePoolManager.swift:36` |
 | `01:skip-completion-guard` | `CameraKit/Sources/CameraKit/MetalPipeline.swift:145` |
 
@@ -189,6 +190,12 @@ static let key = "CameraKit.CameraSettings"
 static func save(_ settings: CameraSettings, defaults: UserDefaults = .standard) {
 ⋮----
 static func load(defaults: UserDefaults = .standard) -> CameraSettings? {
+⋮----
+static let processingKey = "CameraKit.ProcessingParameters"
+⋮----
+static func saveProcessing(
+⋮----
+static func loadProcessing(defaults: UserDefaults = .standard) -> ProcessingParameters? {
 ```
 
 ## File: CameraKit/Sources/CameraKit/Capabilities.swift
@@ -324,37 +331,6 @@ weak var engine: CameraEngine?
 override init() {
 ⋮----
 func captureOutput(
-```
-
-## File: CameraKit/Sources/CameraKit/Constants.swift
-```swift
-enum Constants {
-static let frameRateTargetFPS: Int = 30
-static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-static let workingPixelFormat: MTLPixelFormat = .rgba16Float
-static let captureDefaultWidthPx: Int = 4160
-static let captureDefaultHeightPx: Int = 3120
-static let captureFallbackWidthPx: Int = 1280
-static let captureFallbackHeightPx: Int = 960
-static let cropDefaultWidthPx: Int = 1600
-static let cropDefaultHeightPx: Int = 1200
-static let captureOrientationAngleDeg: CGFloat = 90
-static let stateStreamBufferSize: Int = 64
-⋮----
-static let sessionLifecycleTimeoutSeconds: Double = 2.0
-⋮----
-static let frameResultHeartbeatHz: Int = 3
-static let frameResultHeartbeatIntervalFrames: Int = 10
-⋮----
-static let resolutionResizeTimeoutSeconds: Double = 5.0
-⋮----
-static let centerPatchSizePx: Int = 96
-⋮----
-static let centerPatchTrimPercent: Int = 10
-⋮----
-static let frameLatencyBudgetMs: Int = 33
-⋮----
-static let processedPixelFormat: OSType = kCVPixelFormatType_64RGBAHalf
 ```
 
 ## File: CameraKit/Sources/CameraKit/MetalPipeline.swift
@@ -610,6 +586,37 @@ func installKVOIngest() {
 func cancelKVO() {
 ⋮----
 private func setLastSnapshot(_ snap: DeviceStateSnapshot) {
+```
+
+## File: CameraKit/Sources/CameraKit/Constants.swift
+```swift
+enum Constants {
+static let frameRateTargetFPS: Int = 30
+static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+static let workingPixelFormat: MTLPixelFormat = .rgba16Float
+static let captureDefaultWidthPx: Int = 4160
+static let captureDefaultHeightPx: Int = 3120
+static let captureFallbackWidthPx: Int = 1280
+static let captureFallbackHeightPx: Int = 960
+static let cropDefaultWidthPx: Int = 1600
+static let cropDefaultHeightPx: Int = 1200
+static let captureOrientationAngleDeg: CGFloat = 90
+static let stateStreamBufferSize: Int = 64
+⋮----
+static let sessionLifecycleTimeoutSeconds: Double = 2.0
+⋮----
+static let frameResultHeartbeatHz: Int = 3
+static let frameResultHeartbeatIntervalFrames: Int = 10
+⋮----
+static let resolutionResizeTimeoutSeconds: Double = 5.0
+⋮----
+static let centerPatchSizePx: Int = 96
+⋮----
+static let centerPatchTrimPercent: Int = 10
+⋮----
+static let frameLatencyBudgetMs: Int = 33
+⋮----
+static let processedPixelFormat: OSType = kCVPixelFormatType_64RGBAHalf
 ```
 
 ## File: CameraKit/Sources/CameraKit/ViewModel.swift
