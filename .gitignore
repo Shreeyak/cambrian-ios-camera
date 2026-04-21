@@ -22,4 +22,4 @@ buildServer.json
 .claude/projects/
 
 # Upstream symlinks (machine-specific; recreated per-checkout)
-implementation/
+# implementation/

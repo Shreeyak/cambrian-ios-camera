@@ -15,6 +15,7 @@
 		14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */; };
 		3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */; };
 		5411DD80E5D86868D71B4EF9 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4EFB126527016EEBF27C9B62 /* CameraKit */; };
+		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
 		F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45007E7AF3327300AB0630E3 /* Stage02Tests.swift */; };
 /* End PBXBuildFile section */
@@ -37,6 +38,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage03Tests.swift; sourceTree = "<group>"; };
 		14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "eva-swift-stitch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchApp.swift; sourceTree = "<group>"; };
 		14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -83,6 +85,7 @@
 			children = (
 				CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */,
 				45007E7AF3327300AB0630E3 /* Stage02Tests.swift */,
+				008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -295,6 +298,7 @@
 				14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */,
 				3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */,
 				F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */,
+				7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

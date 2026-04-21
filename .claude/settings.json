@@ -1,5 +1,6 @@
 {
   "enabledPlugins": {
     "all-ios-skills@swift-ios-skills": true
-  }
+  },
+  "respectGitignore": false
 }

@@ -1,6 +1,6 @@
 # Stage 02 — ScenePhase HITL Evidence
 
-Device: Shreeyak's iPad (iPad8,9, iOS 26.4.1)
+Device: iPad (A16) — iPad15,7, iOS 26.4.1
 Date: 2026-04-21
 Build: Stage 02 (eva-swift-stitch, scheme eva-swift-stitch, device DAD37FD5-685B-50E0-911E-F9BC40BBDBE5)
 

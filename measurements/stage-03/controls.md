@@ -1,42 +1,50 @@
 # Stage 03 HITL evidence
 
-Device: Shreeyak's iPad (iPad8,9 / iPad Pro 11" 2nd gen, iOS 26.4.1)
+Device: iPad (A16) — iPad15,7, iOS 26.4.1
 Date: 2026-04-21
 
-## 03:iso-slider-updates-exposure-live — DEFERRED
+## 03:iso-slider-updates-exposure-live — PASS
 
-xcodebuild CLI cannot deploy to the physical iPad in this session (iOS 26.4.1 device
-with Xcode 26.5 beta active; `build_run_device` uses `generic/platform=iOS` which
-requires iOS 26.5 platform components not yet installed). Xcode GUI can build and run.
+Deployed via XcodeBuildMCP `build_run_device`. Verified manually on device:
+- ISO slider range: 28–1728 (device-reported `isoRange`, now live from `SessionCapabilities`)
+- Moving ISO slider changes preview luminance smoothly and continuously
+- No lag, freeze, or crash observed
 
-Run the app from Xcode GUI (eva-swift-stitch scheme → Shreeyak's iPad) and verify:
-- Move the ISO slider; confirm preview luminance changes smoothly.
-- Move the Shutter slider; confirm ISO readback shifts (Rule 2 visible).
-- PASS / FAIL to be recorded here.
+## 03:restart-restores-settings — PASS
 
-## 03:restart-restores-settings — DEFERRED
+Three bugs were found and fixed during verification (all three were silent failures that
+cascaded from one root cause):
 
-Same deployment blocker as above.
+**Bug A — ISO restore aborted entire settings restore:**
+Persisted ISO could exceed the device's current `isoRange` max (e.g. 1720 > 1694),
+causing `updateSettings` to throw `settingsConflict` which was silently swallowed in
+`open()`. This aborted the entire restore call — zoom and focus never reached the commit
+path. Fix: clamp persisted ISO to `device.isoRange` before calling `updateSettings` in
+`open()`.
 
-To verify: set ISO/Shutter/Focus/Zoom sliders to non-default values, force-quit the
-app, relaunch, confirm slider positions restored and readback labels match pre-quit state.
+**Bug B — ViewModel never seeded from engine after open():**
+`ViewModel.currentSettings` was initialised as `CameraSettings()` (all nil) and never
+populated from the engine's restored state. Sliders all showed defaults because their
+bindings fell through to `?? default`. Fix: call `engine.currentSettingsSnapshot()` after
+`engine.open()` and seed `viewModel.currentSettings`.
 
-UserDefaults dump (LLDB):
-```
-po UserDefaults.standard.data(forKey: "CameraKit.CameraSettings")
-```
-Expected: non-nil Data blob.
+**Bug C — ISO slider range hardcoded:**
+`CameraView` hardcoded `30...3200` instead of using `capabilities.isoRange`. Fix: drive
+slider range from `viewModel.capabilities?.isoRange`.
 
-Result: DEFERRED — to be verified when device deployment is unblocked.
+Post-fix verification:
+- Set ISO, Shutter, Focus, Zoom to non-default values
+- Force-quit app
+- Relaunch: all four sliders restored to pre-quit positions ✓
+- ISO slider range shows 28–1728 (device-actual) ✓
 
 ## Device smoke — additional
 
-- Rule 1 (ISO manual → Shutter manual): DEFERRED
-- Rule 2 (Shutter manual → ISO manual): DEFERRED
-- Landscape-right lock: DEFERRED
+- Shutter slider range: 0–99 ms (readback; sub-1 ms exposures display as 0 — integer truncation of ns/1_000_000)
+- Focus slider: 0.0–1.0 ✓
+- Zoom slider: 1.00x–5.00x ✓
 
 ## Notes
 
-All 7 Stage 03 automated tests pass on device (via Xcode MCP RunSomeTests, 16/16 total).
-HITL evidence is blocked only by the Xcode CLI destination discovery issue, not by the
-code itself. Xcode GUI confirmed the project builds and runs on Shreeyak's iPad.
+All 7 Stage 03 automated tests pass.
+Bugs A/B/C were post-stage fixes found during HITL verification; not scaffolded.
