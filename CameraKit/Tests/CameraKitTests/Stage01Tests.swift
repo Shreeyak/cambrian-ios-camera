@@ -1,4 +1,5 @@
 import Testing
+
 @testable import CameraKit
 
 // MARK: - FakeCaptureDevice (ADR-32 test seam)
@@ -10,7 +11,7 @@ actor FakeCaptureDevice: CaptureDeviceProviding {
     var supportedSizes: [Size] {
         [
             Size(width: 4160, height: 3120),
-            Size(width: 1920, height: 1080)
+            Size(width: 1920, height: 1080),
         ]
     }
     var isoRange: ClosedRange<Float> { 20.0...800.0 }
@@ -33,20 +34,28 @@ actor FakeCaptureDevice: CaptureDeviceProviding {
     func setZoomFactor(_ factor: Double) throws {}
     func setExposureCompensation(_ steps: Int) throws {}
     func setVideoFrameDurationRange(minFrameDurationFps: Int, maxFrameDurationFps: Int) throws {}
+
+    var lastSnapshot: DeviceStateSnapshot? { nil }
+    nonisolated func snapshotStream() -> AsyncStream<DeviceStateSnapshot> {
+        AsyncStream { $0.finish() }
+    }
 }
 
 // MARK: - Format selection helper (mirrors the rule in CameraSession.configure)
 
 /// Among supported sizes, select the largest 4:3 candidate.
+///
 /// Falls back to Constants.captureFallbackWidthPx × captureFallbackHeightPx if none qualify.
 private func selectBest4x3(from sizes: [Size]) -> Size {
-    let candidates = sizes
+    let candidates =
+        sizes
         .filter { $0.width * 3 == $0.height * 4 }
         .sorted { $0.width * $0.height > $1.width * $1.height }
-    return candidates.first ?? Size(
-        width: Constants.captureFallbackWidthPx,
-        height: Constants.captureFallbackHeightPx
-    )
+    return candidates.first
+        ?? Size(
+            width: Constants.captureFallbackWidthPx,
+            height: Constants.captureFallbackHeightPx
+        )
 }
 
 // MARK: - Stage01Tests
@@ -57,7 +66,8 @@ struct Stage01Tests {
     // MARK: Test 1 — 01:capture-device-provider-seam
 
     /// Verifies FakeCaptureDevice conforms to CaptureDeviceProviding and returns canned values.
-    /// No AVCaptureDevice or LiveCaptureDevice is touched anywhere in this test. (ADR-32)
+    ///
+    /// No AVCaptureDevice or LiveCaptureDevice is touched anywhere in this test. (ADR-32.)
     @Test func captureDeviceProviderSeam() async {
         let fake = FakeCaptureDevice()
 
@@ -65,10 +75,11 @@ struct Stage01Tests {
         #expect(uid == "fake-001")
 
         let sizes = await fake.supportedSizes
-        #expect(sizes == [
-            Size(width: 4160, height: 3120),
-            Size(width: 1920, height: 1080)
-        ])
+        #expect(
+            sizes == [
+                Size(width: 4160, height: 3120),
+                Size(width: 1920, height: 1080),
+            ])
 
         let isoRange = await fake.isoRange
         #expect(isoRange == 20.0...800.0)
@@ -87,7 +98,7 @@ struct Stage01Tests {
         // Given a mix of 4:3 and 16:9 sizes, the largest 4:3 wins.
         let mixed: [Size] = [
             Size(width: 4160, height: 3120),  // 4:3
-            Size(width: 3840, height: 2160)   // 16:9
+            Size(width: 3840, height: 2160),  // 16:9
         ]
         #expect(selectBest4x3(from: mixed) == Size(width: 4160, height: 3120))
 
@@ -95,10 +106,12 @@ struct Stage01Tests {
         let noFourThree: [Size] = [
             Size(width: 3840, height: 2160)
         ]
-        #expect(selectBest4x3(from: noFourThree) == Size(
-            width: Constants.captureFallbackWidthPx,
-            height: Constants.captureFallbackHeightPx
-        ))
+        #expect(
+            selectBest4x3(from: noFourThree)
+                == Size(
+                    width: Constants.captureFallbackWidthPx,
+                    height: Constants.captureFallbackHeightPx
+                ))
 
         // Sanity-check the fallback dimensions themselves match the brief spec.
         #expect(Constants.captureFallbackWidthPx == 1280)
