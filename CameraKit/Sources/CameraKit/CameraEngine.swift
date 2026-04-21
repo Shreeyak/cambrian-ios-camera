@@ -39,6 +39,10 @@ public actor CameraEngine {
     // Written once in open() before startRunning(); read after open() completes — no race.
     nonisolated(unsafe) private var _naturalTex: (any MTLTexture)?
 
+    // Same pattern as _naturalTex: written once in open() before the GPU
+    // pipeline is consumed; read by ViewModel from MainActor without actor hop.
+    nonisolated(unsafe) private var _processedTex: (any MTLTexture)?
+
     // MARK: - Public API
 
     public init() {}
@@ -90,6 +94,7 @@ public actor CameraEngine {
         self.captureDelegate = delegate
         self.metalPipeline = pipeline
         self._naturalTex = pipeline.currentTexture()
+        self._processedTex = pipeline.currentProcessedTex()
         self.deliveryQueue = delivery
 
         // Install KVO ingest so `lastSnapshot` is populated for Rule 3.
@@ -125,6 +130,11 @@ public actor CameraEngine {
             } catch {
                 // intentional — don't block open() on a transient Rule 3
             }
+        }
+
+        // Apply persisted ProcessingParameters if any (07-settings.md §Persistence).
+        if let persistedProcessing = SettingsPersistence.loadProcessing() {
+            await self.setProcessingParameters(persistedProcessing)
         }
 
         // 10. Build and return SessionCapabilities.
@@ -168,6 +178,7 @@ public actor CameraEngine {
         captureDelegate = nil
         metalPipeline = nil
         _naturalTex = nil
+        _processedTex = nil
         deliveryQueue = nil
         isOpen = false
         publishState(.closed)
@@ -293,6 +304,7 @@ public actor CameraEngine {
         await session.stopRunningAsync()
         metalPipeline = nil
         _naturalTex = nil
+        _processedTex = nil
 
         try await session.reconfigureSize(size)
 
@@ -303,6 +315,7 @@ public actor CameraEngine {
             device: mtlDevice, captureSize: size, gate: submissionGate)
         metalPipeline = pipeline
         _naturalTex = pipeline.currentTexture()
+        _processedTex = pipeline.currentProcessedTex()
 
         submissionGate.store(true, ordering: .sequentiallyConsistent)
         await session.startRunningAsync()
@@ -346,6 +359,78 @@ public actor CameraEngine {
     /// nonisolated so ViewModel can call synchronously without actor hop (MTLTexture is non-Sendable).
     public nonisolated func currentTexture() -> (any MTLTexture)? {
         _naturalTex
+    }
+
+    /// Stage 04: returns the processedTex for the right-half MTKView.
+    ///
+    /// nonisolated so ViewModel can call synchronously without actor hop.
+    public nonisolated func currentProcessedTexture() -> (any MTLTexture)? {
+        _processedTex
+    }
+
+    /// Stage 04: writes color-transform uniforms into the MetalPipeline's field, then persists.
+    ///
+    /// Wholesale replacement (no merge — `ProcessingParameters` is non-nullable per
+    /// architecture/07-settings.md §ProcessingParameters).
+    ///
+    /// scaffolding:04:unlocked-uniforms — host writes are unsynchronised against
+    /// the GPU thread's read in `MetalPipeline.encode()`. Torn reads are possible
+    /// under rapid slider motion; perceptually benign this stage. Stage 05 wraps
+    /// `UniformsHost` in OSAllocatedUnfairLock per Inv 6.
+    public func setProcessingParameters(_ params: ProcessingParameters) async {
+        // scaffolding:04:unlocked-uniforms — direct write, no lock.
+        metalPipeline?.uniforms.color = ColorUniform(params)
+        // Persist on every successful update (07-settings.md §Write path).
+        let toSave = params
+        Task.detached { SettingsPersistence.saveProcessing(toSave) }
+    }
+
+    /// Stage 04: writes the Pass-1 crop rectangle into the pipeline's `UniformsHost.crop` field.
+    ///
+    /// Coordinates are pixel-space within the active capture size; pixels outside the rect render as black.
+    ///
+    /// - Throws: `EngineError.notOpen` if the session is not open.
+    /// - Throws: `EngineError.settingsConflict` if the rect is degenerate
+    ///   (zero width/height) or extends past the capture bounds.
+    public func setCropRegion(_ rect: Rect) async throws {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        let texW = pipeline.naturalTex.width
+        let texH = pipeline.naturalTex.height
+        guard rect.width > 0, rect.height > 0,
+            rect.x >= 0, rect.y >= 0,
+            rect.x + rect.width <= texW,
+            rect.y + rect.height <= texH
+        else {
+            throw EngineError.settingsConflict(
+                reason: "crop rect \(rect) outside capture bounds \(texW)x\(texH)")
+        }
+        pipeline.uniforms.crop = CropUniform(
+            originX: UInt32(rect.x),
+            originY: UInt32(rect.y),
+            width: UInt32(rect.width),
+            height: UInt32(rect.height)
+        )
+    }
+
+    /// Stage 04: dispatches the center-patch sampler and returns per-channel trimmed mean.
+    ///
+    /// Samples processedTex's CENTER_PATCH_SIZE_PX x CENTER_PATCH_SIZE_PX center, awaits
+    /// completion, sorts each channel and returns the trimmed mean per
+    /// CENTER_PATCH_TRIM_PERCENT (07-settings.md §Center-patch sampling).
+    ///
+    /// - Throws: `EngineError.notOpen` if the session is not open.
+    /// - Throws: `EngineError.metal(_:)` on Metal failures.
+    public func sampleCenterPatch() async throws -> RgbSample {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        return try await pipeline.dispatchCenterPatch()
+    }
+
+    /// Stage 04: returns the persisted ProcessingParameters without requiring
+    /// an active session. Implementation per architecture/07-settings.md
+    /// §Load path: "static / nonisolated accessor so the UI can pre-populate
+    /// sliders before `open()`."
+    public nonisolated func getPersistedProcessingParameters() -> ProcessingParameters? {
+        SettingsPersistence.loadProcessing()
     }
 
     // MARK: - Internal helpers (accessible via @testable import)

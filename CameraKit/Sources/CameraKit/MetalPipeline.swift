@@ -42,6 +42,13 @@ struct CropUniform {
     }
 }
 
+// Mirrors `struct PatchUniform` in CenterPatchKernel.metal.
+struct PatchUniform {
+    var patchSize: UInt32
+    var patchOriginX: UInt32
+    var patchOriginY: UInt32
+}
+
 /// Host-side mutable holder for color-transform uniforms.
 ///
 /// scaffolding:04:unlocked-uniforms — torn writes possible under rapid slider
@@ -88,6 +95,10 @@ final class MetalPipeline: @unchecked Sendable {
     private let commandQueue: MTLCommandQueue
     private let yuvToRgbaPSO: MTLComputePipelineState
     private let colorTransformPSO: MTLComputePipelineState
+    private let centerPatchPSO: MTLComputePipelineState
+    private let patchBufferR: MTLBuffer
+    private let patchBufferG: MTLBuffer
+    private let patchBufferB: MTLBuffer
     // scaffolding:04:unlocked-uniforms — host writes are unsynchronized.
     // MetalPipeline snapshots `uniforms.color` and `uniforms.crop` at the top
     // of each `encode()` call. Stage 05 wraps `uniforms` in a lock.
@@ -152,6 +163,28 @@ final class MetalPipeline: @unchecked Sendable {
         } catch {
             throw MetalError.pipelineStateCompilation(error.localizedDescription)
         }
+
+        // 4d. Center-patch sampler.
+        guard let patchFunction = library.makeFunction(name: "centerPatchHistogram") else {
+            throw MetalError.pipelineStateCompilation("centerPatchHistogram not found")
+        }
+        do {
+            centerPatchPSO = try device.makeComputePipelineState(function: patchFunction)
+        } catch {
+            throw MetalError.pipelineStateCompilation(error.localizedDescription)
+        }
+        let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
+        let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
+        guard
+            let bufR = device.makeBuffer(length: patchByteSize, options: .storageModeShared),
+            let bufG = device.makeBuffer(length: patchByteSize, options: .storageModeShared),
+            let bufB = device.makeBuffer(length: patchByteSize, options: .storageModeShared)
+        else {
+            throw MetalError.unsupportedFormat
+        }
+        patchBufferR = bufR
+        patchBufferG = bufG
+        patchBufferB = bufB
 
         // 4c. Host-side uniforms (default identity / full-crop).
         uniforms = UniformsHost(captureSize: captureSize)
@@ -266,6 +299,79 @@ final class MetalPipeline: @unchecked Sendable {
         return processedTex
     }
 
+    /// Stage 04: encodes the center-patch sampler over `processedTex` and returns one RgbSample.
+    ///
+    /// Awaits completion, then computes per-channel trimmed mean from the readback buffers.
+    func dispatchCenterPatch() async throws -> RgbSample {
+        let patchSize = Constants.centerPatchSizePx
+        let texW = processedTex.width
+        let texH = processedTex.height
+        guard texW >= patchSize, texH >= patchSize else {
+            throw MetalError.unsupportedFormat
+        }
+
+        var uniform = PatchUniform(
+            patchSize: UInt32(patchSize),
+            patchOriginX: UInt32((texW - patchSize) / 2),
+            patchOriginY: UInt32((texH - patchSize) / 2)
+        )
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            throw MetalError.commandBufferFailed(code: -1)
+        }
+        guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw MetalError.commandBufferFailed(code: -2)
+        }
+
+        encoder.setComputePipelineState(centerPatchPSO)
+        encoder.setTexture(processedTex, index: 0)
+        encoder.setBuffer(patchBufferR, offset: 0, index: 0)
+        encoder.setBuffer(patchBufferG, offset: 0, index: 1)
+        encoder.setBuffer(patchBufferB, offset: 0, index: 2)
+        encoder.setBytes(&uniform, length: MemoryLayout<PatchUniform>.stride, index: 3)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (patchSize + 15) / 16,
+            height: (patchSize + 15) / 16,
+            depth: 1
+        )
+        encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+        encoder.endEncoding()
+
+        let bufR = patchBufferR
+        let bufG = patchBufferG
+        let bufB = patchBufferB
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            commandBuffer.addCompletedHandler { cb in
+                if cb.status == .error {
+                    cont.resume(throwing: MetalError.commandBufferFailed(code: -3))
+                } else {
+                    cont.resume()
+                }
+            }
+            commandBuffer.commit()
+        }
+
+        let count = patchSize * patchSize
+        let trimCount = (count * Constants.centerPatchTrimPercent) / 100
+        let r = trimmedMean(buffer: bufR, count: count, trim: trimCount)
+        let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
+        let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
+        return RgbSample(r: Double(r), g: Double(g), b: Double(b))
+    }
+
+    private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {
+        let ptr = buffer.contents().bindMemory(to: Float.self, capacity: count)
+        var values = Array(UnsafeBufferPointer(start: ptr, count: count))
+        values.sort()
+        guard count > 2 * trim else { return 0 }
+        let lo = trim
+        let hi = count - trim
+        var sum: Float = 0
+        for i in lo..<hi { sum += values[i] }
+        return sum / Float(hi - lo)
+    }
+
     // MARK: - Internal test seams
 
     /// Convenience init that creates its own gate.
@@ -280,5 +386,47 @@ final class MetalPipeline: @unchecked Sendable {
     /// Used by Stage02Tests.
     func setGate(_ open: Bool) {
         submissionGate.store(open, ordering: .sequentiallyConsistent)
+    }
+
+    // MARK: - Test seams (internal — accessed via @testable import)
+
+    // Test-only: returns the IOSurface-backed CVPixelBuffer for naturalTex,
+    // for direct CPU read/write through CVPixelBufferLockBaseAddress.
+    var naturalBufferForTest: CVPixelBuffer { naturalBuffer }
+    var processedBufferForTest: CVPixelBuffer { processedBuffer }
+
+    // Test-only: dispatches Pass 2 (color transform) over the current
+    // `naturalTex` contents, awaits scheduled, and returns. Use after
+    // writing test-pattern bytes into `naturalBufferForTest` via lock/unlock.
+    func encodePass2Only() async throws {
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            throw MetalError.commandBufferFailed(code: -1)
+        }
+        guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw MetalError.commandBufferFailed(code: -2)
+        }
+        var color = uniforms.color
+        encoder.setComputePipelineState(colorTransformPSO)
+        encoder.setTexture(naturalTex, index: 0)
+        encoder.setTexture(processedTex, index: 1)
+        encoder.setBytes(&color, length: MemoryLayout<ColorUniform>.stride, index: 0)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (processedTex.width + 15) / 16,
+            height: (processedTex.height + 15) / 16,
+            depth: 1
+        )
+        encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+        encoder.endEncoding()
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            commandBuffer.addCompletedHandler { cb in
+                if cb.status == .error {
+                    cont.resume(throwing: MetalError.commandBufferFailed(code: -3))
+                } else {
+                    cont.resume()
+                }
+            }
+            commandBuffer.commit()
+        }
     }
 }
