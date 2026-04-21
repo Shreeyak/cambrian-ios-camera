@@ -21,17 +21,11 @@ public struct CameraView: View {
             HStack(spacing: 0) {
                 // Left half — natural preview.
                 MTKViewRepresentable(textureAccessor: { viewModel.naturalTex })
-                    .ignoresSafeArea()
                 // Right half — processed preview.
                 MTKViewRepresentable(textureAccessor: { viewModel.processedTex })
-                    .ignoresSafeArea()
             }
-            VStack {
-                Spacer()
-                bottomBar
-                    .padding()
-                    .background(.black.opacity(0.6))
-            }
+            .background(Color.black)
+            .ignoresSafeArea()
             if sidebarVisible {
                 HStack {
                     Spacer()
@@ -53,6 +47,11 @@ public struct CameraView: View {
                 }
                 Spacer()
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            bottomBar
+                .padding()
+                .background(.black.opacity(0.6))
         }
         .task {
             await viewModel.start()
@@ -223,6 +222,7 @@ struct MTKViewRepresentable: UIViewRepresentable {
         // Tag the CAMetalLayer as sRGB so the system treats values as gamma-encoded, not linear.
         (mtkView.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         mtkView.preferredFramesPerSecond = 30
+        mtkView.backgroundColor = .black
         mtkView.delegate = context.coordinator
         return mtkView
     }
@@ -259,39 +259,40 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
     func draw(in view: MTKView) {
         guard
             let drawable = view.currentDrawable,
-            let texture = textureAccessor(),
             let commandQueue,
             let commandBuffer = commandQueue.makeCommandBuffer()
         else { return }
 
-        // Clear drawable to black first so uncovered regions (when texture is smaller
-        // than the screen) don't show uninitialized GPU memory (green artifacts).
+        // Always clear to black and always present — ensures the CAMetalLayer never
+        // shows uninitialized GPU memory (green) regardless of whether a texture is ready.
         let renderDesc = MTLRenderPassDescriptor()
         renderDesc.colorAttachments[0].texture = drawable.texture
         renderDesc.colorAttachments[0].loadAction = .clear
         renderDesc.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1)
         renderDesc.colorAttachments[0].storeAction = .store
-        let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderDesc)!
-        renderEncoder.endEncoding()
+        if let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderDesc) {
+            renderEncoder.endEncoding()
+        }
 
-        guard let blitEncoder = commandBuffer.makeBlitCommandEncoder() else { return }
-
-        // Blit the region that fits both source and destination (Stage 01: no scaling).
-        let srcWidth = min(texture.width, drawable.texture.width)
-        let srcHeight = min(texture.height, drawable.texture.height)
-
-        blitEncoder.copy(
-            from: texture,
-            sourceSlice: 0,
-            sourceLevel: 0,
-            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-            sourceSize: MTLSize(width: srcWidth, height: srcHeight, depth: 1),
-            to: drawable.texture,
-            destinationSlice: 0,
-            destinationLevel: 0,
-            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
-        )
-        blitEncoder.endEncoding()
+        if let texture = textureAccessor(),
+            let blitEncoder = commandBuffer.makeBlitCommandEncoder()
+        {
+            // Blit the region that fits both source and destination (Stage 01: no scaling).
+            let srcWidth = min(texture.width, drawable.texture.width)
+            let srcHeight = min(texture.height, drawable.texture.height)
+            blitEncoder.copy(
+                from: texture,
+                sourceSlice: 0,
+                sourceLevel: 0,
+                sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                sourceSize: MTLSize(width: srcWidth, height: srcHeight, depth: 1),
+                to: drawable.texture,
+                destinationSlice: 0,
+                destinationLevel: 0,
+                destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+            )
+            blitEncoder.endEncoding()
+        }
 
         commandBuffer.present(drawable)
         commandBuffer.commit()
