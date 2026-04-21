@@ -18,6 +18,7 @@
 		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
 		F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45007E7AF3327300AB0630E3 /* Stage02Tests.swift */; };
+		F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -50,6 +51,7 @@
 		14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		14E07E432F8E51EC00E9F7FC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		45007E7AF3327300AB0630E3 /* Stage02Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage02Tests.swift; sourceTree = "<group>"; };
+		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -86,6 +88,7 @@
 				CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */,
 				45007E7AF3327300AB0630E3 /* Stage02Tests.swift */,
 				008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */,
+				9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -299,6 +302,7 @@
 				3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */,
 				F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */,
 				7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */,
+				F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
