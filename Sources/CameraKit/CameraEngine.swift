@@ -23,6 +23,7 @@ public actor CameraEngine {
     private var stateContinuation: AsyncStream<SessionState>.Continuation?
     private var cachedStateStream: AsyncStream<SessionState>?
     private var isOpen: Bool = false
+    private var currentSettings: CameraSettings?
 
     // ADR-09: GPU submission gate. Shared by reference with MetalPipeline.
     // Reads: delivery queue (.acquiring load). Writes: engine actor (.sequentiallyConsistent store).
@@ -83,6 +84,12 @@ public actor CameraEngine {
         self.metalPipeline = pipeline
         self._naturalTex = pipeline.currentTexture()
         self.deliveryQueue = delivery
+
+        // Install KVO ingest so `lastSnapshot` is populated for Rule 3.
+        if let live = device as? LiveCaptureDevice {
+            await live.installKVOIngest()
+        }
+
         self.isOpen = true
 
         // 7. Open the gate (idempotent — starts true; explicit after any prior close).
@@ -95,6 +102,15 @@ public actor CameraEngine {
 
         // 9. Publish .streaming state.
         publishState(.streaming)
+
+        // Apply persisted settings if any. Swallow failures (pre-first-readback Rule 3).
+        if let persisted = SettingsPersistence.load() {
+            do {
+                try await self.updateSettings(persisted)
+            } catch {
+                // intentional — don't block open() on a transient Rule 3
+            }
+        }
 
         // 10. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
@@ -121,6 +137,9 @@ public actor CameraEngine {
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         if let session = cameraSession {
             session.sessionQueue.sync { session.stopRunning() }
+        }
+        if let live = cameraSession?.device as? LiveCaptureDevice {
+            await live.cancelKVO()
         }
         cameraSession = nil
         captureDelegate = nil
@@ -149,11 +168,52 @@ public actor CameraEngine {
         return stream
     }
 
-    /// Stage 01 stub.
+    /// Full settings merge→couple→validate→commit→persist pipeline (Stage 03).
     ///
-    /// Full settings merge arrives Stage 03.
+    /// - Merges onto prior state
+    /// - Applies coupling rules (Rules 1/2/3 from 07-settings.md)
+    /// - Validates ranges against device capabilities
+    /// - Commits to device via sessionQueue (ADR-07)
+    /// - Persists asynchronously (detached Task)
+    ///
+    /// - Throws: `EngineError.notOpen` if engine not open
+    /// - Throws: `EngineError.settingsConflict` if range validation fails or Rule 3 pre-readback
     public func updateSettings(_ settings: CameraSettings) async throws {
-        // Stage 01 stub: full settings merge arrives Stage 03.
+        guard let session = cameraSession, let device = session.device else {
+            throw EngineError.notOpen
+        }
+
+        // 1. Merge onto prior state.
+        let prior = currentSettings ?? CameraSettings()
+        let merged = settings.merging(onto: prior)
+
+        // 2. Couple (Rules 1/2/3). Reads the last KVO snapshot for Rule 3.
+        let latched = await device.lastSnapshot
+        let resolved = try SettingsCoupling.apply(rules: merged, latched: latched)
+
+        // 3. Range-validate against the device's supported ranges (brief §7).
+        let isoRange = await device.isoRange
+        let expRange = await device.exposureDurationRangeNs
+        if let iso = resolved.iso, !isoRange.contains(Float(iso)) {
+            throw EngineError.settingsConflict(
+                reason: "iso=\(iso) outside supported range \(isoRange)")
+        }
+        if let exp = resolved.exposureTimeNs, !expRange.contains(exp) {
+            throw EngineError.settingsConflict(
+                reason: "exposureTimeNs=\(exp) outside supported range \(expRange)")
+        }
+        if let focus = resolved.focusDistance, !(0.0...1.0).contains(focus) {
+            throw EngineError.settingsConflict(
+                reason: "focusDistance=\(focus) outside [0.0, 1.0]")
+        }
+
+        // 4. Commit through session (ADR-07).
+        try await session.applySettings(resolved, on: device)
+        currentSettings = resolved
+
+        // 5. Persist. Detached so the actor doesn't block on I/O.
+        let toSave = resolved
+        Task.detached { SettingsPersistence.save(toSave) }
     }
 
     public func registerPixelSink(_ callbacks: PixelSinkCallbacks) async -> ConsumerToken {
