@@ -1,27 +1,57 @@
 import MetalKit
 import SwiftUI
 
-/// Public SwiftUI view that renders a live camera preview via an MTKView.
+/// Public SwiftUI view that renders a split camera preview (left natural,
+/// right processed) plus a color-calibration sidebar.
 ///
-/// Hosts MTKViewRepresentable and reacts to scene phase transitions via
-/// ViewModel.handleScenePhase(_:) (08-ui.md §scenePhase wiring, ADR-09, D-06).
+/// Hosts two MTKViewRepresentable instances (natural / processed) and reacts
+/// to scene phase transitions via ViewModel.handleScenePhase(_:)
+/// (08-ui.md §scenePhase wiring, ADR-09, D-06).
 /// CameraEngine lifecycle is owned by ViewModel.
 public struct CameraView: View {
 
     @State private var viewModel = ViewModel()
+    @State private var sidebarVisible: Bool = false
     @Environment(\.scenePhase) private var scenePhase
 
     public init() {}
 
     public var body: some View {
         ZStack {
-            MTKViewRepresentable(viewModel: viewModel)
-                .ignoresSafeArea()
+            HStack(spacing: 0) {
+                // Left half — natural preview.
+                MTKViewRepresentable(textureAccessor: { viewModel.naturalTex })
+                    .ignoresSafeArea()
+                // Right half — processed preview.
+                MTKViewRepresentable(textureAccessor: { viewModel.processedTex })
+                    .ignoresSafeArea()
+            }
             VStack {
                 Spacer()
                 bottomBar
                     .padding()
                     .background(.black.opacity(0.6))
+            }
+            if sidebarVisible {
+                HStack {
+                    Spacer()
+                    calibrationSidebar
+                        .frame(width: 280)
+                        .background(.black.opacity(0.7))
+                }
+            }
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(sidebarVisible ? "Hide Cal" : "Calibrate Color") {
+                        sidebarVisible.toggle()
+                    }
+                    .padding(8)
+                    .background(.black.opacity(0.6))
+                    .foregroundStyle(.white)
+                    .padding()
+                }
+                Spacer()
             }
         }
         .task {
@@ -37,6 +67,91 @@ public struct CameraView: View {
             await viewModel.handleScenePhase(scenePhase)
         }
     }
+
+    // MARK: - Sidebar (08-ui.md §Color calibration sidebar)
+
+    private var calibrationSidebar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Color Calibration").foregroundStyle(.white).font(.headline)
+
+            sliderRow(
+                label: "Brightness",
+                value: Binding(
+                    get: { viewModel.currentProcessing.brightness },
+                    set: { v in mutateProcessing { $0.brightness = v } }),
+                range: -1.0...1.0)
+            sliderRow(
+                label: "Contrast",
+                value: Binding(
+                    get: { viewModel.currentProcessing.contrast },
+                    set: { v in mutateProcessing { $0.contrast = v } }),
+                range: 0.0...2.0)
+            sliderRow(
+                label: "Saturation",
+                value: Binding(
+                    get: { viewModel.currentProcessing.saturation },
+                    set: { v in mutateProcessing { $0.saturation = v } }),
+                range: -1.0...1.0)
+            sliderRow(
+                label: "Gamma",
+                value: Binding(
+                    get: { viewModel.currentProcessing.gamma },
+                    set: { v in mutateProcessing { $0.gamma = v } }),
+                range: 0.1...4.0)
+            Divider().background(.white.opacity(0.5))
+            sliderRow(
+                label: "Black R",
+                value: Binding(
+                    get: { viewModel.currentProcessing.blackR },
+                    set: { v in mutateProcessing { $0.blackR = v } }),
+                range: 0.0...0.5)
+            sliderRow(
+                label: "Black G",
+                value: Binding(
+                    get: { viewModel.currentProcessing.blackG },
+                    set: { v in mutateProcessing { $0.blackG = v } }),
+                range: 0.0...0.5)
+            sliderRow(
+                label: "Black B",
+                value: Binding(
+                    get: { viewModel.currentProcessing.blackB },
+                    set: { v in mutateProcessing { $0.blackB = v } }),
+                range: 0.0...0.5)
+            Spacer()
+            Button("Reset") {
+                Task { await viewModel.resetProcessing() }
+            }
+            .foregroundStyle(.white)
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(.gray.opacity(0.5))
+        }
+        .padding()
+    }
+
+    private func sliderRow(
+        label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label).foregroundStyle(.white).font(.caption)
+                Spacer()
+                Text(String(format: "%.2f", value.wrappedValue))
+                    .foregroundStyle(.white).font(.caption.monospacedDigit())
+            }
+            Slider(value: value, in: range)
+        }
+    }
+
+    private func mutateProcessing(_ mutate: (inout ProcessingParameters) -> Void) {
+        var next = viewModel.currentProcessing
+        mutate(&next)
+        Task { await viewModel.updateProcessing(next) }
+    }
+
+    // MARK: - Bottom bar — Stage-03 controls (kept verbatim from prior stage)
 
     private var bottomBar: some View {
         HStack(spacing: 16) {
@@ -90,18 +205,21 @@ public struct CameraView: View {
     }
 }
 
-// MARK: - MTKViewRepresentable
+// MARK: - MTKViewRepresentable (parameterized by a texture closure)
 
 /// Internal UIViewRepresentable that wraps MTKView for the SwiftUI hierarchy.
+///
+/// Parameterized by a texture accessor closure to support both natural and
+/// processed preview panels.
 struct MTKViewRepresentable: UIViewRepresentable {
 
-    let viewModel: ViewModel
+    let textureAccessor: () -> MTLTexture?
 
     func makeUIView(context: Context) -> MTKView {
         let mtkView = MTKView()
         mtkView.device = MTLCreateSystemDefaultDevice()
         mtkView.framebufferOnly = false
-        mtkView.colorPixelFormat = .rgba16Float  // must match naturalTex workingPixelFormat
+        mtkView.colorPixelFormat = .rgba16Float
         // Tag the CAMetalLayer as sRGB so the system treats values as gamma-encoded, not linear.
         (mtkView.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         mtkView.preferredFramesPerSecond = 30
@@ -112,22 +230,23 @@ struct MTKViewRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: MTKView, context: Context) {}
 
     func makeCoordinator() -> MTKViewCoordinator {
-        MTKViewCoordinator(viewModel: viewModel)
+        MTKViewCoordinator(textureAccessor: textureAccessor)
     }
 }
 
-// MARK: - MTKViewCoordinator
+// MARK: - MTKViewCoordinator (reads texture via closure)
 
-/// Drives the MTKView draw loop and blits naturalTex into each drawable.
+/// Drives the MTKView draw loop and blits the texture returned by the accessor
+/// closure into each drawable.
 final class MTKViewCoordinator: NSObject, MTKViewDelegate {
 
-    let viewModel: ViewModel
+    let textureAccessor: () -> MTLTexture?
 
     /// Cached command queue — created once to avoid per-frame allocation at 30 fps.
     let commandQueue: MTLCommandQueue?
 
-    init(viewModel: ViewModel) {
-        self.viewModel = viewModel
+    init(textureAccessor: @escaping () -> MTLTexture?) {
+        self.textureAccessor = textureAccessor
         self.commandQueue = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
     }
 
@@ -140,12 +259,12 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
     func draw(in view: MTKView) {
         guard
             let drawable = view.currentDrawable,
-            let texture = viewModel.naturalTex,
+            let texture = textureAccessor(),
             let commandQueue,
             let commandBuffer = commandQueue.makeCommandBuffer()
         else { return }
 
-        // Clear drawable to black first so uncovered regions (when naturalTex is smaller
+        // Clear drawable to black first so uncovered regions (when texture is smaller
         // than the screen) don't show uninitialized GPU memory (green artifacts).
         let renderDesc = MTLRenderPassDescriptor()
         renderDesc.colorAttachments[0].texture = drawable.texture
