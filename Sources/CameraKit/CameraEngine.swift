@@ -43,6 +43,9 @@ public actor CameraEngine {
 
     public init() {}
 
+    /// Returns the last successfully committed settings, or nil if none have been applied.
+    public func currentSettingsSnapshot() -> CameraSettings? { currentSettings }
+
     /// Opens the camera session and returns capabilities.
     ///
     /// - Throws: `EngineError.alreadyOpen` if already open.
@@ -107,10 +110,18 @@ public actor CameraEngine {
         // 9. Publish .streaming state.
         publishState(.streaming)
 
-        // Apply persisted settings if any. Swallow failures (pre-first-readback Rule 3).
+        // Apply persisted settings if any. Clamp ISO to the device's current range
+        // before restoring — a stored ISO from a different session can exceed the new
+        // device's max, causing a settingsConflict throw that silently aborts the entire
+        // restore including zoom and focus. Swallow remaining failures (Rule 3).
         if let persisted = SettingsPersistence.load() {
             do {
-                try await self.updateSettings(persisted)
+                let deviceIsoRange = await device.isoRange
+                var clamped = persisted
+                if let iso = clamped.iso {
+                    clamped.iso = Int(max(deviceIsoRange.lowerBound, min(deviceIsoRange.upperBound, Float(iso))))
+                }
+                try await self.updateSettings(clamped)
             } catch {
                 // intentional — don't block open() on a transient Rule 3
             }

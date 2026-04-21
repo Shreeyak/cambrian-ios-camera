@@ -45,7 +45,9 @@ public struct CameraView: View {
                 value: Binding(
                     get: { Double(viewModel.currentSettings.iso ?? 100) },
                     set: { new in Task { await viewModel.updateISO(Int(new)) } }),
-                range: 30...3200,
+                range: viewModel.capabilities.map {
+                    Double($0.isoRange.lowerBound)...Double($0.isoRange.upperBound)
+                } ?? 30...3200,
                 readback: viewModel.lastFrameResult?.iso.flatMap { Optional("\($0)") } ?? "—")
             sliderCell(
                 label: "Shutter (ms)",
@@ -53,7 +55,9 @@ public struct CameraView: View {
                     get: { Double(viewModel.currentSettings.exposureTimeNs ?? 33_000_000) / 1_000_000 },
                     set: { new in Task { await viewModel.updateShutterNs(Int64(new * 1_000_000)) } }),
                 range: 1...100,
-                readback: viewModel.lastFrameResult?.exposureTimeNs.flatMap { Optional("\($0 / 1_000_000)") } ?? "—")
+                readback: viewModel.lastFrameResult?.exposureTimeNs.flatMap {
+                    Optional(String(format: "%.1f", Double($0) / 1_000_000))
+                } ?? "—")
             sliderCell(
                 label: "Focus",
                 value: Binding(

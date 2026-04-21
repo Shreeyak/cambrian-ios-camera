@@ -62,6 +62,12 @@ final class ViewModel {
             capabilities = caps
             // Grab naturalTex once after open — it's stable for the session lifetime.
             naturalTex = engine.currentTexture()
+            // Seed slider state from whatever open() restored from persistence.
+            if let restored = await engine.currentSettingsSnapshot() {
+                currentSettings = restored
+            }
+            // Dump capabilities to Documents/capabilities.json for inspection.
+            dumpCapabilities(caps)
         } catch let e as EngineError {
             error = e
             sessionState = .error
@@ -151,6 +157,32 @@ final class ViewModel {
         var delta = CameraSettings()
         delta.zoomRatio = r
         await applyDelta(delta)
+    }
+
+    private func dumpCapabilities(_ caps: SessionCapabilities) {
+        var lines: [String] = [
+            "SessionCapabilities",
+            "===================",
+            "isoRange:                  \(caps.isoRange.lowerBound) – \(caps.isoRange.upperBound)",
+            "exposureDurationRangeNs:   \(caps.exposureDurationRangeNs.lowerBound) – \(caps.exposureDurationRangeNs.upperBound)",
+            "  → min shutter:           \(String(format: "%.4f", Double(caps.exposureDurationRangeNs.lowerBound) / 1_000_000)) ms"
+                + "  (1/\(Int((1_000_000_000.0 / Double(caps.exposureDurationRangeNs.lowerBound)).rounded())) s)",
+            "  → max shutter:           \(String(format: "%.1f", Double(caps.exposureDurationRangeNs.upperBound) / 1_000_000)) ms"
+                + "  (1/\(String(format: "%.2f", 1_000_000_000.0 / Double(caps.exposureDurationRangeNs.upperBound))) s)",
+            "activeCaptureResolution:   \(caps.activeCaptureResolution.width) × \(caps.activeCaptureResolution.height)",
+            "activeCropRegion:          x=\(caps.activeCropRegion.x) y=\(caps.activeCropRegion.y)"
+                + " w=\(caps.activeCropRegion.width) h=\(caps.activeCropRegion.height)",
+            "streamPixelFormat:         \(caps.streamPixelFormat)",
+            "supportedSizes:",
+        ]
+        for s in caps.supportedSizes {
+            lines.append("  \(s.width) × \(s.height)")
+        }
+        let text = lines.joined(separator: "\n") + "\n"
+        if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let url = dir.appendingPathComponent("capabilities.txt")
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     private func applyDelta(_ delta: CameraSettings) async {

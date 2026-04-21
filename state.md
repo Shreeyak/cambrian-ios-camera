@@ -52,8 +52,8 @@ public let SessionCapabilities.exposureDurationRangeNs: ClosedRange<Int64> // ne
 | `03:kvo-asyncstream-adapter-emits-on-change` | PASS | Stage03Tests/kvoAsyncStreamAdapterEmitsOnChange — FakeKVODevice mutation. |
 | `03:focus-distance-identity` | PASS | Stage03Tests/focusDistanceIdentity — Float(0.5) → lensPosition identity. |
 | `03:settings-conflict-throws` | PASS | Stage03Tests/settingsConflictThrows — throws EngineError.notOpen via nil-session guard. |
-| `03:iso-slider-updates-exposure-live` | DEFERRED | measurements/stage-03/controls.md — device deploy via CLI blocked (iOS 26.5 platform vs 26.4.1 device). |
-| `03:restart-restores-settings` | DEFERRED | measurements/stage-03/controls.md — same blocker. |
+| `03:iso-slider-updates-exposure-live` | PASS | measurements/stage-03/controls.md — ISO slider (28–1728) changes preview luminance smoothly. |
+| `03:restart-restores-settings` | PASS | measurements/stage-03/controls.md — all four sliders restored after force-quit. Three bugs fixed (see Decision #20). |
 
 ## Decisions taken that weren't in briefs
 
@@ -68,6 +68,7 @@ public let SessionCapabilities.exposureDurationRangeNs: ClosedRange<Int64> // ne
 17. **`DeviceKVOObserver.Tokens` marked `@unchecked Sendable`.** Required by Swift 6 strict concurrency: `Tokens` is captured in the `@Sendable` build closure of `AsyncStream`. Thread-safe by construction: mutations only happen inside the `AsyncStream` build closure (single-threaded), and `deinit` invalidates all tokens deterministically.
 18. **Test-only KVO factory uses `[.new]` option (not `[.initial, .new]`) for `iso`.** Using `.initial` causes the stream to emit the starting value (100.0) before the test mutation, which makes `receivedOne` resolve to 100.0 instead of 800.0. Production `makeStream(avDevice:)` retains `.initial` for the real device to populate `_lastSnapshot` immediately on open.
 19. **HITL evidence DEFERRED for this session.** `xcodebuild` CLI cannot deploy to the physical iPad (iOS 26.4.1 device, Xcode 26.5 beta active; CLI uses `generic/platform=iOS` requiring iOS 26.5 platform components). Xcode GUI can build and run. Device smoke tests to be completed when CLI deployment is unblocked.
+20. **Three post-stage bugs fixed during HITL verification.** (A) Persisted ISO exceeding `device.isoRange` caused `updateSettings` to throw and silently abort the entire restore — zoom and focus never reached their commit path. Fixed by clamping ISO to `device.isoRange` in `open()`. (B) `ViewModel.currentSettings` was never seeded from the engine after `open()` — sliders all showed defaults. Fixed by calling `engine.currentSettingsSnapshot()` after open and seeding the ViewModel. (C) ISO slider range hardcoded to `30...3200` instead of `capabilities.isoRange`. Fixed in `CameraView`.
 
 ## Open questions for next stage
 
