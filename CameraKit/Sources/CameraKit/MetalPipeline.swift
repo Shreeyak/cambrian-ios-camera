@@ -548,6 +548,23 @@ final class MetalPipeline: @unchecked Sendable {
         )
     }
 
+    /// Convenience init that accepts an explicit ConsumerRegistry but hides ManagedAtomic.
+    ///
+    /// Used by Stage06Tests so tests can inject a specific registry without importing Atomics.
+    convenience init(
+        device: MTLDevice,
+        captureSize: Size,
+        gateOpen: Bool = true,
+        consumers: ConsumerRegistry
+    ) throws {
+        try self.init(
+            device: device,
+            captureSize: captureSize,
+            gate: ManagedAtomic<Bool>(gateOpen),
+            consumers: consumers
+        )
+    }
+
     /// Opens or closes the pipeline's submission gate.
     ///
     /// Used by Stage02Tests.

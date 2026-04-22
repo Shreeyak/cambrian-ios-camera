@@ -20,6 +20,7 @@
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
 		F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45007E7AF3327300AB0630E3 /* Stage02Tests.swift */; };
 		F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */; };
+		FEB5776E21A1294A5CA6ED39 /* Stage06Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40574632638223EEF0762DC /* Stage06Tests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,6 +55,7 @@
 		14E07E432F8E51EC00E9F7FC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		45007E7AF3327300AB0630E3 /* Stage02Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage02Tests.swift; sourceTree = "<group>"; };
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
+		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -92,6 +94,7 @@
 				008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */,
 				9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */,
 				12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */,
+				B40574632638223EEF0762DC /* Stage06Tests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -307,6 +310,7 @@
 				7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */,
 				F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */,
 				413C07759C3082622F459861 /* Stage05Tests.swift in Sources */,
+				FEB5776E21A1294A5CA6ED39 /* Stage06Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
