@@ -47,6 +47,51 @@ public struct CameraView: View {
                 }
                 Spacer()
             }
+            #if DEBUG
+            // Debug overlay: frame number + capture time (top-left).
+            if let overlay = viewModel.debugOverlay {
+                VStack {
+                    HStack {
+                        Text("#\(overlay.frameNumber)  t=\(overlay.captureTimeMs)ms")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.yellow)
+                            .padding(6)
+                            .background(.black.opacity(0.6))
+                            .padding([.top, .leading], 8)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+            }
+            // Tracker thumbnail (bottom-left) when subscribed.
+            if viewModel.debugTrackerSubscribed {
+                VStack {
+                    Spacer()
+                    HStack {
+                        MTKViewRepresentable(textureAccessor: { viewModel.trackerTex })
+                            .frame(width: 160, height: 120)
+                            .border(.yellow, width: 1)
+                            .padding([.bottom, .leading], 80)
+                        Spacer()
+                    }
+                }
+            }
+            // Debug toggle button (top-right, below Calibrate Color button).
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(viewModel.debugTrackerSubscribed ? "Hide Tracker" : "Show Tracker") {
+                        Task { await viewModel.toggleDebugTrackerSubscription() }
+                    }
+                    .padding(8)
+                    .background(.black.opacity(0.6))
+                    .foregroundStyle(.yellow)
+                    .padding(.top, 56)
+                    .padding(.trailing, 16)
+                }
+                Spacer()
+            }
+            #endif
         }
         .safeAreaInset(edge: .bottom) {
             bottomBar

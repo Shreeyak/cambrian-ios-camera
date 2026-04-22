@@ -1,3 +1,4 @@
+import CoreMedia
 import Metal
 import OSLog
 import SwiftUI
@@ -37,6 +38,22 @@ final class ViewModel {
 
     @ObservationIgnored
     nonisolated(unsafe) var processedTex: MTLTexture?
+
+    // MARK: - Stage 06 — Debug overlay + tracker thumbnail
+
+    struct DebugOverlay: Equatable {
+        var frameNumber: UInt64
+        var captureTimeMs: Int64
+    }
+
+    var debugOverlay: DebugOverlay?
+    var debugTrackerSubscribed: Bool = false
+
+    @ObservationIgnored
+    nonisolated(unsafe) var trackerTex: MTLTexture?
+
+    @ObservationIgnored private var naturalSubscriberTask: Task<Void, Never>?
+    @ObservationIgnored private var trackerSubscriberTask: Task<Void, Never>?
 
     // MARK: - Engine
 
@@ -93,6 +110,8 @@ final class ViewModel {
             }
         }
 
+        startDebugOverlay()
+
         // Observe state stream (ADR-22).
         for await state in await engine.stateStream() {
             sessionState = state
@@ -104,7 +123,48 @@ final class ViewModel {
         frameResultTask = nil
         deviceSnapshotTask?.cancel()
         deviceSnapshotTask = nil
+        naturalSubscriberTask?.cancel()
+        naturalSubscriberTask = nil
+        trackerSubscriberTask?.cancel()
+        trackerSubscriberTask = nil
         await engine.close()
+    }
+
+    // MARK: - Debug overlay helpers (Stage 06, #if DEBUG only)
+
+    func startDebugOverlay() {
+        #if DEBUG
+        naturalSubscriberTask?.cancel()
+        naturalSubscriberTask = Task { [weak self] in
+            guard let self else { return }
+            for await fs in await self.engine.consumers.subscribe(stream: .natural) {
+                let overlay = DebugOverlay(
+                    frameNumber: fs.frameNumber,
+                    captureTimeMs: Int64(CMTimeGetSeconds(fs.captureTime) * 1000)
+                )
+                await MainActor.run { self.debugOverlay = overlay }
+            }
+        }
+        #endif
+    }
+
+    func toggleDebugTrackerSubscription() async {
+        debugTrackerSubscribed.toggle()
+        if debugTrackerSubscribed {
+            trackerSubscriberTask?.cancel()
+            trackerSubscriberTask = Task { [weak self] in
+                guard let self else { return }
+                for await _ in await self.engine.consumers.subscribe(stream: .tracker) {
+                    let tex = self.engine.currentTrackerTexture()
+                    await MainActor.run { self.trackerTex = tex }
+                }
+                await MainActor.run { self.trackerTex = nil }
+            }
+        } else {
+            trackerSubscriberTask?.cancel()
+            trackerSubscriberTask = nil
+            trackerTex = nil
+        }
     }
 
     // MARK: - ScenePhase handler (08-ui.md §scenePhase wiring, 02-concurrency.md §Sequence A)
