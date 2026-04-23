@@ -231,51 +231,68 @@ public struct CameraView: View {
             .padding(.bottom, 8)
     }
 
-    // MARK: - Bottom bar — Stage-03 controls (kept verbatim from prior stage)
+    // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        HStack(spacing: 16) {
-            Button {
-                viewModel.captureImage()
-            } label: {
-                Image(systemName: "camera.shutter.button")
-                    .font(.title2)
-                    .foregroundStyle(.white)
-                    .padding(8)
+        VStack(spacing: 8) {
+            // Row 1: sliders — each takes equal share of the full width.
+            HStack(spacing: 12) {
+                sliderCell(
+                    label: "ISO",
+                    value: Binding(
+                        get: { Double(viewModel.currentSettings.iso ?? 100) },
+                        set: { new in Task { await viewModel.updateISO(Int(new)) } }),
+                    range: viewModel.capabilities.map {
+                        Double($0.isoRange.lowerBound)...Double($0.isoRange.upperBound)
+                    } ?? 30...3200,
+                    readback: viewModel.lastFrameResult?.iso.flatMap { Optional("\($0)") } ?? "—")
+                sliderCell(
+                    label: "Shutter (ms)",
+                    value: Binding(
+                        get: { Double(viewModel.currentSettings.exposureTimeNs ?? 33_000_000) / 1_000_000 },
+                        set: { new in Task { await viewModel.updateShutterNs(Int64(new * 1_000_000)) } }),
+                    range: 1...100,
+                    readback: viewModel.lastFrameResult?.exposureTimeNs.flatMap {
+                        Optional(String(format: "%.1f", Double($0) / 1_000_000))
+                    } ?? "—")
+                sliderCell(
+                    label: "Focus",
+                    value: Binding(
+                        get: { viewModel.currentSettings.focusDistance ?? 0.0 },
+                        set: { new in Task { await viewModel.updateFocus(new) } }),
+                    range: 0...1,
+                    readback: viewModel.lastFrameResult?.focusDistance
+                        .flatMap { Optional(String(format: "%.2f", $0)) } ?? "—")
+                sliderCell(
+                    label: "Zoom",
+                    value: Binding(
+                        get: { viewModel.currentSettings.zoomRatio ?? 1.0 },
+                        set: { new in Task { await viewModel.updateZoom(new) } }),
+                    range: 1...5,
+                    readback: String(format: "%.2fx", viewModel.currentSettings.zoomRatio ?? 1.0))
             }
-            sliderCell(
-                label: "ISO",
-                value: Binding(
-                    get: { Double(viewModel.currentSettings.iso ?? 100) },
-                    set: { new in Task { await viewModel.updateISO(Int(new)) } }),
-                range: viewModel.capabilities.map {
-                    Double($0.isoRange.lowerBound)...Double($0.isoRange.upperBound)
-                } ?? 30...3200,
-                readback: viewModel.lastFrameResult?.iso.flatMap { Optional("\($0)") } ?? "—")
-            sliderCell(
-                label: "Shutter (ms)",
-                value: Binding(
-                    get: { Double(viewModel.currentSettings.exposureTimeNs ?? 33_000_000) / 1_000_000 },
-                    set: { new in Task { await viewModel.updateShutterNs(Int64(new * 1_000_000)) } }),
-                range: 1...100,
-                readback: viewModel.lastFrameResult?.exposureTimeNs.flatMap {
-                    Optional(String(format: "%.1f", Double($0) / 1_000_000))
-                } ?? "—")
-            sliderCell(
-                label: "Focus",
-                value: Binding(
-                    get: { viewModel.currentSettings.focusDistance ?? 0.0 },
-                    set: { new in Task { await viewModel.updateFocus(new) } }),
-                range: 0...1,
-                readback: viewModel.lastFrameResult?.focusDistance
-                    .flatMap { Optional(String(format: "%.2f", $0)) } ?? "—")
-            sliderCell(
-                label: "Zoom",
-                value: Binding(
-                    get: { viewModel.currentSettings.zoomRatio ?? 1.0 },
-                    set: { new in Task { await viewModel.updateZoom(new) } }),
-                range: 1...5,
-                readback: String(format: "%.2fx", viewModel.currentSettings.zoomRatio ?? 1.0))
+            .frame(maxWidth: .infinity)
+
+            // Row 2: action buttons centered below the sliders.
+            HStack(spacing: 32) {
+                Button {
+                    viewModel.captureImage()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .strokeBorder(.white, lineWidth: 3)
+                            .frame(width: 64, height: 64)
+                        Circle()
+                            .fill(.white.opacity(0.15))
+                            .frame(width: 54, height: 54)
+                        Image(systemName: "camera.shutter.button")
+                            .font(.system(size: 24, weight: .regular))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .accessibilityLabel("Capture")
+                .accessibilityHint("Takes a photo")
+            }
         }
     }
 
