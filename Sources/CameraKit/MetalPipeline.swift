@@ -139,6 +139,15 @@ final class MetalPipeline: @unchecked Sendable {
     /// (.acquiring) before every commit; stored by engine actor (.sequentiallyConsistent).
     private let submissionGate: ManagedAtomic<Bool>
 
+    // Session token reference from the owning engine. Used by completion handler (D-10).
+    private let engineSessionToken: ManagedAtomic<UInt64>
+
+    // Test-only: count of completion-handler invocations that no-op due to token mismatch.
+    nonisolated(unsafe) var didNoOpCountForTest: UInt64 = 0
+
+    // Hook for Metal-level errors; set by engine after init.
+    var onMetalError: (@Sendable (MetalError) -> Void)?
+
     // Most recently committed command buffer. Written on delivery queue after each
     // commit; read via drainLastBuffer() which is called from the engine actor.
     // Safe under the @unchecked Sendable assertion — writes cease once the gate is
@@ -158,8 +167,15 @@ final class MetalPipeline: @unchecked Sendable {
     ///     `FrameSet` values on the delivery queue.
     /// - Throws: `MetalError.pipelineStateCompilation` if the Metal library or
     ///   kernel cannot be loaded, or if PSO compilation fails.
-    init(device: MTLDevice, captureSize: Size, gate: ManagedAtomic<Bool>, consumers: ConsumerRegistry) throws {
+    init(
+        device: MTLDevice,
+        captureSize: Size,
+        gate: ManagedAtomic<Bool>,
+        consumers: ConsumerRegistry,
+        engineSessionToken: ManagedAtomic<UInt64>
+    ) throws {
         submissionGate = gate
+        self.engineSessionToken = engineSessionToken
         self.consumers = consumers
         self.captureSize = captureSize
 
@@ -413,22 +429,37 @@ final class MetalPipeline: @unchecked Sendable {
         let trackerForSet: CVPixelBuffer = trackerBuf ?? naturalBuf
         let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
 
-        // scaffolding:01:skip-completion-guard — addCompletedHandler does not
-        // check sessionState before touching flush state. D-10 guard arrives
-        // Stage 09.
+        // D-10: capture the session token at commit. Handler no-ops if the token has
+        // advanced (close() / recovery ran) — prevents use-after-free on readback
+        // buffers and pending continuations (G-20).
+        let tokenAtCommit = self.engineSessionToken.load(ordering: .acquiring)
         commandBuffer.addCompletedHandler { [weak self] cb in
+            guard let self else { return }
+            let liveToken = self.engineSessionToken.load(ordering: .acquiring)
+            if liveToken != tokenAtCommit {
+                // Session advanced — release the pending capture slot if any and bail.
+                self.pendingCaptureContinuation?.resume(
+                    throwing: StillCaptureError.metalReadbackFailed
+                )
+                self.pendingCaptureContinuation = nil
+                self.didNoOpCountForTest &+= 1
+                return
+            }
+            // Metal-level error classification (G-02 / ADR-15).
+            if cb.status == .error {
+                let code = (cb.error as NSError?)?.code ?? -1
+                if let cont = self.pendingCaptureContinuation {
+                    cont.resume(throwing: MetalError.commandBufferFailed(code: code))
+                    self.pendingCaptureContinuation = nil
+                }
+                self.onMetalError?(MetalError.commandBufferFailed(code: code))
+                return
+            }
             // Deliver still readback buffer to StillCapture if Pass 6 ran.
             if let buf = stillBufForCompletion {
-                let cont = self?.pendingCaptureContinuation
-                self?.pendingCaptureContinuation = nil
-                if cb.status == .error {
-                    cont?.resume(
-                        throwing: MetalError.commandBufferFailed(
-                            code: (cb.error as NSError?)?.code ?? -1
-                        ))
-                } else {
-                    cont?.resume(returning: buf)
-                }
+                let cont = self.pendingCaptureContinuation
+                self.pendingCaptureContinuation = nil
+                cont?.resume(returning: buf)
             }
             // Construct FrameSet from delivery-queue-local captures only.
             let fs = FrameSet(
@@ -449,7 +480,6 @@ final class MetalPipeline: @unchecked Sendable {
                 consumers.yield(fs, stream: .tracker)
             }
             // Update preview mailboxes for MTKView draw pass.
-            guard let self else { return }
             self.latestNaturalBuffer = naturalBuf
             self.latestNaturalTex = naturalTexI
             self.latestProcessedBuffer = processedBuf

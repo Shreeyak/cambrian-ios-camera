@@ -116,8 +116,20 @@ public actor CameraEngine {
             device: mtlDevice,
             captureSize: captureSize,
             gate: submissionGate,
-            consumers: consumers
+            consumers: consumers,
+            engineSessionToken: sessionToken
         )
+        pipeline.onMetalError = { [weak self] mErr in
+            Task { [weak self] in
+                let err = CameraError(
+                    code: .unknownError,
+                    message: "metal: \(mErr)",
+                    isFatal: false
+                )
+                self?.publishErrorAsync(err)
+                await self?.recovery?.enterRecovery(error: err)
+            }
+        }
 
         // 5. Wire sample buffer → Metal encode.
         //    Closure runs on delivery queue (ADR-02); pipeline is @unchecked Sendable.
@@ -435,8 +447,20 @@ public actor CameraEngine {
             device: mtlDevice,
             captureSize: size,
             gate: submissionGate,
-            consumers: consumers
+            consumers: consumers,
+            engineSessionToken: sessionToken
         )
+        pipeline.onMetalError = { [weak self] mErr in
+            Task { [weak self] in
+                let err = CameraError(
+                    code: .unknownError,
+                    message: "metal: \(mErr)",
+                    isFatal: false
+                )
+                self?.publishErrorAsync(err)
+                await self?.recovery?.enterRecovery(error: err)
+            }
+        }
         metalPipeline = pipeline
         _metalPipeline = pipeline
         _naturalTex = pipeline.currentTexture()
