@@ -48,6 +48,9 @@ No subagent entries this stage; coordinator worked inline.
 
 ---
 
-## Stage 03 (in progress)
+## Stage 08
+
+2026-04-23 [stage-08 hitl] coordinator — CannyStubConsumer extended to handle kCVPixelFormatType_64RGBAHalf (tracker pool format): CV_16FC4 → CV_32FC4 → cvtColor(RGBA2GRAY) → CV_8UC1 → Canny. Previous else-branch returned 0 for all tracker frames.
+2026-04-23 [stage-08 hitl] coordinator — CppCannyStub wired to tracker stream in ViewModel.start() (DEBUG only); edge count read from ring buffer and displayed as text in debug overlay every 10 natural frames.
 
 <!-- new entries go above this line; keep the stage header last -->

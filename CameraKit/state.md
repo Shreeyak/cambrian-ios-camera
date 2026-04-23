@@ -51,7 +51,7 @@ public func getNativePipelineHandle() -> UInt64?  // CameraEngine
 | `06:frame-set-publication` | PASS | carried forward |
 | `06:swift-consumer-drop-on-busy` | PASS | carried forward |
 | `07:still-capture-in-flight-guard` | PASS | carried forward |
-| `08:external-canny-stub-runs-on-device` | PENDING | `measurements/stage-08/canny.md` — awaiting device run |
+| `08:external-canny-stub-runs-on-device` | PASS | `measurements/stage-08/canny.md` — iPad Pro M1, OpenCV v4.13, non-zero time-varying edge counts confirmed |
 
 ## Decisions taken that weren't in briefs — Stage 08
 

@@ -1,3 +1,4 @@
+import CameraKitInterop
 import CoreMedia
 import Metal
 import OSLog
@@ -44,6 +45,8 @@ final class ViewModel {
     struct DebugOverlay: Equatable {
         var frameNumber: UInt64
         var captureTimeMs: Int64
+        // Stage 08 HITL — most-recent Canny edge pixel count from tracker stream.
+        var edgeCount: UInt32?
     }
 
     var debugOverlay: DebugOverlay?
@@ -57,6 +60,10 @@ final class ViewModel {
 
     @ObservationIgnored private var naturalSubscriberTask: Task<Void, Never>?
     @ObservationIgnored private var trackerSubscriberTask: Task<Void, Never>?
+
+    // Stage 08 HITL — Canny stub registered on tracker stream (ADR-29).
+    @ObservationIgnored private let cannyStub: CppCannyStub = CppCannyStub()
+    @ObservationIgnored private var cannyToken: ConsumerToken?
 
     // MARK: - Engine
 
@@ -105,6 +112,16 @@ final class ViewModel {
             sessionState = .error
         }
 
+        // Register Canny stub on tracker stream for HITL 08:external-canny-stub-runs-on-device.
+        #if DEBUG
+        let cbs = PixelSinkCallbacks(
+            onFrame: cannyStub.onFrameCallback(),
+            onOverwrite: { _, _ in },
+            onError: nil,
+            context: cannyStub.nativeContext)
+        cannyToken = try? await engine.consumers.registerCallback(stream: .tracker, callbacks: cbs)
+        #endif
+
         frameResultTask = Task { [weak self] in
             guard let engine = await self?.engine else { return }
             for await r in await engine.frameResultStream() {
@@ -130,6 +147,12 @@ final class ViewModel {
         naturalSubscriberTask = nil
         trackerSubscriberTask?.cancel()
         trackerSubscriberTask = nil
+        #if DEBUG
+        if let t = cannyToken {
+            await engine.consumers.unregister(token: t)
+            cannyToken = nil
+        }
+        #endif
         await engine.close()
     }
 
@@ -145,10 +168,13 @@ final class ViewModel {
                 // The MTKView preview runs GPU-direct via nonisolated(unsafe) mailboxes;
                 // only the text overlay needs MainActor.
                 guard fs.frameNumber % 10 == 0 else { continue }
+                let processed = self.cannyStub.processedCount
+                let edgeCount: UInt32? =
+                    processed > 0 ? self.cannyStub.edgeCount(at: Int((processed - 1) % 64)) : nil
                 let overlay = DebugOverlay(
                     frameNumber: fs.frameNumber,
-                    captureTimeMs: Int64(CMTimeGetSeconds(fs.captureTime) * 1000)
-                )
+                    captureTimeMs: Int64(CMTimeGetSeconds(fs.captureTime) * 1000),
+                    edgeCount: edgeCount)
                 await MainActor.run { self.debugOverlay = overlay }
             }
         }

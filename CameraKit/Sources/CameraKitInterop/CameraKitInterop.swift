@@ -132,4 +132,14 @@ public final class CppCannyStub: @unchecked Sendable {
             context: h
         )
     }
+
+    /// Returns the C-ABI on_frame function pointer for use with `PixelSinkCallbacks`.
+    public func onFrameCallback()
+        -> @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt64, Int64, UnsafeMutableRawPointer?) -> Void
+    {
+        { ctx, stream, frame, ts, surface in canny_stub_on_frame(ctx, stream, frame, ts, surface) }
+    }
+
+    /// Opaque C++ handle for use as the `context` field of `PixelSinkCallbacks`.
+    public var nativeContext: UnsafeMutableRawPointer? { handle }
 }
