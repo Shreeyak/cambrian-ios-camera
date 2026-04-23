@@ -11,7 +11,7 @@ enum Constants {
     static let captureFallbackHeightPx: Int = 960
     static let cropDefaultWidthPx: Int = 1600
     static let cropDefaultHeightPx: Int = 1200
-    static let captureOrientationAngleDeg: CGFloat = 90
+    static let captureOrientationAngleDeg: CGFloat = 0
     static let stateStreamBufferSize: Int = 64
     /// ADR-30: Deadline for startRunning() / stopRunning() awaited from @MainActor.
     static let sessionLifecycleTimeoutSeconds: Double = 2.0

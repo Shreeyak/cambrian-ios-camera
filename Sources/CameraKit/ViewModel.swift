@@ -138,6 +138,10 @@ final class ViewModel {
         naturalSubscriberTask = Task { [weak self] in
             guard let self else { return }
             for await fs in await self.engine.consumers.subscribe(stream: .natural) {
+                // Update at ~3 fps — every 10th frame — to avoid 30 SwiftUI re-renders/sec.
+                // The MTKView preview runs GPU-direct via nonisolated(unsafe) mailboxes;
+                // only the text overlay needs MainActor.
+                guard fs.frameNumber % 10 == 0 else { continue }
                 let overlay = DebugOverlay(
                     frameNumber: fs.frameNumber,
                     captureTimeMs: Int64(CMTimeGetSeconds(fs.captureTime) * 1000)
