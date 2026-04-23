@@ -327,6 +327,28 @@ public struct CameraView: View {
                 }
                 .accessibilityLabel("Capture")
                 .accessibilityHint("Takes a photo")
+
+                Button(action: { viewModel.toggleRecording() }) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(isRecordingActive ? Color.red : Color.white)
+                            .frame(width: 18, height: 18)
+                        if isRecordingActive {
+                            Text(elapsedMMSS)
+                                .font(.body.monospacedDigit())
+                                .foregroundStyle(.white)
+                        } else {
+                            Text("REC")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.6), in: Capsule())
+                }
+                .accessibilityLabel(isRecordingActive ? "Stop recording" : "Start recording")
+                .accessibilityHint("Toggles video recording")
             }
         }
     }
@@ -342,6 +364,17 @@ public struct CameraView: View {
             Slider(value: value, in: range)
             Text(readback).foregroundStyle(.white).font(.caption2)
         }
+    }
+
+    // MARK: - Stage 10 — Recording state helpers
+
+    private var isRecordingActive: Bool {
+        if case .recording = viewModel.recordingState { return true } else { return false }
+    }
+
+    private var elapsedMMSS: String {
+        let s = viewModel.recordingElapsedSeconds
+        return String(format: "%02d:%02d", s / 60, s % 60)
     }
 }
 
