@@ -1,6 +1,7 @@
 import AVFoundation
 import Atomics
 import CoreMedia
+import CoreVideo
 import Metal
 import Synchronization
 
@@ -651,6 +652,97 @@ public actor CameraEngine {
         } catch let e as StillCaptureError {
             throw EngineError.capture(e)
         }
+    }
+
+    // MARK: - Stage 10: Recording
+
+    private var recording: Recording?
+    private var recordingContinuation: AsyncStream<RecordingState>.Continuation?
+    private var cachedRecordingStream: AsyncStream<RecordingState>?
+    private var assetWriterFactory: AssetWriterFactory = DefaultAssetWriterFactory.make
+
+    /// Returns a stream of `RecordingState` transitions.
+    ///
+    /// Buffered with `.bufferingOldest` per ADR-22. Cached — multiple callers receive the same stream.
+    public func recordingStateStream() -> AsyncStream<RecordingState> {
+        if let s = cachedRecordingStream { return s }
+        let stream = AsyncStream<RecordingState>(
+            RecordingState.self,
+            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+        ) { [weak self] c in
+            guard let self else { return }
+            Task { await self.storeRecordingContinuation(c) }
+        }
+        cachedRecordingStream = stream
+        return stream
+    }
+
+    private func storeRecordingContinuation(
+        _ c: AsyncStream<RecordingState>.Continuation
+    ) {
+        recordingContinuation = c
+    }
+
+    private func publishRecordingState(_ s: RecordingState) {
+        recordingContinuation?.yield(s)
+    }
+
+    /// Test seam — swap the writer factory before startRecording().
+    func _setAssetWriterFactoryForTest(_ f: @escaping AssetWriterFactory) {
+        assetWriterFactory = f
+    }
+
+    /// Starts a recording session using the current capture pipeline.
+    ///
+    /// - Throws: `EngineError.notOpen` if the engine has not been opened.
+    public func startRecording(options: RecordingOptions) async throws -> RecordingStart {
+        guard isOpen, let session = cameraSession, let pipeline = metalPipeline else {
+            throw EngineError.notOpen
+        }
+        try await session.setRecordingFrameRateRange()
+        pipeline.onEncodedBufferReady = { [weak self] buf, pts in
+            Task { [weak self] in
+                await self?.onEncodedBufferReady(buf, pts: pts)
+            }
+        }
+        let hooks = Recording.Hooks(
+            publishState: { [weak self] s in
+                Task { [weak self] in await self?.publishRecordingStateFromHook(s) }
+            },
+            emitError: { [weak self] err in
+                Task { [weak self] in await self?.publishErrorAsync(err) }
+            }
+        )
+        let rec = Recording(clock: clock, hooks: hooks, writerFactory: assetWriterFactory)
+        self.recording = rec
+        let start = try await rec.start(options: options, captureSize: pipeline.captureSize)
+        pipeline.isRecording.store(true, ordering: .sequentiallyConsistent)
+        return start
+    }
+
+    /// Stops the active recording session and returns the output file URI.
+    ///
+    /// - Throws: `EngineError.notOpen` if no recording is active or the engine is not open.
+    public func stopRecording() async throws -> String {
+        guard let rec = recording,
+            let pipeline = metalPipeline,
+            let session = cameraSession
+        else { throw EngineError.notOpen }
+        pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
+        let uri = await rec.stop(reason: .user)
+        try? await session.setPreviewFrameRateRange()
+        self.recording = nil
+        pipeline.onEncodedBufferReady = nil
+        return uri
+    }
+
+    func publishRecordingStateFromHook(_ s: RecordingState) {
+        publishRecordingState(s)
+    }
+
+    func onEncodedBufferReady(_ buffer: CVPixelBuffer, pts: CMTime) async {
+        guard let rec = recording else { return }
+        _ = await rec.submitEncodedBuffer(buffer, pts: pts)
     }
 
     // MARK: - Internal helpers (accessible via @testable import)
