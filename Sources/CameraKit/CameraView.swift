@@ -108,8 +108,25 @@ public struct CameraView: View {
                 bannerView(result: result)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            if let err = viewModel.currentError, !err.isFatal {
+                recoveryBanner(err)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.captureResult != nil)
+        .animation(.easeInOut(duration: 0.3), value: viewModel.currentError != nil)
+        .alert(
+            "Camera Error",
+            isPresented: Binding(
+                get: { viewModel.currentError?.isFatal == true },
+                set: { if !$0 { viewModel.currentError = nil } }
+            ),
+            presenting: viewModel.currentError
+        ) { _ in
+            Button("OK", role: .cancel) { viewModel.currentError = nil }
+        } message: { err in
+            Text("\(err.code.rawValue): \(err.message)")
+        }
         .task {
             await viewModel.start()
         }
@@ -229,6 +246,24 @@ public struct CameraView: View {
             .background(color)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .padding(.bottom, 8)
+    }
+
+    // MARK: - Recovery banner
+
+    @ViewBuilder
+    private func recoveryBanner(_ err: CameraError) -> some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text("\(err.code.rawValue): \(err.message)")
+                .lineLimit(2)
+            Spacer()
+            Button("Dismiss") { viewModel.currentError = nil }
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.85))
+        .foregroundStyle(.white)
+        .cornerRadius(8)
+        .padding(.horizontal, 12)
     }
 
     // MARK: - Bottom bar
