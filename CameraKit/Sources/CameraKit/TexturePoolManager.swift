@@ -229,6 +229,79 @@ final class TexturePoolManager: @unchecked Sendable {
         return (buffer, mtlTex)
     }
 
+    // MARK: - Stage 10 — Encoder NV12 pool + plane-texture dequeue
+
+    /// Encoder pool — NV12 video-range, IOSurface-backed, Metal-compatible.
+    ///
+    /// Feeds Pass 5 GPU writes and AVAssetWriterInputPixelBufferAdaptor.append() reads.
+    func makeEncoderNV12Pool(size: Size) throws -> CVPixelBufferPool {
+        let poolAttrs: [CFString: Any] = [
+            kCVPixelBufferPoolMinimumBufferCountKey: Constants.poolMinBufferCount
+        ]
+        let bufferAttrs: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: Int(Constants.encoderPixelFormat),
+            kCVPixelBufferWidthKey: size.width,
+            kCVPixelBufferHeightKey: size.height,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any],
+            kCVPixelBufferMetalCompatibilityKey: true,
+        ]
+        var pool: CVPixelBufferPool?
+        let status = CVPixelBufferPoolCreate(
+            kCFAllocatorDefault,
+            poolAttrs as CFDictionary,
+            bufferAttrs as CFDictionary,
+            &pool
+        )
+        guard status == kCVReturnSuccess, let p = pool else {
+            throw MetalError.textureCacheCreateFailed(code: status)
+        }
+        return p
+    }
+
+    /// Dequeue an encoder buffer and wrap both planes as write-capable MTLTextures.
+    func dequeueEncoderBuffer(
+        pool: CVPixelBufferPool
+    ) throws -> (buffer: CVPixelBuffer, yTex: MTLTexture, cbcrTex: MTLTexture) {
+        var buf: CVPixelBuffer?
+        let s = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buf)
+        guard s == kCVReturnSuccess, let b = buf else {
+            throw MetalError.textureCacheCreateFailed(code: s)
+        }
+        let y = try makePlaneWriteTexture(from: b, planeIndex: 0, format: .r8Unorm)
+        let cbcr = try makePlaneWriteTexture(from: b, planeIndex: 1, format: .rg8Unorm)
+        return (b, y, cbcr)
+    }
+
+    private func makePlaneWriteTexture(
+        from pixelBuffer: CVPixelBuffer,
+        planeIndex: Int,
+        format: MTLPixelFormat
+    ) throws -> MTLTexture {
+        guard let cache = textureCache else { throw MetalError.textureCacheCreateFailed(code: -1) }
+        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, planeIndex)
+        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, planeIndex)
+        var cvTexture: CVMetalTexture?
+        let status = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault,
+            cache,
+            pixelBuffer,
+            nil,
+            format,
+            width,
+            height,
+            planeIndex,
+            &cvTexture
+        )
+        guard
+            status == kCVReturnSuccess,
+            let cvTex = cvTexture,
+            let mtlTex = CVMetalTextureGetTexture(cvTex)
+        else {
+            throw MetalError.textureWrapFailed(code: status)
+        }
+        return mtlTex
+    }
+
     // MARK: - Private
 
     private func makeTexture(
