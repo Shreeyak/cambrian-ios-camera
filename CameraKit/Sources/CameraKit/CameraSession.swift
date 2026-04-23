@@ -328,6 +328,32 @@ final class CameraSession: @unchecked Sendable {
         onSessionEvent?(.runtimeError(err.map { "\($0)" } ?? "unknown"))
     }
 
+    // MARK: - Frame rate control (U-16)
+
+    /// Preview mode — lock frame rate to FRAME_RATE_TARGET_FPS on both min and max.
+    ///
+    /// Caller must dispatch onto `sessionQueue` (ADR-07).
+    func setPreviewFrameRateRange() async throws {
+        guard let device = device else { return }
+        try await device.setVideoFrameDurationRange(
+            minFrameDurationFps: Constants.frameRateTargetFPS,
+            maxFrameDurationFps: Constants.frameRateTargetFPS
+        )
+    }
+
+    /// Recording mode — allow AE to halve frame rate in low light.
+    ///
+    /// Min = 1/FRAME_RATE_TARGET_FPS, Max = 1/FRAME_RATE_RECORDING_MIN_FPS.
+    ///
+    /// Caller must dispatch onto `sessionQueue` (ADR-07).
+    func setRecordingFrameRateRange() async throws {
+        guard let device = device else { return }
+        try await device.setVideoFrameDurationRange(
+            minFrameDurationFps: Constants.frameRateTargetFPS,
+            maxFrameDurationFps: Constants.frameRateRecordingMinFps
+        )
+    }
+
     // MARK: - Settings commit
 
     /// Commits a fully-resolved `CameraSettings` to the device inside a single
