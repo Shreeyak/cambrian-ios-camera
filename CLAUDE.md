@@ -430,6 +430,20 @@ underlying issue and ask again — do not `--amend` around it.
   `xcrun devicectl device copy from --device DAD37FD5-685B-50E0-911E-F9BC40BBDBE5
   --domain-type systemCrashLogs --source "/" --destination /tmp/crash/` —
   absence of the app bundle name in results confirms no process termination.
+- **Reading app logs (Wi-Fi device, no USB):** `--console` on `devicectl process launch`
+  requires USB — it silently kills the app over Wi-Fi. `idevicesyslog` and `xctrace`
+  also require USB. Use the file sink instead: `CameraKitLog.enableFileLogging()` writes
+  to `<Documents>/camerakit.log`; pull it with:
+  ```bash
+  xcrun devicectl device copy from \
+    --device "DAD37FD5-685B-50E0-911E-F9BC40BBDBE5" \
+    --domain-type appDataContainer \
+    --domain-identifier com.cambrian.eva-swift-stitch \
+    --source /Documents/camerakit.log \
+    --destination /tmp/app-logs
+  ```
+  Enable logging in `eva_swift_stitchApp.init()`:
+  `CameraKitLog.isEnabled = true; CameraKitLog.enableFileLogging()`.
 - **Metal drawable: acquire → clear → conditional work → always present.**
   Never return between `view.currentDrawable` and `commandBuffer.present(drawable)`.
   Bailing out after acquiring a drawable without presenting it leaves the CAMetalLayer
