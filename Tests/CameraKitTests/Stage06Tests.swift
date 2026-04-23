@@ -156,20 +156,18 @@ struct Stage06Tests {
 
     @Test func registerCallbackThrowsNotWired() async throws {
         let registry = ConsumerRegistry()
-        let onFrame: PixelSinkCallbacks.OnFrame = { _, _, _, _, _ in }
-        let onOverwrite: PixelSinkCallbacks.OnOverwrite = { _, _ in }
-        let onError: PixelSinkCallbacks.OnError = { _, _ in }
+        // onFrame: nil triggers InteropError.invalidCallbacks (D-03 / D-11 quality gate).
         let cb = PixelSinkCallbacks(
-            onFrame: onFrame,
-            onOverwrite: onOverwrite,
-            onError: onError,
+            onFrame: nil,
+            onOverwrite: { _, _ in },
+            onError: { _, _ in },
             context: nil
         )
         do {
             _ = try await registry.registerCallback(stream: .tracker, callbacks: cb)
             Issue.record("Expected InteropError.invalidCallbacks but no error was thrown")
         } catch InteropError.invalidCallbacks {
-            // Expected — callbacks with nil required fields are rejected (D-03 / D-11).
+            // Expected — onFrame: nil is rejected (D-03 / D-11).
         } catch {
             Issue.record("Expected InteropError.invalidCallbacks but got \(error)")
         }
