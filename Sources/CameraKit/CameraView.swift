@@ -52,12 +52,17 @@ public struct CameraView: View {
             if let overlay = viewModel.debugOverlay {
                 VStack {
                     HStack {
-                        Text("#\(overlay.frameNumber)  t=\(overlay.captureTimeMs)ms")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.yellow)
-                            .padding(6)
-                            .background(.black.opacity(0.6))
-                            .padding([.top, .leading], 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("#\(overlay.frameNumber)  t=\(overlay.captureTimeMs)ms")
+                            if let edges = overlay.edgeCount {
+                                Text("edges=\(edges)")
+                            }
+                        }
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.yellow)
+                        .padding(6)
+                        .background(.black.opacity(0.6))
+                        .padding([.top, .leading], 8)
                         Spacer()
                     }
                     Spacer()

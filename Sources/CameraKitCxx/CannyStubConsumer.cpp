@@ -82,6 +82,16 @@ private:
                     cv::Mat src(static_cast<int>(h), static_cast<int>(w),
                                 CV_8UC4, base, stride);
                     cv::cvtColor(src, gray, cv::COLOR_BGRA2GRAY);
+                } else if (fmt == kCVPixelFormatType_64RGBAHalf) {
+                    // Tracker pool uses 64-bit RGBA half-float (kCVPixelFormatType_64RGBAHalf).
+                    // Convert: half-float → 32F → grayscale → 8-bit for Canny.
+                    cv::Mat src16(static_cast<int>(h), static_cast<int>(w),
+                                  CV_16FC4, base, stride);
+                    cv::Mat src32;
+                    src16.convertTo(src32, CV_32FC4);
+                    cv::Mat gray32;
+                    cv::cvtColor(src32, gray32, cv::COLOR_RGBA2GRAY);
+                    gray32.convertTo(gray, CV_8UC1, 255.0);
                 } else {
                     CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
                     CVPixelBufferRelease(pb);
