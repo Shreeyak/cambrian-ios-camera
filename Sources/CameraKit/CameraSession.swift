@@ -30,6 +30,18 @@ final class CameraSession: @unchecked Sendable {
     /// Retained output — created in init() and wired in configure().
     private let videoOutput: AVCaptureVideoDataOutput
 
+    // MARK: - Session event routing
+
+    enum SessionEvent: Sendable {
+        case cameraInUseBegan
+        case cameraInUseEnded
+        case runtimeError(String)
+        case otherInterruption(reasonRawValue: Int)
+    }
+
+    // Set by CameraEngine at open(). Routes interruption/runtime-error events up.
+    var onSessionEvent: (@Sendable (SessionEvent) -> Void)?
+
     // MARK: - Init
 
     init() {
@@ -164,7 +176,6 @@ final class CameraSession: @unchecked Sendable {
         let deviceInput = try AVCaptureDeviceInput(device: avDevice)
 
         avSession.beginConfiguration()
-        defer { avSession.commitConfiguration() }
 
         if avSession.canAddInput(deviceInput) {
             avSession.addInput(deviceInput)
@@ -179,6 +190,31 @@ final class CameraSession: @unchecked Sendable {
 
         if avSession.canAddOutput(videoOutput) {
             avSession.addOutput(videoOutput)
+        }
+
+        avSession.commitConfiguration()
+
+        // Register interruption and runtime-error observers now that configuration is committed.
+        NotificationCenter.default.addObserver(
+            forName: AVCaptureSession.wasInterruptedNotification,
+            object: avSession,
+            queue: nil
+        ) { [weak self] note in
+            self?.handleInterruption(note: note, ended: false)
+        }
+        NotificationCenter.default.addObserver(
+            forName: AVCaptureSession.interruptionEndedNotification,
+            object: avSession,
+            queue: nil
+        ) { [weak self] note in
+            self?.handleInterruption(note: note, ended: true)
+        }
+        NotificationCenter.default.addObserver(
+            forName: AVCaptureSession.runtimeErrorNotification,
+            object: avSession,
+            queue: nil
+        ) { [weak self] note in
+            self?.handleRuntimeError(note: note)
         }
 
         // ── 5. Wrap in LiveCaptureDevice (ADR-32 test seam) ─────────────────────────
@@ -274,6 +310,25 @@ final class CameraSession: @unchecked Sendable {
             }
         }
     }
+
+    // MARK: - Private event handlers
+
+    private func handleInterruption(note: Notification, ended: Bool) {
+        let rawReason = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int ?? -1
+        let reason = AVCaptureSession.InterruptionReason(rawValue: rawReason)
+        if reason == .videoDeviceInUseByAnotherClient {
+            onSessionEvent?(ended ? .cameraInUseEnded : .cameraInUseBegan)
+        } else {
+            onSessionEvent?(.otherInterruption(reasonRawValue: rawReason))
+        }
+    }
+
+    private func handleRuntimeError(note: Notification) {
+        let err = note.userInfo?[AVCaptureSessionErrorKey] as? Error
+        onSessionEvent?(.runtimeError(err.map { "\($0)" } ?? "unknown"))
+    }
+
+    // MARK: - Settings commit
 
     /// Commits a fully-resolved `CameraSettings` to the device inside a single
     /// `lockForConfiguration()` window on `sessionQueue` (ADR-07).
