@@ -71,7 +71,10 @@ public actor CameraEngine {
     /// - Throws: `EngineError.metal(_:)` if MetalPipeline fails to initialise.
     public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
         guard !isOpen else { throw EngineError.alreadyOpen }
-        if CameraKitLog.isEnabled { CameraKitLog.engine.info("open: requesting camera permission") }
+        if CameraKitLog.isEnabled {
+            CameraKitLog.engine.info("open: requesting camera permission")
+            CameraKitLog.write("[engine] open: requesting camera permission")
+        }
 
         // 1. Camera permission (ADR-32: permission check uses AVFoundation directly —
         //    it's a process-level gate, not a device operation).
@@ -170,9 +173,10 @@ public actor CameraEngine {
         let exposureDurationRangeNs = await device.exposureDurationRangeNs
         if CameraKitLog.isEnabled {
             let poolPtr = consumers.nativePipelinePointer()
-            CameraKitLog.engine.info(
-                "open: pipeline ready — resolution \(captureSize.width)×\(captureSize.height), pool 0x\(String(poolPtr, radix: 16))"
-            )
+            let msg =
+                "open: pipeline ready — \(captureSize.width)×\(captureSize.height) pool=0x\(String(poolPtr, radix: 16))"
+            CameraKitLog.engine.info("\(msg)")
+            CameraKitLog.write("[engine] \(msg)")
         }
         return SessionCapabilities(
             supportedSizes: supportedSizes,
@@ -189,7 +193,10 @@ public actor CameraEngine {
     /// Closes the camera session and releases all resources.
     public func close() async {
         guard isOpen else { return }
-        if CameraKitLog.isEnabled { CameraKitLog.engine.info("close: tearing down pipeline") }
+        if CameraKitLog.isEnabled {
+            CameraKitLog.engine.info("close: tearing down pipeline")
+            CameraKitLog.write("[engine] close: tearing down pipeline")
+        }
         // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         if let session = cameraSession {
