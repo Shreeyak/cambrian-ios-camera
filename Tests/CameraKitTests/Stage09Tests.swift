@@ -17,3 +17,16 @@ struct Stage09WatchdogTests {
         #expect(wd.armedSessionToken == nil)
     }
 }
+
+@Suite("Stage 09 — recovery backoff")
+struct Stage09RecoveryTests {
+    @Test("backoff schedule matches constants (1..5+)")
+    func backoffMatchesConstants() async {
+        #expect(Constants.recoveryBackoffMs(attempt: 1) == 500)
+        #expect(Constants.recoveryBackoffMs(attempt: 2) == 1000)
+        #expect(Constants.recoveryBackoffMs(attempt: 3) == 2000)
+        #expect(Constants.recoveryBackoffMs(attempt: 4) == 4000)
+        #expect(Constants.recoveryBackoffMs(attempt: 5) == 8000)
+        #expect(Constants.recoveryBackoffMs(attempt: 9) == 8000)
+    }
+}
