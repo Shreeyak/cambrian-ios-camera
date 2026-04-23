@@ -1,0 +1,4 @@
+module CameraKitCxx {
+    header "PixelSinkCallbacks.h"
+    export *
+}
