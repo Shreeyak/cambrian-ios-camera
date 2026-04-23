@@ -52,8 +52,10 @@ final class ViewModel {
     var debugOverlay: DebugOverlay?
     var debugTrackerSubscribed: Bool = false
     var captureResult: Result<StillCaptureOutput, Error>? = nil
+    var currentError: CameraError?
 
     @ObservationIgnored private var bannerDismissTask: Task<Void, Never>?
+    @ObservationIgnored private var errorConsumerTask: Task<Void, Never>?
 
     @ObservationIgnored
     nonisolated(unsafe) var trackerTex: MTLTexture?
@@ -105,6 +107,12 @@ final class ViewModel {
             }
             // Dump capabilities to Documents/capabilities.json for inspection.
             dumpCapabilities(caps)
+            errorConsumerTask = Task { [weak self] in
+                guard let self else { return }
+                for await err in await self.engine.errorStream() {
+                    await MainActor.run { self.currentError = err }
+                }
+            }
         } catch let e as EngineError {
             error = e
             sessionState = .error
@@ -147,6 +155,8 @@ final class ViewModel {
         naturalSubscriberTask = nil
         trackerSubscriberTask?.cancel()
         trackerSubscriberTask = nil
+        errorConsumerTask?.cancel()
+        errorConsumerTask = nil
         #if DEBUG
         if let t = cannyToken {
             await engine.consumers.unregister(token: t)
