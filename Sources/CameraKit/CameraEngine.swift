@@ -42,6 +42,13 @@ public actor CameraEngine {
     // access by tests and by MetalPipeline (which holds it as a reference).
     nonisolated let submissionGate: ManagedAtomic<Bool> = ManagedAtomic(true)
 
+    /// Session identity.
+    ///
+    /// Bumped on every close() and on entry to recovery. Completion handlers,
+    /// watchdogs, and retry tasks compare against this to detect that they were
+    /// armed for a stale session (D-10, Inv 9, Inv 12).
+    nonisolated let sessionToken: ManagedAtomic<UInt64> = ManagedAtomic(0)
+
     // MTLTexture is non-Sendable; stored nonisolated(unsafe) so ViewModel can read it
     // synchronously after open() returns, without crossing an actor boundary.
     // Written once in open() before startRunning(); read after open() completes — no race.
@@ -192,6 +199,7 @@ public actor CameraEngine {
 
     /// Closes the camera session and releases all resources.
     public func close() async {
+        sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
         guard isOpen else { return }
         if CameraKitLog.isEnabled {
             CameraKitLog.engine.info("close: tearing down pipeline")
