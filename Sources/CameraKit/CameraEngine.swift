@@ -71,6 +71,7 @@ public actor CameraEngine {
     /// - Throws: `EngineError.metal(_:)` if MetalPipeline fails to initialise.
     public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
         guard !isOpen else { throw EngineError.alreadyOpen }
+        if CameraKitLog.isEnabled { CameraKitLog.engine.info("open: requesting camera permission") }
 
         // 1. Camera permission (ADR-32: permission check uses AVFoundation directly —
         //    it's a process-level gate, not a device operation).
@@ -167,6 +168,12 @@ public actor CameraEngine {
         )
         let isoRange = await device.isoRange
         let exposureDurationRangeNs = await device.exposureDurationRangeNs
+        if CameraKitLog.isEnabled {
+            let poolPtr = consumers.nativePipelinePointer()
+            CameraKitLog.engine.info(
+                "open: pipeline ready — resolution \(captureSize.width)×\(captureSize.height), pool 0x\(String(poolPtr, radix: 16))"
+            )
+        }
         return SessionCapabilities(
             supportedSizes: supportedSizes,
             previewTextureId: 0,  // stub: texture IDs arrive Stage 05
@@ -182,6 +189,7 @@ public actor CameraEngine {
     /// Closes the camera session and releases all resources.
     public func close() async {
         guard isOpen else { return }
+        if CameraKitLog.isEnabled { CameraKitLog.engine.info("close: tearing down pipeline") }
         // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         if let session = cameraSession {
@@ -402,8 +410,15 @@ public actor CameraEngine {
     ///
     /// Returns nil when the engine is not open.
     public func getNativePipelineHandle() -> UInt64? {
-        guard isOpen else { return nil }
-        return consumers.nativePipelinePointer()
+        guard isOpen else {
+            if CameraKitLog.isEnabled {
+                CameraKitLog.engine.warning("getNativePipelineHandle: engine not open — returning nil")
+            }
+            return nil
+        }
+        let ptr = consumers.nativePipelinePointer()
+        if CameraKitLog.isEnabled { CameraKitLog.engine.info("getNativePipelineHandle: 0x\(String(ptr, radix: 16))") }
+        return ptr
     }
 
     /// Stage 05: writes color-transform uniforms through `Mutex<UniformStorage>` (ADR-34, D-17, Inv 6).
