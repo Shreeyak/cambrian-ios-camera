@@ -33,9 +33,6 @@ final class TexturePoolManager: @unchecked Sendable {
         self.textureCache = cache
     }
 
-    // scaffolding:01:simple-metal-passthrough — Stage 01 only exposes the Y plane;
-    // full multi-plane CVPixelBufferPool trio (natural/processed/tracker) arrives Stage 08.
-
     /// Wraps the luma (Y) plane of a YUV `CVPixelBuffer` as an `MTLTexture`.
     ///
     /// Used by `MetalPipeline` for the YUV→RGBA compute pass (plane index 0, `.r8Unorm`).

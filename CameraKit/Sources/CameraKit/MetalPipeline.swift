@@ -69,11 +69,6 @@ struct PatchUniform {
 /// `drainLastBuffer()` — safe under the @unchecked Sendable assertion.
 final class MetalPipeline: @unchecked Sendable {
 
-    // scaffolding:01:simple-metal-passthrough — pool-backed per-frame textures replace
-    // single-buffer shape. Stage 06: naturalPool/processedPool/trackerPool each vend
-    // one IOSurface-backed buffer per frame; latest* mailboxes expose the most recent
-    // texture to the MTKView draw pass without an actor hop (G-13).
-
     // MARK: - Per-frame pool properties (Stage 06)
 
     private let naturalPool: CVPixelBufferPool
