@@ -167,11 +167,11 @@ struct Stage06Tests {
         )
         do {
             _ = try await registry.registerCallback(stream: .tracker, callbacks: cb)
-            Issue.record("Expected InteropError.notWired but no error was thrown")
-        } catch InteropError.notWired {
-            // Expected — C-ABI path not wired until Stage 08.
+            Issue.record("Expected InteropError.invalidCallbacks but no error was thrown")
+        } catch InteropError.invalidCallbacks {
+            // Expected — callbacks with nil required fields are rejected (D-03 / D-11).
         } catch {
-            Issue.record("Expected InteropError.notWired but got \(error)")
+            Issue.record("Expected InteropError.invalidCallbacks but got \(error)")
         }
     }
 
