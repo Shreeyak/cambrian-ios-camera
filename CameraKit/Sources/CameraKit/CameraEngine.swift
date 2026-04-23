@@ -30,6 +30,8 @@ public actor CameraEngine {
     private var deliveryQueue: DispatchQueue?
     private var stateContinuation: AsyncStream<SessionState>.Continuation?
     private var cachedStateStream: AsyncStream<SessionState>?
+    private var errorContinuation: AsyncStream<CameraError>.Continuation?
+    private var cachedErrorStream: AsyncStream<CameraError>?
     private var isOpen: Bool = false
     private var currentSettings: CameraSettings?
     private var frameResultContinuation: AsyncStream<FrameResult>.Continuation?
@@ -142,6 +144,8 @@ public actor CameraEngine {
         session.sessionQueue.async {
             session.startRunning()
         }
+
+        // TODO(stage-09-task-8): construct WatchdogPair + RecoveryCoordinator here
 
         // 9. Publish .streaming state.
         publishState(.streaming)
@@ -264,6 +268,35 @@ public actor CameraEngine {
 
     private func setFrameResultContinuation(_ c: AsyncStream<FrameResult>.Continuation) {
         frameResultContinuation = c
+    }
+
+    /// Stream of error notifications (non-fatal + fatal).
+    ///
+    /// ADR-22: .bufferingOldest so every error is delivered. Subscribe once per consumer
+    /// lifetime; same instance returned thereafter.
+    public func errorStream() -> AsyncStream<CameraError> {
+        if let cached = cachedErrorStream { return cached }
+        let stream = AsyncStream<CameraError>(
+            CameraError.self,
+            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+        ) { [weak self] continuation in
+            Task { await self?.setErrorContinuation(continuation) }
+        }
+        cachedErrorStream = stream
+        return stream
+    }
+
+    private func setErrorContinuation(_ continuation: AsyncStream<CameraError>.Continuation) {
+        errorContinuation = continuation
+    }
+
+    private func publishError(_ err: CameraError) {
+        errorContinuation?.yield(err)
+    }
+
+    /// Test-only: emit an arbitrary CameraError without driving the recovery machine.
+    func _emitErrorForTest(_ err: CameraError) {
+        publishError(err)
     }
 
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
