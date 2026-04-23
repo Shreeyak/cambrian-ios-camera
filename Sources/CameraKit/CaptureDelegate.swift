@@ -26,6 +26,11 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     /// Weak reference to the engine for frame-result heartbeat (Stage 03).
     weak var engine: CameraEngine?
 
+    /// Watchdog pair for GPU and capture liveliness (Stage 09).
+    ///
+    /// Set by `CameraEngine` in `open()` before `startRunning()`.
+    var watchdogs: WatchdogPair?
+
     // MARK: - Init
 
     override init() {
@@ -37,23 +42,28 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     /// Invoked on the `delivery` queue for each frame that AVFoundation delivers.
     ///
     /// Forwards the buffer directly to `onSampleBuffer`; no actor hops (ADR-02).
+    /// Refreshes GPU and capture watchdogs on every arrival (Stage 09, ADR-31).
     func captureOutput(
         _ output: AVCaptureOutput,
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
+        watchdogs?.gpu.refresh()
+        watchdogs?.capture.refresh()
         onSampleBuffer?(sampleBuffer)
         engine?.tickFrame()
     }
 
     /// Invoked on the `delivery` queue when a frame is dropped.
     ///
-    /// Drop accounting is deferred to a later stage; no-op here (Stage 01).
+    /// AVFoundation buffer-pressure drops are not hardware failures — they self-correct
+    /// through automatic backpressure. We do not increment failure counters for drops
+    /// (Stage 09, ADR-31).
     func captureOutput(
         _ output: AVCaptureOutput,
         didDrop sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        // no-op: drop metrics arrive in a later stage
+        // AVFoundation buffer-pressure drops are not HW failures — they self-correct.
     }
 }

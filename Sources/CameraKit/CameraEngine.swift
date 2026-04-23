@@ -167,6 +167,7 @@ public actor CameraEngine {
         }
         let pair = WatchdogPair(gpu: gpu, capture: cap)
         self.watchdogs = pair
+        delegate.watchdogs = pair
         let hooks = RecoveryCoordinator.Hooks(
             performTeardownAndReopen: { [weak self] in
                 await self?.close()
