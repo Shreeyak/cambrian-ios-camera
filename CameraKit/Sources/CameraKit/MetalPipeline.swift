@@ -633,7 +633,8 @@ final class MetalPipeline: @unchecked Sendable {
             device: device,
             captureSize: captureSize,
             gate: ManagedAtomic<Bool>(gateOpen),
-            consumers: ConsumerRegistry()
+            consumers: ConsumerRegistry(),
+            engineSessionToken: ManagedAtomic<UInt64>(0)
         )
     }
 
@@ -650,7 +651,8 @@ final class MetalPipeline: @unchecked Sendable {
             device: device,
             captureSize: captureSize,
             gate: ManagedAtomic<Bool>(gateOpen),
-            consumers: consumers
+            consumers: consumers,
+            engineSessionToken: ManagedAtomic<UInt64>(0)
         )
     }
 
