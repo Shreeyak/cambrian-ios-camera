@@ -77,6 +77,10 @@ public enum RecordingError: Error, Sendable {
     case appendFailed(status: Int)
     case finishTimeout
     case diskFull
+    case notReadyForMoreMediaData
+    case finalizeTimeout
+    case finalizeFailed(reason: String)
+    case cancelledByPause
 }
 
 // MARK: - Still capture types (compressed here per Stage 01 type-compression decision)
