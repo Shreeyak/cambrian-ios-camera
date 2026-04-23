@@ -130,7 +130,7 @@ public actor CameraEngine {
                     message: "metal: \(mErr)",
                     isFatal: false
                 )
-                self?.publishErrorAsync(err)
+                await self?.publishErrorAsync(err)
                 await self?.recovery?.enterRecovery(error: err)
             }
         }
@@ -472,7 +472,7 @@ public actor CameraEngine {
                     message: "metal: \(mErr)",
                     isFatal: false
                 )
-                self?.publishErrorAsync(err)
+                await self?.publishErrorAsync(err)
                 await self?.recovery?.enterRecovery(error: err)
             }
         }
