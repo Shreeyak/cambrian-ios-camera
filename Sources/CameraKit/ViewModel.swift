@@ -54,6 +54,13 @@ final class ViewModel {
     var captureResult: Result<StillCaptureOutput, Error>? = nil
     var currentError: CameraError?
 
+    // MARK: - Stage 10 — Recording state
+
+    var recordingState: RecordingState = .idle(lastUri: nil)
+    var recordingElapsedSeconds: Int = 0
+    @ObservationIgnored private var recordingStateTask: Task<Void, Never>?
+    @ObservationIgnored private var recordingTimerTask: Task<Void, Never>?
+
     @ObservationIgnored private var bannerDismissTask: Task<Void, Never>?
     @ObservationIgnored private var errorConsumerTask: Task<Void, Never>?
 
@@ -140,6 +147,24 @@ final class ViewModel {
 
         startDebugOverlay()
 
+        recordingStateTask = Task { [weak self] in
+            guard let self else { return }
+            for await s in await self.engine.recordingStateStream() {
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.recordingState = s
+                    switch s {
+                    case .recording:
+                        self.startRecordingTimer()
+                    default:
+                        self.recordingTimerTask?.cancel()
+                        self.recordingTimerTask = nil
+                        if case .idle = s { self.recordingElapsedSeconds = 0 }
+                    }
+                }
+            }
+        }
+
         // Observe state stream (ADR-22).
         for await state in await engine.stateStream() {
             sessionState = state
@@ -157,6 +182,10 @@ final class ViewModel {
         trackerSubscriberTask = nil
         errorConsumerTask?.cancel()
         errorConsumerTask = nil
+        recordingStateTask?.cancel()
+        recordingStateTask = nil
+        recordingTimerTask?.cancel()
+        recordingTimerTask = nil
         #if DEBUG
         if let t = cannyToken {
             await engine.consumers.unregister(token: t)
@@ -204,6 +233,36 @@ final class ViewModel {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled else { return }
                 captureResult = nil
+            }
+        }
+    }
+
+    // MARK: - Stage 10 — Recording actions
+
+    /// Starts or stops recording depending on the current recordingState.
+    func toggleRecording() {
+        Task { [weak self] in
+            guard let self else { return }
+            switch self.recordingState {
+            case .idle:
+                _ = try? await self.engine.startRecording(options: RecordingOptions())
+            case .recording:
+                _ = try? await self.engine.stopRecording()
+            default:
+                break
+            }
+        }
+    }
+
+    private func startRecordingTimer() {
+        recordingTimerTask?.cancel()
+        recordingElapsedSeconds = 0
+        recordingTimerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                await MainActor.run { [weak self] in
+                    self?.recordingElapsedSeconds += 1
+                }
             }
         }
     }
