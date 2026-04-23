@@ -2,6 +2,7 @@ import CameraKitInterop
 import CoreMedia
 import CoreVideo
 import Foundation
+import OSLog
 import Synchronization
 
 // Stage 08 — Real ConsumerRegistry backed by CppPixelSinkPool (Mechanism A, D-01 / D-03).
@@ -133,6 +134,11 @@ public actor ConsumerRegistry {
             context: callbacks.context
         )
         let token = cppPool.register(stream: stream.rawPoolId, callbacks: cbs)
+        if CameraKitLog.isEnabled {
+            CameraKitLog.consumers.info(
+                "registerCallback: stream=\(stream.rawPoolId) token=\(token) cppCount=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
+            )
+        }
         return ConsumerToken(id: token, stream: stream)
     }
 
@@ -152,6 +158,10 @@ public actor ConsumerRegistry {
         }
         if !foundSwift {
             cppPool.unregister(token: token.id)
+        }
+        if CameraKitLog.isEnabled {
+            CameraKitLog.consumers.info(
+                "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(foundSwift ? "swift" : "cpp")")
         }
     }
 
@@ -196,6 +206,13 @@ public actor ConsumerRegistry {
             frameNumber: frameSet.frameNumber,
             presentationTimeNs: presentationNs,
             surface: surface ?? nil)
+        // Throttle: log every 300 frames (~10 s at 30 fps) to avoid flooding.
+        if CameraKitLog.isEnabled && frameSet.frameNumber % 300 == 0 {
+            let hasSurface = surface != nil
+            CameraKitLog.consumers.info(
+                "yield: frame=\(frameSet.frameNumber) stream=\(stream.rawPoolId) surface=\(hasSurface) cppConsumers=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
+            )
+        }
     }
 
     private nonisolated func streamBuffer(

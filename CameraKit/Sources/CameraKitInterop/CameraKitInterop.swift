@@ -2,6 +2,9 @@ import CameraKitCxx
 // CameraKitInterop — thin Swift module isolating C++ interop per ADR-13.
 // .interoperabilityMode(.Cxx) is confined to this target only.
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "com.cambrian.camerakit", category: "interop")
 
 // MARK: - CppPixelSinkPool
 
@@ -11,9 +14,14 @@ public final class CppPixelSinkPool: @unchecked Sendable {
 
     public init() {
         handle = pixel_sink_pool_create()!
+        let ptr = pixel_sink_pool_raw_pointer(handle)
+        log.info("CppPixelSinkPool: created — handle 0x\(String(ptr, radix: 16))")
     }
 
-    deinit { pixel_sink_pool_destroy(handle) }
+    deinit {
+        log.info("CppPixelSinkPool: destroying")
+        pixel_sink_pool_destroy(handle)
+    }
 
     public func register(stream: UInt32, callbacks: CppPixelSinkCallbacks) -> UInt64 {
         pixel_sink_pool_register(handle, stream, callbacks.raw)
@@ -95,9 +103,16 @@ public final class CppCaptureAtomic: @unchecked Sendable {
 public final class CppCannyStub: @unchecked Sendable {
     private let handle: UnsafeMutableRawPointer
 
-    public init() { handle = canny_stub_create()! }
+    public init() {
+        handle = canny_stub_create()!
+        log.info("CppCannyStub: created")
+    }
 
-    deinit { canny_stub_destroy(handle) }
+    deinit {
+        let count = canny_stub_processed_count(handle)
+        log.info("CppCannyStub: destroying — total frames processed: \(count)")
+        canny_stub_destroy(handle)
+    }
 
     public var processedCount: UInt64 { canny_stub_processed_count(handle) }
 

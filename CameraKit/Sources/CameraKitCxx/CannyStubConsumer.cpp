@@ -10,9 +10,15 @@
 #include <opencv2/core.hpp>
 #include <CoreVideo/CoreVideo.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <os/log.h>
 #include <atomic>
 #include <array>
 #include <cstdint>
+
+static os_log_t cannyLog() {
+    static os_log_t l = os_log_create("com.cambrian.camerakit", "CannyStub");
+    return l;
+}
 
 static constexpr size_t kRingSize    = 64;
 static constexpr double kCannyLow    = 50.0;
@@ -31,8 +37,13 @@ public:
         if (f.surface != nullptr) {
             edgeCount = runCanny(static_cast<IOSurfaceRef>(f.surface));
         }
-        size_t idx = writeIdx_.fetch_add(1, std::memory_order_relaxed) % kRingSize;
-        ring_[idx] = {f.frameNumber, f.stream, edgeCount};
+        uint64_t idx = writeIdx_.fetch_add(1, std::memory_order_relaxed);
+        ring_[idx % kRingSize] = {f.frameNumber, f.stream, edgeCount};
+        // Log every 30 frames (~1 s at 30 fps) — gated by os_log level at runtime.
+        if (idx % 30 == 0) {
+            os_log(cannyLog(), "frame=%llu stream=%u edges=%u total=%llu",
+                   f.frameNumber, f.stream, edgeCount, idx + 1);
+        }
     }
 
     void onOverwrite(const OverwriteEvent&) override {}
