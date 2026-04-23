@@ -69,6 +69,9 @@ public enum InteropError: Error, Sendable {
     /// Stage 06: `ConsumerRegistry.registerCallback(stream:callbacks:)` throws this
     /// as a scaffolding guard — the C-ABI path lands in Stage 08 (D-01, D-03).
     case notWired
+    /// Stage 08: `registerCallback` received a `PixelSinkCallbacks` with a nil
+    /// required field (`onFrame` or `onOverwrite`).
+    case invalidCallbacks
 }
 
 public enum RecordingError: Error, Sendable {
