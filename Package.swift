@@ -51,6 +51,9 @@ let package = Package(
             resources: [.process("Shaders")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                // Required to import CameraKitInterop (built with C++ interop).
+                // No C++ types appear in CameraKit's public API — containment per ADR-13 is met.
+                .interoperabilityMode(.Cxx),
             ]
         ),
         .testTarget(
@@ -62,6 +65,7 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .interoperabilityMode(.Cxx),
             ]
         ),
     ],

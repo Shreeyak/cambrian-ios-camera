@@ -182,9 +182,10 @@ public actor ConsumerRegistry {
         }
 
         // 2. C++ pool consumers — dispatch per-stream IOSurface pointer (D-03).
+        // CVPixelBufferGetIOSurface returns Unmanaged<IOSurface>?; toOpaque() gives the IOSurfaceRef.
         let surface = streamBuffer(for: stream, frameSet: frameSet)
             .flatMap { CVPixelBufferGetIOSurface($0) }
-            .map { UnsafeMutableRawPointer($0) }
+            .map { $0.toOpaque() }
         // Convert CMTime to nanoseconds safely regardless of source timescale.
         let tsNs = CMTimeConvertScale(
             frameSet.captureTime, timescale: 1_000_000_000,
