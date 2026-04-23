@@ -1,5 +1,5 @@
 import Accelerate
-import Atomics
+import CameraKitInterop
 import CoreVideo
 import Foundation
 import ImageIO
@@ -9,13 +9,10 @@ import UniformTypeIdentifiers
 
 /// Orchestrates one-shot still image capture per architecture §D-05 and §D-09.
 ///
-/// At-most-one in-flight capture enforced by a `ManagedAtomic<Bool>` CAS guard
-/// (scaffolding:07:swift-side-capture-atomic). Migrates to C++ atomic in Stage 08.
+/// At-most-one in-flight capture enforced by a `CppCaptureAtomic` guard (ADR-13 / Invariant 7).
 final class StillCapture: @unchecked Sendable {
-    // scaffolding:07:swift-side-capture-atomic — Swift-side lock-free guard.
-    // CAS semantics: compareExchange(expected:false, desired:true) to enter;
-    // store(false) in defer to exit. Stage 08 replaces with C++ std::atomic<bool>.
-    private let captureInFlight: ManagedAtomic<Bool> = ManagedAtomic(false)
+    // C++ std::atomic<bool> per ADR-13 / Invariant 7 (CaptureAtomic.hpp, Stage 08).
+    private let captureInFlight: CppCaptureAtomic = CppCaptureAtomic()
 
     /// Injected authorization provider; override in tests to avoid PHPhotoLibrary calls.
     var authorizationProvider: @Sendable () async -> PHAuthorizationStatus = {
@@ -42,14 +39,10 @@ final class StillCapture: @unchecked Sendable {
         outputURL: URL?
     ) async throws -> StillCaptureOutput {
         // 1. CAS guard — wins exclusivity before arming pipeline (prevents race on continuation).
-        guard
-            captureInFlight.compareExchange(
-                expected: false, desired: true, ordering: .acquiringAndReleasing
-            ).exchanged
-        else {
+        guard captureInFlight.tryAcquire() else {
             throw StillCaptureError.alreadyInFlight
         }
-        defer { captureInFlight.store(false, ordering: .releasing) }
+        defer { captureInFlight.release() }
 
         // 2. Arm pipeline continuation — the next encode() will perform Pass 6.
         let readbackBuffer: CVPixelBuffer = try await withCheckedThrowingContinuation { continuation in
