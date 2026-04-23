@@ -50,4 +50,48 @@ enum Constants {
 
     /// Thread-count cap for the C++ PixelSinkPool worker queue.
     static let cppPoolThreadCount: Int = min(4, ProcessInfo.processInfo.processorCount)
+
+    // MARK: - Stage 09 — Health monitoring
+
+    // Stage 09: stall watchdogs.
+    /// GPU watchdog threshold — notify-only. constants.md#STALL_GPU_THRESHOLD_MS.
+    static let stallGpuThresholdMs: Int = 3000
+    /// Capture-result watchdog threshold — triggers recovery. constants.md#STALL_CAPTURE_THRESHOLD_MS.
+    static let stallCaptureThresholdMs: Int = 5000
+
+    // Stage 09: AE convergence.
+    /// AE convergence timeout — non-fatal notification. constants.md#AE_CONVERGENCE_TIMEOUT_MS.
+    static let aeConvergenceTimeoutMs: Int = 5000
+
+    // Stage 09: FPS degradation.
+    /// FPS floor for degradation notification. constants.md#FPS_DEGRADED_THRESHOLD_FPS.
+    static let fpsDegradedThresholdFps: Double = 15.0
+    /// Consecutive below-threshold windows required before emitting. constants.md#FPS_DEGRADED_STREAK_COUNT.
+    static let fpsDegradedStreakCount: Int = 3
+    /// One FPS measurement per window of this many frames. constants.md#FPS_MEASUREMENT_WINDOW_FRAMES.
+    static let fpsMeasurementWindowFrames: Int = 30
+
+    // Stage 09: recovery.
+    /// Consecutive HW failures before entering recovery. constants.md#HW_ERROR_THRESHOLD_CONSECUTIVE.
+    static let hwErrorThresholdConsecutive: Int = 5
+    /// Max retries before fatal MAX_RETRIES_EXCEEDED. constants.md#RECOVERY_MAX_RETRIES.
+    static let recoveryMaxRetries: Int = 5
+    /// Exponential backoff schedule (attempts 1..5+). constants.md#RECOVERY_BACKOFF_*_MS.
+    static let recoveryBackoff1Ms: Int = 500
+    static let recoveryBackoff2Ms: Int = 1000
+    static let recoveryBackoff3Ms: Int = 2000
+    static let recoveryBackoff4Ms: Int = 4000
+    static let recoveryBackoff5PlusMs: Int = 8000
+
+    /// Backoff lookup: attempts are 1-indexed; values beyond 5 clamp to `recoveryBackoff5PlusMs`.
+    static func recoveryBackoffMs(attempt: Int) -> Int {
+        switch attempt {
+        case ..<1: return recoveryBackoff1Ms
+        case 1: return recoveryBackoff1Ms
+        case 2: return recoveryBackoff2Ms
+        case 3: return recoveryBackoff3Ms
+        case 4: return recoveryBackoff4Ms
+        default: return recoveryBackoff5PlusMs
+        }
+    }
 }
