@@ -41,6 +41,10 @@ public actor CameraEngine {
     private var watchdogs: WatchdogPair?
     private var recovery: RecoveryCoordinator?
     private let clock: any CameraKitClock
+    private var aeMonitorTask: Task<Void, Never>?
+    private var fpsWindowStartMs: UInt64 = 0
+    private var fpsFrameCount: Int = 0
+    private var fpsLowStreak: Int = 0
 
     // ADR-09: GPU submission gate. Shared by reference with MetalPipeline.
     // Reads: delivery queue (.acquiring load). Writes: engine actor (.sequentiallyConsistent store).
@@ -194,6 +198,8 @@ public actor CameraEngine {
         pair.gpu.arm(sessionToken: token)
         pair.capture.arm(sessionToken: token)
 
+        startAEMonitor(device: device)
+
         // 9. Start running on sessionQueue (ADR-07).
         session.sessionQueue.async {
             session.startRunning()
@@ -257,6 +263,11 @@ public actor CameraEngine {
     public func close() async {
         sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
         watchdogs?.disarmAll()
+        aeMonitorTask?.cancel()
+        aeMonitorTask = nil
+        fpsWindowStartMs = 0
+        fpsFrameCount = 0
+        fpsLowStreak = 0
         await recovery?.cancelPendingRetry()
         watchdogs = nil
         recovery = nil
@@ -679,6 +690,37 @@ public actor CameraEngine {
     func publishErrorAsync(_ e: CameraError) { publishError(e) }
     func disarmWatchdogsAsync() { watchdogs?.disarmAll() }
 
+    private func startAEMonitor(device: any CaptureDeviceProviding) {
+        aeMonitorTask?.cancel()
+        let clock = self.clock
+        let tokenAtStart = sessionToken.load(ordering: .acquiring)
+        aeMonitorTask = Task { [weak self] in
+            var searchStartMs: UInt64?
+            for await snap in device.snapshotStream() {
+                if Task.isCancelled { return }
+                if snap.isAdjustingExposure {
+                    if searchStartMs == nil { searchStartMs = clock.nowMs() }
+                } else {
+                    searchStartMs = nil
+                }
+                if let start = searchStartMs,
+                    clock.nowMs() >= start + UInt64(Constants.aeConvergenceTimeoutMs)
+                {
+                    guard let self,
+                        self.sessionToken.load(ordering: .acquiring) == tokenAtStart
+                    else { return }
+                    let err = CameraError(
+                        code: .aeConvergenceTimeout,
+                        message: "AE searching > \(Constants.aeConvergenceTimeoutMs)ms",
+                        isFatal: false
+                    )
+                    await self.publishErrorAsync(err)
+                    searchStartMs = nil
+                }
+            }
+        }
+    }
+
     func handleWatchdogFire(_ fire: WatchdogFire) async {
         let liveToken = sessionToken.load(ordering: .acquiring)
         guard fire.armedSessionToken == liveToken else { return }
@@ -692,6 +734,38 @@ public actor CameraEngine {
 
     func noteCaptureFailure(message: String) async {
         await recovery?.noteHardwareFailure(message: message)
+    }
+
+    func noteFrameDelivered() async {
+        let now = clock.nowMs()
+        if fpsWindowStartMs == 0 {
+            fpsWindowStartMs = now
+            fpsFrameCount = 1
+            return
+        }
+        fpsFrameCount += 1
+        if fpsFrameCount >= Constants.fpsMeasurementWindowFrames {
+            let elapsedMs = max(1, now - fpsWindowStartMs)
+            let fps = Double(fpsFrameCount) * 1000.0 / Double(elapsedMs)
+            if fps < Constants.fpsDegradedThresholdFps {
+                fpsLowStreak += 1
+                if fpsLowStreak >= Constants.fpsDegradedStreakCount {
+                    publishError(
+                        CameraError(
+                            code: .fpsDegraded,
+                            message: String(
+                                format: "%.1f fps over %d-frame window", fps, Constants.fpsMeasurementWindowFrames),
+                            isFatal: false
+                        ))
+                    fpsLowStreak = 0
+                }
+            } else {
+                fpsLowStreak = 0
+            }
+            fpsWindowStartMs = now
+            fpsFrameCount = 0
+        }
+        await recovery?.noteHardwareSuccess()
     }
 
     func resetFromTerminal() async {
