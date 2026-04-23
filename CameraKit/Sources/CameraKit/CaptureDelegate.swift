@@ -52,6 +52,8 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
         watchdogs?.capture.refresh()
         onSampleBuffer?(sampleBuffer)
         engine?.tickFrame()
+        let engRef = engine
+        Task { await engRef?.noteFrameDelivered() }
     }
 
     /// Invoked on the `delivery` queue when a frame is dropped.
