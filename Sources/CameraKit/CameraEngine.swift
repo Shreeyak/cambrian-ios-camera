@@ -736,6 +736,32 @@ public actor CameraEngine {
         return uri
     }
 
+    /// Pauses capture and finalizes any active recording synchronously on the engine actor.
+    ///
+    /// scaffolding:10:synchronous-drain-pause — pause() during recording runs finalize
+    /// synchronously on the engine actor. There is NO UIApplication.beginBackgroundTask
+    /// wrapper, so the drain cannot survive backgrounding. Stage 12 retires this scaffold
+    /// by adding the background-task assertion around the same finalize path.
+    public func pause() async throws {
+        if let rec = recording, let pipeline = metalPipeline {
+            pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
+            _ = await rec.stop(reason: .pause)
+            self.recording = nil
+            pipeline.onEncodedBufferReady = nil
+        }
+        await cameraSession?.stopRunningAsync()
+        publishState(.paused)
+    }
+
+    /// Resumes capture after a pause().
+    ///
+    /// - Throws: `EngineError.notOpen` if the engine has not been opened.
+    public func resume() async throws {
+        guard isOpen, let session = cameraSession else { throw EngineError.notOpen }
+        await session.startRunningAsync()
+        publishState(.streaming)
+    }
+
     func publishRecordingStateFromHook(_ s: RecordingState) {
         publishRecordingState(s)
     }
