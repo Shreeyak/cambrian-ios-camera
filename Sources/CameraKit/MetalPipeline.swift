@@ -148,6 +148,23 @@ final class MetalPipeline: @unchecked Sendable {
     // Hook for Metal-level errors; set by engine after init.
     var onMetalError: (@Sendable (MetalError) -> Void)?
 
+    // MARK: - Stage 10: Pass 5 encoder (NV12 encode)
+
+    /// NV12 pixel buffer pool for the encoder path.
+    ///
+    /// Allocated once in init().
+    private let encoderPool: CVPixelBufferPool
+    // Compute PSO for the rgba16fToNV12 kernel (Stage 10 / Task 7 shader).
+    private let nv12EncodePSO: MTLComputePipelineState
+    /// Engine sets this to true at startRecording(), false at stopRecording()/pause().
+    ///
+    /// Loaded on the delivery queue with .acquiring before each Pass 5 dispatch.
+    let isRecording: ManagedAtomic<Bool> = ManagedAtomic(false)
+    /// Installed by the engine after open().
+    ///
+    /// Pass 5 delivers the NV12 CVPixelBuffer + PTS.
+    var onEncodedBufferReady: (@Sendable (CVPixelBuffer, CMTime) -> Void)?
+
     // Most recently committed command buffer. Written on delivery queue after each
     // commit; read via drainLastBuffer() which is called from the engine actor.
     // Safe under the @unchecked Sendable assertion — writes cease once the gate is
@@ -261,6 +278,13 @@ final class MetalPipeline: @unchecked Sendable {
         // 8. Still-capture pool — 1-slot, CPU-readable, RGBA16F (Stage 07).
         let sPool = try texturePool.makeStillCapturePool(size: captureSize)
         self.stillCapturePool = sPool
+
+        // 9. Stage 10: encoder NV12 pool + rgba16fToNV12 PSO (Pass 5).
+        encoderPool = try texturePool.makeEncoderNV12Pool(size: captureSize)
+        guard let fnEncode = library.makeFunction(name: "rgba16fToNV12") else {
+            throw MetalError.pipelineStateCompilation("rgba16fToNV12 missing")
+        }
+        nv12EncodePSO = try device.makeComputePipelineState(function: fnEncode)
 
         // 7. Pass-4 tracker downsample PSO + sampler.
         guard let trackerFunction = library.makeFunction(name: "trackerDownsample") else {
@@ -412,6 +436,31 @@ final class MetalPipeline: @unchecked Sendable {
             }
         }
 
+        // Pass 5: RGBA16F → NV12 encode (Stage 10). Runs only while recording.
+        // Pool exhaustion drops this frame from the recorder; preview is unaffected
+        // (domain 06 Recording-Sink Back-Pressure).
+        var encoderPairForCompletion: (buffer: CVPixelBuffer, yTex: MTLTexture, cbcrTex: MTLTexture)?
+        if isRecording.load(ordering: .acquiring) {
+            if let enc = try? texturePool.dequeueEncoderBuffer(pool: encoderPool) {
+                let pass5 = commandBuffer.makeComputeCommandEncoder()!
+                pass5.setComputePipelineState(nv12EncodePSO)
+                pass5.setTexture(processedTexI, index: 0)
+                pass5.setTexture(enc.yTex, index: 1)
+                pass5.setTexture(enc.cbcrTex, index: 2)
+                let cbcrW = enc.cbcrTex.width
+                let cbcrH = enc.cbcrTex.height
+                let tg5 = MTLSize(width: 16, height: 16, depth: 1)
+                let groups5 = MTLSize(
+                    width: (cbcrW + 15) / 16,
+                    height: (cbcrH + 15) / 16,
+                    depth: 1
+                )
+                pass5.dispatchThreadgroups(groups5, threadsPerThreadgroup: tg5)
+                pass5.endEncoding()
+                encoderPairForCompletion = enc
+            }
+        }
+
         // 9. Gate check (ADR-09, D-06). Strict policy: every .inactive gates.
         guard submissionGate.load(ordering: .acquiring) else { return }
 
@@ -428,6 +477,8 @@ final class MetalPipeline: @unchecked Sendable {
         let consumers = self.consumers
         let trackerForSet: CVPixelBuffer = trackerBuf ?? naturalBuf
         let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
+        // Stage 10: extract NV12 buffer for delivery in completion handler.
+        let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
         // advanced (close() / recovery ran) — prevents use-after-free on readback
@@ -460,6 +511,10 @@ final class MetalPipeline: @unchecked Sendable {
                 let cont = self.pendingCaptureContinuation
                 self.pendingCaptureContinuation = nil
                 cont?.resume(returning: buf)
+            }
+            // Stage 10: deliver NV12 encoder buffer if Pass 5 ran and command buffer succeeded.
+            if let encBuf = encoderBufForCompletion, cb.status == .completed {
+                self.onEncodedBufferReady?(encBuf, captureTime)
             }
             // Construct FrameSet from delivery-queue-local captures only.
             let fs = FrameSet(
