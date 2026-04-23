@@ -140,6 +140,9 @@ public actor CameraEngine {
 
         // 6. Store state.
         self.cameraSession = session
+        session.onSessionEvent = { [weak self] event in
+            Task { [weak self] in await self?.onSessionEvent(event) }
+        }
         self.captureDelegate = delegate
         self.metalPipeline = pipeline
         self._metalPipeline = pipeline
@@ -693,5 +696,34 @@ public actor CameraEngine {
 
     func resetFromTerminal() async {
         await close()
+    }
+
+    func onSessionEvent(_ event: CameraSession.SessionEvent) async {
+        switch event {
+        case .cameraInUseBegan:
+            let err = CameraError(
+                code: .cameraInUse,
+                message: "videoDeviceInUseByAnotherClient",
+                isFatal: true
+            )
+            watchdogs?.disarmAll()
+            await recovery?.cancelPendingRetry()
+            publishError(err)
+            publishState(.error)
+        case .cameraInUseEnded:
+            // D-14 + OQ-04: return to .closed; host must call open() again.
+            await resetFromTerminal()
+        case .runtimeError(let msg):
+            let err = CameraError(code: .cameraAccessError, message: msg, isFatal: false)
+            publishError(err)
+            await recovery?.enterRecovery(error: err)
+        case .otherInterruption:
+            break
+        }
+    }
+
+    /// Test-only: inject a session event directly (avoids needing avSession reference).
+    func _postSessionEventForTest(_ event: CameraSession.SessionEvent) async {
+        await onSessionEvent(event)
     }
 }
