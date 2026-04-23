@@ -66,12 +66,10 @@ public enum MetalError: Error, Sendable {
 public enum InteropError: Error, Sendable {
     case pixelSinkRegistrationRejected(code: Int32)
     case pipelineHandleUnavailable
-    /// Stage 06: `ConsumerRegistry.registerCallback(stream:callbacks:)` throws this
-    /// as a scaffolding guard — the C-ABI path lands in Stage 08 (D-01, D-03).
-    case notWired
-    /// Stage 08: `registerCallback` received a `PixelSinkCallbacks` with a nil
-    /// required field (`onFrame` or `onOverwrite`).
+    /// on_frame or on_overwrite was nil on registerCallback (D-03 / D-11 quality gate).
     case invalidCallbacks
+    /// Unmanaged retain/release mismatch detected on unregister.
+    case retainMismatch
 }
 
 public enum RecordingError: Error, Sendable {

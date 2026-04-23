@@ -398,6 +398,14 @@ public actor CameraEngine {
         _metalPipeline?.latestTrackerTex
     }
 
+    /// Returns the raw C++ PixelSinkPool pointer as UInt64 while holding the engine actor (D-15).
+    ///
+    /// Returns nil when the engine is not open.
+    public func getNativePipelineHandle() -> UInt64? {
+        guard isOpen else { return nil }
+        return consumers.nativePipelinePointer()
+    }
+
     /// Stage 05: writes color-transform uniforms through `Mutex<UniformStorage>` (ADR-34, D-17, Inv 6).
     ///
     /// Wholesale replacement (no merge — `ProcessingParameters` is non-nullable per
