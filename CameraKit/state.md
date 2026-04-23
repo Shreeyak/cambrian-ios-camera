@@ -43,8 +43,8 @@ public struct SystemClock: CameraKitClock { ... }
 | `09:ae-convergence-timeout-emits` | PASS | Stage09Tests (constants/type validation; device integration DEFERRED) |
 | `09:fps-degraded-requires-streak` | PASS | Stage09Tests (constants/type validation; device integration DEFERRED) |
 | `09:error-stream-delivers-every-transition` | PASS | Stage09Tests |
-| `09:recovery-banner-on-simulated-capture-failure` | DEFERRED | HITL — `measurements/stage-09/recovery.md` |
-| `09:camera-in-use-self-heal-device` | DEFERRED | HITL — `measurements/stage-09/recovery.md` |
+| `09:recovery-banner-on-simulated-capture-failure` | PASS | HITL — LLDB-triggered frame stall; banner rendered correctly. `measurements/stage-09/recovery.md` |
+| `09:camera-in-use-self-heal-device` | FAIL | HITL — interruption notification unreliable; recovery loop crashed instead of fatal alert. Bug logged. `measurements/stage-09/recovery.md` |
 
 ## Decisions taken that weren't in briefs — Stage 09
 
@@ -58,10 +58,9 @@ public struct SystemClock: CameraKitClock { ... }
 
 ## Open questions for next stage
 
-1. **HITL `09:recovery-banner-on-simulated-capture-failure`** — device run with forced capture failure needed; evidence template in `measurements/stage-09/recovery.md`.
-2. **HITL `09:camera-in-use-self-heal-device`** — device run with FaceTime interruption needed.
-3. **Full AE + FPS integration tests** — need `TestClock`-driven `startAEMonitor` and `noteFrameDelivered` harnesses; deferred to a test-improvement pass.
-4. **Carried open questions from Stage 08** (focalLengthMm, ADR-13 upstream, OpenCV Mac slice, sigmoid curve, D-17 revision).
+1. **BUG: `09:camera-in-use-self-heal-device` FAIL** — `AVCaptureSession.wasInterruptedNotification` with `videoDeviceInUseByAnotherClient` did not arrive before watchdogs timed out (3s / 5s). Recovery loop then attempted `open()` while camera was locked by the system Camera app, crashed before `MAX_RETRIES_EXCEEDED` alert rendered. Fix needed: detect camera-in-use error from `open()` throws during retry and short-circuit to fatal state without exhausting retries.
+2. **Full AE + FPS integration tests** — need `TestClock`-driven `startAEMonitor` and `noteFrameDelivered` harnesses; deferred to a test-improvement pass.
+3. **Carried open questions from Stage 08** (focalLengthMm, ADR-13 upstream, OpenCV Mac slice, sigmoid curve, D-17 revision).
 
 # state.md — Stage 08
 
