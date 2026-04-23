@@ -302,11 +302,9 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
-        guard
-            let drawable = view.currentDrawable,
-            let commandQueue,
-            let commandBuffer = commandQueue.makeCommandBuffer()
-        else { return }
+        // Acquire drawable first; every early-exit after this point must present.
+        guard let drawable = view.currentDrawable else { return }
+        guard let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
         // Always clear to black and always present — ensures the CAMetalLayer never
         // shows uninitialized GPU memory (green) regardless of whether a texture is ready.
