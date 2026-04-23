@@ -97,6 +97,13 @@ final class MetalPipeline: @unchecked Sendable {
     nonisolated(unsafe) private var latestProcessedBuffer: CVPixelBuffer?
     nonisolated(unsafe) private var latestTrackerBuffer: CVPixelBuffer?
 
+    // Still capture (Stage 07) — one slot, CPU-readable pool.
+    private var stillCapturePool: CVPixelBufferPool?
+    // Armed by StillCapture.armCapture(); cleared by completion handler after delivery.
+    // Single-writer guarantee: CAS guard in StillCapture prevents concurrent arming.
+    nonisolated(unsafe) var pendingCaptureContinuation: CheckedContinuation<CVPixelBuffer, Error>?
+    private(set) var stillCaptureDequeueCount: Int = 0  // test seam
+
     // MARK: - Pass 4 — tracker downsample (Stage 06)
 
     /// Pass-4 tracker downsample PSO + sampler.
@@ -240,6 +247,10 @@ final class MetalPipeline: @unchecked Sendable {
         processedPool = try texturePool.makeWorkingFormatPool(size: captureSize)
         trackerPool = try texturePool.makeWorkingFormatPool(size: trackerSize)
 
+        // 8. Still-capture pool — 1-slot, CPU-readable, RGBA16F (Stage 07).
+        let sPool = try texturePool.makeStillCapturePool(size: captureSize)
+        self.stillCapturePool = sPool
+
         // 7. Pass-4 tracker downsample PSO + sampler.
         guard let trackerFunction = library.makeFunction(name: "trackerDownsample") else {
             throw MetalError.pipelineStateCompilation("trackerDownsample not found")
@@ -362,6 +373,34 @@ final class MetalPipeline: @unchecked Sendable {
             pass4.endEncoding()
         }
 
+        // Pass 6: blit processedTexI → still readback buffer (gated on pending capture).
+        // Origins must be (0,0,0) — non-zero origins on IOSurface textures break rendering
+        // (CLAUDE.md §8 invariant). Dequeue from dedicated still pool, not processed pool.
+        var stillPairForCompletion: (buffer: CVPixelBuffer, texture: MTLTexture)?
+        if pendingCaptureContinuation != nil, let sPool = stillCapturePool {
+            if let pair = try? texturePool.dequeuePoolTexture(
+                pool: sPool, width: captureSize.width, height: captureSize.height
+            ) {
+                let pass6 = commandBuffer.makeBlitCommandEncoder()!
+                pass6.copy(
+                    from: processedTexI,
+                    sourceSlice: 0,
+                    sourceLevel: 0,
+                    sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                    sourceSize: MTLSize(
+                        width: processedTexI.width, height: processedTexI.height, depth: 1
+                    ),
+                    to: pair.texture,
+                    destinationSlice: 0,
+                    destinationLevel: 0,
+                    destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+                )
+                pass6.endEncoding()
+                stillPairForCompletion = pair
+                stillCaptureDequeueCount += 1
+            }
+        }
+
         // 9. Gate check (ADR-09, D-06). Strict policy: every .inactive gates.
         guard submissionGate.load(ordering: .acquiring) else { return }
 
@@ -377,11 +416,25 @@ final class MetalPipeline: @unchecked Sendable {
         let trackerTex = trackerPair?.texture
         let consumers = self.consumers
         let trackerForSet: CVPixelBuffer = trackerBuf ?? naturalBuf
+        let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
 
         // scaffolding:01:skip-completion-guard — addCompletedHandler does not
         // check sessionState before touching flush state. D-10 guard arrives
         // Stage 09.
-        commandBuffer.addCompletedHandler { [weak self] _ in
+        commandBuffer.addCompletedHandler { [weak self] cb in
+            // Deliver still readback buffer to StillCapture if Pass 6 ran.
+            if let buf = stillBufForCompletion {
+                let cont = self?.pendingCaptureContinuation
+                self?.pendingCaptureContinuation = nil
+                if cb.status == .error {
+                    cont?.resume(
+                        throwing: MetalError.commandBufferFailed(
+                            code: (cb.error as NSError?)?.code ?? -1
+                        ))
+                } else {
+                    cont?.resume(returning: buf)
+                }
+            }
             // Construct FrameSet from delivery-queue-local captures only.
             let fs = FrameSet(
                 frameNumber: fn,
@@ -534,6 +587,17 @@ final class MetalPipeline: @unchecked Sendable {
         return sum / Float(hi - lo)
     }
 
+    // MARK: - Still capture (Stage 07)
+
+    /// Arms the next-frame Pass 6 blit.
+    ///
+    /// Called by StillCapture after winning the CAS. Must be called before the next
+    /// `encode()` invocation. The continuation will be resumed exactly once — either
+    /// with the readback buffer on success, or with an error on GPU failure.
+    func armCapture(continuation: CheckedContinuation<CVPixelBuffer, Error>) {
+        pendingCaptureContinuation = continuation
+    }
+
     // MARK: - Internal test seams
 
     /// Convenience init that creates its own gate and an empty ConsumerRegistry.
@@ -584,6 +648,8 @@ final class MetalPipeline: @unchecked Sendable {
     var processedPoolForTest: CVPixelBufferPool { processedPool }
     var trackerPoolForTest: CVPixelBufferPool { trackerPool }
     var trackerSizeForTest: Size { trackerSize }
+    var stillCapturePoolForTest: CVPixelBufferPool? { stillCapturePool }
+    var stillCaptureDequeueCountForTest: Int { stillCaptureDequeueCount }
 
     func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
         latestNaturalBuffer = buffer

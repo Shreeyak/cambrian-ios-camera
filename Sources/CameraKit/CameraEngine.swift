@@ -19,6 +19,7 @@ public actor CameraEngine {
     private var cameraSession: CameraSession?
     private var captureDelegate: CaptureDelegate?
     private var metalPipeline: MetalPipeline?
+    private var stillCapture: StillCapture?
     /// Stage 06: public consumer registry per D-01 / D-03.
     ///
     /// Lifetime matches the engine; every `open()` passes this same instance to
@@ -111,6 +112,7 @@ public actor CameraEngine {
         self.captureDelegate = delegate
         self.metalPipeline = pipeline
         self._metalPipeline = pipeline
+        stillCapture = StillCapture()
         self._naturalTex = pipeline.currentTexture()
         self._processedTex = pipeline.currentProcessedTex()
         self.deliveryQueue = delivery
@@ -196,6 +198,7 @@ public actor CameraEngine {
         cameraSession = nil
         captureDelegate = nil
         metalPipeline = nil
+        stillCapture = nil
         _metalPipeline = nil
         _naturalTex = nil
         _processedTex = nil
@@ -458,6 +461,46 @@ public actor CameraEngine {
     /// sliders before `open()`."
     public nonisolated func getPersistedProcessingParameters() -> ProcessingParameters? {
         SettingsPersistence.loadProcessing()
+    }
+
+    /// Stage 07: captures the current processed frame as a still image.
+    ///
+    /// - Parameter outputPath: If non-nil, write the TIFF to this path directly.
+    ///   If nil, saves to the Photos library (or Documents as fallback).
+    /// - Returns: A `StillCaptureOutput` with the final file path.
+    /// - Throws: `EngineError.notOpen` if the engine is not open or not running.
+    /// - Throws: `EngineError.capture(_:)` wrapping any `StillCaptureError`.
+    public func captureImage(outputPath: String? = nil) async throws -> StillCaptureOutput {
+        guard isOpen, let pipeline = metalPipeline, let capture = stillCapture else {
+            throw EngineError.notOpen
+        }
+        guard let session = cameraSession, session.avSession.isRunning else {
+            throw EngineError.capture(.metalReadbackFailed)
+        }
+
+        let snap = await cameraSession?.device?.lastSnapshot
+
+        let apertureValue: Double
+        if let live = cameraSession?.device as? LiveCaptureDevice {
+            apertureValue = Double(live.avDevice.lensAperture)
+        } else {
+            apertureValue = 0
+        }
+
+        let outputURL = outputPath.map { URL(fileURLWithPath: $0) }
+
+        do {
+            return try await capture.captureImage(
+                pipeline: pipeline,
+                captureSize: pipeline.captureSize,
+                deviceSnapshot: snap,
+                focalLengthMm: 0,
+                apertureValue: apertureValue,
+                outputURL: outputURL
+            )
+        } catch let e as StillCaptureError {
+            throw EngineError.capture(e)
+        }
     }
 
     // MARK: - Internal helpers (accessible via @testable import)

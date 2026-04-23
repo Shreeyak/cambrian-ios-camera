@@ -1,3 +1,73 @@
+# state.md — Stage 07
+
+## Current stage
+Stage 07 complete.
+
+## Scaffolding still live
+
+| Slug | File | Line | Retires in |
+|------|------|------|-----------|
+| `01:simple-metal-passthrough` | `TexturePoolManager.swift`, `MetalPipeline.swift`, `Shaders/ColorShaders.metal` | texture pool + encode path | Stage 08 |
+| `01:skip-completion-guard` | `MetalPipeline.swift` | `addCompletedHandler` | Stage 09 |
+| `06:simple-consumer-swift-only` | `PixelSink.swift` | `registerCallback` throws `notWired` | Stage 08 |
+| `07:swift-side-capture-atomic` | `StillCapture.swift` | `captureInFlight: ManagedAtomic<Bool>` | Stage 08 |
+
+Pre-flight grep command (Stage 08 must run before modifying sources):
+```
+grep -rn '01:simple-metal-passthrough\|01:skip-completion-guard\|06:simple-consumer-swift-only\|07:swift-side-capture-atomic' CameraKit/Sources/
+```
+All four slugs must return ≥1 hit before any Stage 08 edit.
+
+## What's built — Stage 07 (permanent)
+
+- `FrameSet.swift` — `extension CVPixelBuffer: @retroactive @unchecked Sendable {}` added (G-13: CVPixelBuffer not yet Sendable on iOS 26; IOSurface + GPU-completion ordering make cross-thread use safe; required for `CheckedContinuation<CVPixelBuffer, Error>` in Stage 07).
+- `Errors.swift` — `StillCaptureError.captureInProgress` renamed to `alreadyInFlight`; `EngineError.capture(StillCaptureError)` case added.
+- `TexturePoolManager.swift` — `makeStillCapturePool(size:)`: 1-slot, IOSurface-backed, RGBA16F pool for CPU-readable still capture readback.
+- `MetalPipeline.swift` — `stillCapturePool` (dedicated 1-slot); `pendingCaptureContinuation: CheckedContinuation<CVPixelBuffer, Error>?` mailbox (`nonisolated(unsafe)`); `stillBufForCompletion` captured before closure (avoids Swift 6 tuple-send warning); Pass 6 (blit `processedTexI → stillReadbackBuffer` at zero origins, gated on `pendingCaptureContinuation != nil`); completion-handler delivery of readback buffer; `armCapture(continuation:)` method; `stillCapturePoolForTest` + `stillCaptureDequeueCountForTest` test seams.
+- `StillCapture.swift` — `captureInFlight: ManagedAtomic<Bool>` CAS guard (scaffolding:07:swift-side-capture-atomic); `captureImage(pipeline:captureSize:deviceSnapshot:focalLengthMm:apertureValue:outputURL:)` async throws; vImage RGBA16F→RGBA8 conversion via `vImageConverter_CreateWithCGImageFormat` + `vImageConvert_AnyToAny`; `CGImageDestination` TIFF writer; EXIF dictionary (`ISO`, `ExposureTime`, `FocalLength`, `ApertureValue`, `SubjectDistance`, `ExposureProgram`, `DateTimeOriginal`, `UserComment`); TIFF dictionary (`Orientation`, `DateTime`); `"CamPlugin/v1"` JSON envelope under `UserComment` (D-09); `PHPhotoLibrary.requestAuthorization(for: .addOnly)` + `performChanges`; app-documents fallback on denial; `authorizationProvider` closure injection seam; `encodeToTIFF(readbackBuffer:...)` internal helper for tests.
+- `CameraEngine.swift` — `captureImage(outputPath:)` public API; engine state guard (must be open + session running); `StillCapture` instance created at `open()`, cleared at `close()`; `apertureValue` from `LiveCaptureDevice.avDevice.lensAperture`; `focalLengthMm = 0` (placeholder per §4 brief footnote — see open questions); typed-throws wrapping `StillCaptureError` in `EngineError.capture(...)`.
+- `eva-swift-stitch.xcodeproj` — `INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription` build setting added to Debug + Release; `Stage07Tests.swift` wired into `eva-swift-stitchTests` target.
+- `ViewModel.swift` — `captureResult: Result<StillCaptureOutput, Error>?`; `captureImage()` action; 3-second auto-dismiss `bannerDismissTask`.
+- `CameraView.swift` — capture button (`camera.shutter.button`) in bottom bar; "Image saved: …" / "Capture failed: …" banner with `.safeAreaInset(edge: .bottom)` + 3s auto-dismiss animation.
+- `Stage07Tests.swift` — 5 `@Test` functions: `stillCaptureInFlightGuard`, `tiffRoundTripMatchesProcessedPreview`, `exifEnvelopeContainsCamPluginV1`, `photoLibraryAuthorizationDeniedFallsBack`, `exifStandardDictionaryPresent`.
+
+## Public API exposed so far (Stage 07 additions)
+
+```swift
+public func captureImage(outputPath: String? = nil) async throws -> StillCaptureOutput   // on CameraEngine
+```
+
+## Manual test evidence — Stage 07
+
+| Test ID | Status | Notes |
+|---------|--------|-------|
+| `07:still-capture-in-flight-guard` | PASS | Stage07Tests/stillCaptureInFlightGuard |
+| `07:tiff-round-trip-matches-processed-preview` | PASS | Stage07Tests/tiffRoundTripMatchesProcessedPreview |
+| `07:exif-envelope-contains-camplugin-v1` | PASS | Stage07Tests/exifEnvelopeContainsCamPluginV1 |
+| `07:photo-library-authorization-denied-falls-back` | PASS | Stage07Tests/photoLibraryAuthorizationDeniedFallsBack |
+| `07:exif-standard-dictionary-present` | PASS | Stage07Tests/exifStandardDictionaryPresent |
+| `07:tiff-opens-in-preview-and-photos` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
+| `07:saved-banner-appears-three-seconds` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
+| `07:authorization-dialog-first-capture` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
+
+## Decisions taken that weren't in briefs — Stage 07
+
+31. **`vImageConverter_CreateWithCGImageFormat` + `vImageConvert_AnyToAny` instead of `vImageConvert_RGBA16FtoARGB8888`.** `vImageConvert_RGBA16FtoARGB8888` is not available in the SDK (no such symbol). Used the generic vImage converter pipeline with explicit `vImageCVImageFormat` source (RGBA16F) and `vImageCGImageFormat` destination (RGBA8) instead. Channel ordering is handled by the converter's format specification.
+
+32. **`kCGImagePropertyTIFFImageWidth` / `kCGImagePropertyTIFFImageLength` don't exist as constants.** Plan referenced these keys; they are not in ImageIO's SDK headers. TIFF dimensions are derived from the CGImage itself by `CGImageDestinationAddImage`. Removed from the TIFF metadata dict.
+
+33. **`CVPixelBuffer: @retroactive @unchecked Sendable` added to FrameSet.swift.** Swift 6 strict concurrency requires `Sendable` for values passed to `CheckedContinuation.resume(returning:)`. CVPixelBuffer is not formally Sendable on iOS 26. Adding a module-level retroactive conformance (matching the existing `FrameSet: @unchecked Sendable` rationale in G-13) resolves the error cleanly without changing the continuation type.
+
+34. **`stillBufForCompletion: CVPixelBuffer?` captured as named let before closure.** Swift 6 flags accessing `stillPair.0` (tuple member) inside a `@Sendable` closure as a data race. Extracting the buffer to a named let binding before the closure (same pattern as `naturalBuf`/`processedBuf`) eliminates the diagnostic.
+
+## Open questions for next stage
+
+1. **`focalLengthMm`** — `AVCaptureDevice.activeFormat` doesn't expose focal length directly; used 0 as placeholder per brief §4 footnote. Upstream should clarify which metadata field to use.
+2. **HITL evidence** (`07:tiff-opens-in-preview-and-photos`, `07:saved-banner-appears-three-seconds`, `07:authorization-dialog-first-capture`) deferred to device-on-hand session.
+3. **`"CamPlugin/v1"` JSON schema** (U-09) remains deferred.
+4. **Sigmoid contrast curve** (carried from Stage 06) — pin formula before Stage 11.
+5. **D-17 upstream revision** (carried from Stage 06).
+
 # state.md — Stage 06
 
 ## Current stage
