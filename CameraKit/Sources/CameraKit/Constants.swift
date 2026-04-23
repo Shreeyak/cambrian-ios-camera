@@ -45,4 +45,9 @@ enum Constants {
     /// after this many seconds of disuse (constants.md#POOL_MAX_BUFFER_AGE_SECONDS,
     /// ADR-19).
     static let poolMaxBufferAgeSeconds: Double = 1.0
+
+    // MARK: - Stage 08 — C++ pool
+
+    /// Thread-count cap for the C++ PixelSinkPool worker queue.
+    static let cppPoolThreadCount: Int = min(4, ProcessInfo.processInfo.processorCount)
 }

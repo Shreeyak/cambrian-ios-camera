@@ -1,17 +1,18 @@
+import CameraKitInterop
+import CoreMedia
+import CoreVideo
 import Foundation
 import Synchronization
 
-// Stage 06 — ConsumerRegistry actor + C-ABI PixelSinkCallbacks struct
-// per architecture 05-consumers.md §D-01 / §D-03 and ADR-18 / ADR-22 / ADR-31.
+// Stage 08 — Real ConsumerRegistry backed by CppPixelSinkPool (Mechanism A, D-01 / D-03).
+// Dual-dispatch: yield() drives both Swift AsyncStream subscribers and C++ pool consumers.
 
 /// Opaque token returned by `ConsumerRegistry.subscribe(stream:)` and
 /// `.registerCallback(stream:callbacks:)`.
-///
-/// Holds the lane id so unregister can route to the right internal collection
-/// without a second lookup.
 public struct ConsumerToken: Sendable, Hashable {
     public let id: UInt64
     public let stream: StreamId
+
     public init(id: UInt64, stream: StreamId) {
         self.id = id
         self.stream = stream
@@ -19,44 +20,29 @@ public struct ConsumerToken: Sendable, Hashable {
 }
 
 /// C-ABI-shaped callback struct per ADR-31 and D-03.
-///
-/// The Stage-08 C++ `PixelSink` pool will invoke these `@convention(c)` function
-/// pointers; in Stage 06 this type exists only so the signature of
-/// `registerCallback` can compile — the method itself throws
-/// `InteropError.notWired` (scaffolding:06:simple-consumer-swift-only).
-public struct PixelSinkCallbacks {
+public struct PixelSinkCallbacks: @unchecked Sendable {
     // swiftlint:disable nesting
     public typealias OnFrame =
         @convention(c) (
-            _ context: UnsafeMutableRawPointer?,
-            _ stream: UInt32,
-            _ frameNumber: UInt64,
-            _ presentationTimeNs: Int64,
+            _ context: UnsafeMutableRawPointer?, _ stream: UInt32,
+            _ frameNumber: UInt64, _ presentationTimeNs: Int64,
             _ surface: UnsafeMutableRawPointer?
         ) -> Void
-
     public typealias OnOverwrite =
-        @convention(c) (
-            _ context: UnsafeMutableRawPointer?,
-            _ stream: UInt32
-        ) -> Void
-
+        @convention(c) (_ context: UnsafeMutableRawPointer?, _ stream: UInt32) -> Void
     public typealias OnError =
-        @convention(c) (
-            _ context: UnsafeMutableRawPointer?,
-            _ code: Int32
-        ) -> Void
+        @convention(c) (_ context: UnsafeMutableRawPointer?, _ code: Int32) -> Void
     // swiftlint:enable nesting
 
-    public let onFrame: OnFrame
-    public let onOverwrite: OnOverwrite
-    public let onError: OnError
+    public let onFrame: OnFrame?
+    public let onOverwrite: OnOverwrite?
+    public let onError: OnError?
     public let context: UnsafeMutableRawPointer?
 
     public init(
-        onFrame: OnFrame,
-        onOverwrite: OnOverwrite,
-        onError: OnError,
+        onFrame: OnFrame?,
+        onOverwrite: OnOverwrite?,
+        onError: OnError?,
         context: UnsafeMutableRawPointer?
     ) {
         self.onFrame = onFrame
@@ -66,21 +52,15 @@ public struct PixelSinkCallbacks {
     }
 }
 
-// `UnsafeMutableRawPointer?` prevents synthesized Sendable; C-ABI pointer lifetime
-// is managed by the C++ caller per ADR-31 / D-03 — safe to cross actor boundaries.
-extension PixelSinkCallbacks: @unchecked Sendable {}
-
-/// Swift facade for the consumer fan-out.
+/// Swift facade for the consumer fan-out (D-01).
 ///
-/// Actor for subscribe/unregister/registerCallback (cold paths), but publication
-/// runs on the delivery queue through a `nonisolated` `yield(_:stream:)` — no
-/// actor hop on the frame clock (ADR-02).
+/// `subscribe(stream:)` uses `AsyncStream` directly (Phase A of D-01's dual-dispatch).
+/// `registerCallback(stream:callbacks:)` inserts a C++ pool entry (D-03).
+/// `yield(_:stream:)` dispatches to both paths.
 ///
-/// The internal subscriber table is a `Mutex<InnerState>` (iOS 18+). Readers
-/// (yield + hasSubscriber) hold the lock only for the duration of the table
-/// lookup and a `Continuation.yield(_)` call; the Continuation's buffering
-/// policy (`.bufferingNewest(1)`) + drop counter via `YieldResult.dropped`
-/// satisfy ADR-22 per-lane mailbox semantics.
+/// Actor isolation governs subscribe/unregister/registerCallback (cold paths).
+/// Publication runs on the delivery queue via a `nonisolated` `yield(_:stream:)`
+/// — no actor hop on the frame clock (ADR-02).
 public actor ConsumerRegistry {
 
     // MARK: - Internal table
@@ -93,8 +73,7 @@ public actor ConsumerRegistry {
     private struct InnerState {
         var subscribers: [StreamId: [Subscriber]] = [:]
         var nextId: UInt64 = 0
-        /// Per-lane drop counter — incremented every time `Continuation.yield`
-        /// returns `.dropped(_)` (a newer frame pushed out the prior buffered one).
+        /// Per-lane drop counter incremented when `Continuation.yield` returns `.dropped`.
         var dropCounts: [StreamId: UInt64] = [:]
     }
 
@@ -102,22 +81,24 @@ public actor ConsumerRegistry {
     // without an actor hop. `Mutex` is Sendable.
     private nonisolated let state: Mutex<InnerState> = Mutex(InnerState())
 
+    // C++ pool — owns all C-ABI consumer registrations.
+    // `nonisolated let` so `yield()` (nonisolated) can dispatch without actor hop.
+    nonisolated let cppPool: CppPixelSinkPool = CppPixelSinkPool()
+
     public init() {}
 
     // MARK: - Subscribe (Swift lane, D-01)
 
     /// Returns an `AsyncStream<FrameSet>` with `.bufferingNewest(1)` per ADR-22.
     ///
-    /// Termination of the stream (consuming `Task` cancelled or returned) runs
-    /// the onTermination closure, which removes the subscriber synchronously.
+    /// Termination of the stream (consuming `Task` cancelled or returned) removes
+    /// the subscriber synchronously via `onTermination`.
     public func subscribe(stream: StreamId) -> AsyncStream<FrameSet> {
         let id = state.withLock { inner -> UInt64 in
             inner.nextId &+= 1
             return inner.nextId
         }
-        return AsyncStream<FrameSet>(
-            bufferingPolicy: .bufferingNewest(1)
-        ) { continuation in
+        return AsyncStream<FrameSet>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             self.state.withLock { inner in
                 inner.subscribers[stream, default: []].append(
                     Subscriber(id: id, continuation: continuation))
@@ -130,42 +111,57 @@ public actor ConsumerRegistry {
         }
     }
 
-    // MARK: - registerCallback (C-ABI lane, D-03) — stub until Stage 08
+    // MARK: - registerCallback (C-ABI lane, D-03)
 
-    // scaffolding:06:simple-consumer-swift-only
-    /// C-ABI consumer registration lands in Stage 08.
+    /// Registers a C-ABI consumer in the C++ pool.
     ///
-    /// Throws `InteropError.notWired` this stage so any attempted external
-    /// wiring surfaces loudly instead of silently no-op'ing.
+    /// Throws `InteropError.invalidCallbacks` if `callbacks.onFrame` is nil or
+    /// if `callbacks.onOverwrite` is nil (both required by D-03).
     public func registerCallback(
         stream: StreamId,
         callbacks: PixelSinkCallbacks
     ) throws -> ConsumerToken {
-        throw InteropError.notWired
+        guard let onFrame = callbacks.onFrame else { throw InteropError.invalidCallbacks }
+        guard let onOverwrite = callbacks.onOverwrite else { throw InteropError.invalidCallbacks }
+        // onError is optional per D-03; default to a no-op to satisfy CppPixelSinkCallbacks.
+        let onError: PixelSinkCallbacks.OnError = callbacks.onError ?? { _, _ in }
+
+        let cbs = CppPixelSinkCallbacks(
+            onFrame: onFrame,
+            onOverwrite: onOverwrite,
+            onError: onError,
+            context: callbacks.context
+        )
+        let token = cppPool.register(stream: stream.rawPoolId, callbacks: cbs)
+        return ConsumerToken(id: token, stream: stream)
     }
 
     // MARK: - Unregister
 
-    /// Finishes the subscriber's continuation and removes it from the table.
+    /// Finishes the subscriber's continuation (Swift lane) or removes the C++ pool entry.
     public func unregister(token: ConsumerToken) {
+        var foundSwift = false
         state.withLock { inner in
             guard var lane = inner.subscribers[token.stream] else { return }
             if let idx = lane.firstIndex(where: { $0.id == token.id }) {
                 lane[idx].continuation.finish()
                 lane.remove(at: idx)
                 inner.subscribers[token.stream] = lane
+                foundSwift = true
             }
+        }
+        if !foundSwift {
+            cppPool.unregister(token: token.id)
         }
     }
 
     // MARK: - Publication path (nonisolated — delivery queue, ADR-02)
 
-    /// Yields `frameSet` into every subscriber's mailbox for `stream`.
+    /// Dual-dispatch: Swift AsyncStream subscribers + C++ pool consumers.
     ///
-    /// Runs inline on the delivery queue; no actor hop. Increments
-    /// `dropCounts[stream]` each time a Continuation reports `.dropped`
-    /// (ADR-22: newest wins).
+    /// Runs inline on delivery queue; no actor hop.
     nonisolated func yield(_ frameSet: FrameSet, stream: StreamId) {
+        // 1. Swift AsyncStream subscribers.
         state.withLock { inner in
             guard let lane = inner.subscribers[stream], !lane.isEmpty else { return }
             inner.subscribers[stream] = lane.filter { sub in
@@ -177,26 +173,49 @@ public actor ConsumerRegistry {
                     inner.dropCounts[stream, default: 0] &+= 1
                     return true
                 case .terminated:
-                    // Consumer task cancelled; remove eagerly so future yields skip the dead entry.
-                    // onTermination will also fire but continuation.finish() is idempotent.
+                    // Consumer task cancelled — remove eagerly; onTermination fires too but is idempotent.
                     return false
                 @unknown default:
                     return true
                 }
             }
         }
+
+        // 2. C++ pool consumers — dispatch per-stream IOSurface pointer (D-03).
+        let surface = streamBuffer(for: stream, frameSet: frameSet)
+            .flatMap { CVPixelBufferGetIOSurface($0) }
+            .map { UnsafeMutableRawPointer($0) }
+        // Convert CMTime to nanoseconds safely regardless of source timescale.
+        let tsNs = CMTimeConvertScale(
+            frameSet.captureTime, timescale: 1_000_000_000,
+            method: .default)
+        let presentationNs = tsNs.value
+        cppPool.dispatch(
+            stream: stream.rawPoolId,
+            frameNumber: frameSet.frameNumber,
+            presentationTimeNs: presentationNs,
+            surface: surface ?? nil)
     }
 
-    /// True if there is at least one subscriber for `stream`.
-    ///
-    /// Used by the Metal pipeline to gate Pass 4 dequeue + encode (no tracker
-    /// work when no one listens). Nonisolated because it's polled per frame on
-    /// the delivery queue.
-    nonisolated func hasSubscriber(_ stream: StreamId) -> Bool {
-        state.withLock { inner in
-            inner.subscribers[stream]?.isEmpty == false
+    private nonisolated func streamBuffer(
+        for stream: StreamId, frameSet: FrameSet
+    ) -> CVPixelBuffer? {
+        switch stream {
+        case .natural: return frameSet.natural
+        case .processed: return frameSet.processed
+        case .tracker: return frameSet.tracker
         }
     }
+
+    nonisolated func hasSubscriber(_ stream: StreamId) -> Bool {
+        let swiftHas = state.withLock { $0.subscribers[stream]?.isEmpty == false }
+        let cppHas = cppPool.consumerCount(stream: stream.rawPoolId) > 0
+        return swiftHas || cppHas
+    }
+
+    // MARK: - Native pipeline pointer
+
+    nonisolated func nativePipelinePointer() -> UInt64 { cppPool.rawPointer() }
 
     // MARK: - Teardown
 
@@ -222,5 +241,24 @@ public actor ConsumerRegistry {
     /// Per-lane subscriber count — readable from tests via @testable import.
     nonisolated func subscriberCount(for stream: StreamId) -> Int {
         state.withLock { $0.subscribers[stream]?.count ?? 0 }
+    }
+
+    /// C++ pool consumer count for `stream` — test seam.
+    nonisolated func cppConsumerCount(for stream: StreamId) -> UInt32 {
+        cppPool.consumerCount(stream: stream.rawPoolId)
+    }
+}
+
+// MARK: - StreamId C++ pool lane index
+
+extension StreamId {
+    /// Maps the `StreamId` String-raw enum to a compact UInt32 lane index
+    /// for the C++ `PixelSinkPool` (D-03).
+    var rawPoolId: UInt32 {
+        switch self {
+        case .natural: return 0
+        case .processed: return 1
+        case .tracker: return 2
+        }
     }
 }
