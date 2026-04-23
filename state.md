@@ -1,3 +1,68 @@
+# state.md — Stage 09
+
+## Current stage
+Stage 09 complete.
+
+## Scaffolding still live
+
+All prior-stage scaffolds retired through Stage 09. No active scaffolds.
+
+## What's built — Stage 09 (permanent)
+
+- `Clock.swift` — `CameraKitClock` protocol + `SystemClock` struct; injectable timing for watchdogs, recovery, and AE/FPS monitors.
+- `Watchdog.swift` — `Watchdog` (ManagedAtomic last-kick + Mutex<State> armed token); `WatchdogKind` (.gpu 3s notify-only, .capture 5s triggers recovery); `WatchdogPair` convenience struct; `Watchdog.disarmAll(_:)` static helper (D-13, Inv 12).
+- `RecoveryCoordinator.swift` — `actor RecoveryCoordinator` with exponential backoff (500/1000/2000/4000/8000 ms); retry-Task ownership per ADR-23; consecutive-HW-error counter; `resetFromTerminal()` self-heal hook.
+- `CameraEngine.swift` — `nonisolated let sessionToken: ManagedAtomic<UInt64>` (bumped on close + recovery); `WatchdogPair` + `RecoveryCoordinator` constructed in `open()`, torn down in `close()`; `errorStream()` with `.bufferingOldest(64)`; AE convergence monitor (`startAEMonitor`); FPS degradation monitor (`noteFrameDelivered`); `handleWatchdogFire`, `noteCaptureFailure`, `resetFromTerminal`, `onSessionEvent` handlers; `_emitErrorForTest` + `_postSessionEventForTest` test seams; clock injection via `init(clock:)`.
+- `MetalPipeline.swift` — D-10 completion-handler re-entrancy guard (captures `tokenAtCommit`, no-ops on mismatch, releases pending capture slot); `onMetalError` hook; `didNoOpCountForTest` counter; `engineSessionToken` parameter added to `init`. Scaffold `01:skip-completion-guard` **retired**.
+- `CaptureDelegate.swift` — `watchdogs: WatchdogPair?`; GPU + capture watchdog `refresh()` on every `captureOutput`; drop-delegate stub.
+- `CameraSession.swift` — `wasInterruptedNotification` + `interruptionEndedNotification` + `runtimeErrorNotification` observers; `SessionEvent` enum; `onSessionEvent` callback; `CAMERA_IN_USE` → fatal error + self-heal path (D-14).
+- `ViewModel.swift` — `currentError: CameraError?`; `errorConsumerTask` consuming `errorStream()`.
+- `CameraView.swift` — non-fatal recovery banner (orange, `.safeAreaInset` bottom, dismiss button); fatal-error `.alert`.
+- `Stage09Tests.swift` — 8 `@Test` functions + `TestClock` (final class, ManagedAtomic, NSLock).
+
+## Public API exposed — Stage 09
+
+```swift
+public func errorStream() -> AsyncStream<CameraError>          // CameraEngine
+public actor RecoveryCoordinator { ... }
+public final class Watchdog: @unchecked Sendable { ... }
+public struct WatchdogPair: Sendable { ... }
+public protocol CameraKitClock: Sendable { ... }
+public struct SystemClock: CameraKitClock { ... }
+```
+
+## Manual test evidence — Stage 09
+
+| Test ID | Status | Notes |
+|---------|--------|-------|
+| `09:completion-guard-no-ops-after-close` | PASS | Stage09Tests |
+| `09:watchdog-captured-token-survives-retry` | PASS | Stage09Tests |
+| `09:exponential-backoff-schedule-matches-constants` | PASS | Stage09Tests |
+| `09:camera-in-use-self-heal-to-closed` | PASS | Stage09Tests |
+| `09:disarm-before-state-transition` | PASS | Stage09Tests |
+| `09:ae-convergence-timeout-emits` | PASS | Stage09Tests (constants/type validation; device integration DEFERRED) |
+| `09:fps-degraded-requires-streak` | PASS | Stage09Tests (constants/type validation; device integration DEFERRED) |
+| `09:error-stream-delivers-every-transition` | PASS | Stage09Tests |
+| `09:recovery-banner-on-simulated-capture-failure` | DEFERRED | HITL — `measurements/stage-09/recovery.md` |
+| `09:camera-in-use-self-heal-device` | DEFERRED | HITL — `measurements/stage-09/recovery.md` |
+
+## Decisions taken that weren't in briefs — Stage 09
+
+39. **`TestClock` implemented as `final class` with `ManagedAtomic<UInt64>` + `NSLock`, not `actor`.** `CameraKitClock.nowMs()` is a synchronous non-isolated protocol requirement; an actor cannot satisfy it without `nonisolated(unsafe)`, which races under strict concurrency. `final class` with `ManagedAtomic` for the counter satisfies both `Sendable` and the sync requirement cleanly.
+
+40. **AE and FPS tests are constant-validation stubs, not full integration tests.** Full integration requires driving `snapshotStream()` and `noteFrameDelivered()` with a `TestClock` against a live engine. Designated DEFERRED per brief §11; device HITL evidence in `measurements/stage-09/recovery.md`.
+
+41. **`Watchdog.disarmAll(_:)` honored as `static func` delegating to `pair.disarmAll()`.** Brief §4 specifies a "static helper" spelling; both `WatchdogPair.disarmAll()` (instance) and `Watchdog.disarmAll(_:)` (static) are exposed per the brief's intent.
+
+42. **`publishErrorAsync` added as a thin sync wrapper on `publishError`.** Needed so `@Sendable` hook closures in `RecoveryCoordinator.Hooks` can call back into the actor without requiring `async` propagation through the hooks struct.
+
+## Open questions for next stage
+
+1. **HITL `09:recovery-banner-on-simulated-capture-failure`** — device run with forced capture failure needed; evidence template in `measurements/stage-09/recovery.md`.
+2. **HITL `09:camera-in-use-self-heal-device`** — device run with FaceTime interruption needed.
+3. **Full AE + FPS integration tests** — need `TestClock`-driven `startAEMonitor` and `noteFrameDelivered` harnesses; deferred to a test-improvement pass.
+4. **Carried open questions from Stage 08** (focalLengthMm, ADR-13 upstream, OpenCV Mac slice, sigmoid curve, D-17 revision).
+
 # state.md — Stage 08
 
 ## Current stage
