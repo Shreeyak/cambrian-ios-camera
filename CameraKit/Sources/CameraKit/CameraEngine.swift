@@ -38,6 +38,10 @@ public actor CameraEngine {
     private var cachedFrameResultStream: AsyncStream<FrameResult>?
     private var frameCounter: UInt64 = 0
 
+    private var watchdogs: WatchdogPair?
+    private var recovery: RecoveryCoordinator?
+    private let clock: any CameraKitClock
+
     // ADR-09: GPU submission gate. Shared by reference with MetalPipeline.
     // Reads: delivery queue (.acquiring load). Writes: engine actor (.sequentiallyConsistent store).
     // `let` — same instance for the lifetime of the engine; nonisolated for synchronous
@@ -67,7 +71,9 @@ public actor CameraEngine {
 
     // MARK: - Public API
 
-    public init() {}
+    public init(clock: any CameraKitClock = SystemClock()) {
+        self.clock = clock
+    }
 
     /// Returns the last successfully committed settings, or nil if none have been applied.
     public func currentSettingsSnapshot() -> CameraSettings? { currentSettings }
@@ -140,14 +146,44 @@ public actor CameraEngine {
         // 7. Open the gate (idempotent — starts true; explicit after any prior close).
         submissionGate.store(true, ordering: .sequentiallyConsistent)
 
-        // 8. Start running on sessionQueue (ADR-07).
+        // 8. Stage 09: watchdogs + recovery coordinator.
+        let gpu = Watchdog(kind: .gpu, clock: clock) { [weak self] fire in
+            Task { [weak self] in await self?.handleWatchdogFire(fire) }
+        }
+        let cap = Watchdog(kind: .capture, clock: clock) { [weak self] fire in
+            Task { [weak self] in await self?.handleWatchdogFire(fire) }
+        }
+        let pair = WatchdogPair(gpu: gpu, capture: cap)
+        self.watchdogs = pair
+        let hooks = RecoveryCoordinator.Hooks(
+            performTeardownAndReopen: { [weak self] in
+                await self?.close()
+                _ = try await self?.open(configuration: configuration)
+            },
+            emitStateRecovering: { [weak self] in
+                await self?.publishStateAsync(.recovering)
+            },
+            emitError: { [weak self] err in
+                await self?.publishErrorAsync(err)
+            },
+            disarmWatchdogs: { [weak self] in
+                await self?.disarmWatchdogsAsync()
+            },
+            incrementSessionToken: { [weak self] in
+                self?.sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
+            }
+        )
+        self.recovery = RecoveryCoordinator(clock: clock, hooks: hooks)
+        let token = sessionToken.load(ordering: .acquiring)
+        pair.gpu.arm(sessionToken: token)
+        pair.capture.arm(sessionToken: token)
+
+        // 9. Start running on sessionQueue (ADR-07).
         session.sessionQueue.async {
             session.startRunning()
         }
 
-        // TODO(stage-09-task-8): construct WatchdogPair + RecoveryCoordinator here
-
-        // 9. Publish .streaming state.
+        // 10. Publish .streaming state.
         publishState(.streaming)
 
         // Apply persisted settings if any. Clamp ISO to the device's current range
@@ -172,7 +208,7 @@ public actor CameraEngine {
             await self.setProcessingParameters(persistedProcessing)
         }
 
-        // 10. Build and return SessionCapabilities.
+        // 11. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
         let activeCropRegion = Rect(
             x: 0,
@@ -204,6 +240,10 @@ public actor CameraEngine {
     /// Closes the camera session and releases all resources.
     public func close() async {
         sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
+        watchdogs?.disarmAll()
+        await recovery?.cancelPendingRetry()
+        watchdogs = nil
+        recovery = nil
         guard isOpen else { return }
         if CameraKitLog.isEnabled {
             CameraKitLog.engine.info("close: tearing down pipeline")
@@ -603,5 +643,30 @@ public actor CameraEngine {
 
     private func publishState(_ state: SessionState) {
         stateContinuation?.yield(state)
+    }
+
+    // MARK: - Stage 09 internal hooks
+
+    func publishStateAsync(_ s: SessionState) { publishState(s) }
+    func publishErrorAsync(_ e: CameraError) { publishError(e) }
+    func disarmWatchdogsAsync() { watchdogs?.disarmAll() }
+
+    func handleWatchdogFire(_ fire: WatchdogFire) async {
+        let liveToken = sessionToken.load(ordering: .acquiring)
+        guard fire.armedSessionToken == liveToken else { return }
+        let msg = "\(fire.kind.messagePrefix) no frame in \(fire.thresholdMs)ms"
+        let err = CameraError(code: .frameStall, message: msg, isFatal: false)
+        publishError(err)
+        if fire.kind == .capture {
+            await recovery?.enterRecovery(error: err)
+        }
+    }
+
+    func noteCaptureFailure(message: String) async {
+        await recovery?.noteHardwareFailure(message: message)
+    }
+
+    func resetFromTerminal() async {
+        await close()
     }
 }
