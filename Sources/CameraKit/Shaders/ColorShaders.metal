@@ -13,9 +13,6 @@ using namespace metal;
 // Identity when ColorUniform = { brightness:0, contrast:1, saturation:0,
 // blackR:0, blackG:0, blackB:0, gamma:1 } — verified per channel below.
 //
-// scaffolding:01:simple-metal-passthrough — Pass 2 only; Pass 3/4/5/6 arrive
-// in later stages.
-
 struct ColorUniform {
     float brightness;
     float contrast;
