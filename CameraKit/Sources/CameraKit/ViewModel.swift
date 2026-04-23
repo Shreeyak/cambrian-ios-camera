@@ -48,6 +48,9 @@ final class ViewModel {
 
     var debugOverlay: DebugOverlay?
     var debugTrackerSubscribed: Bool = false
+    var captureResult: Result<StillCaptureOutput, Error>? = nil
+
+    @ObservationIgnored private var bannerDismissTask: Task<Void, Never>?
 
     @ObservationIgnored
     nonisolated(unsafe) var trackerTex: MTLTexture?
@@ -150,6 +153,23 @@ final class ViewModel {
             }
         }
         #endif
+    }
+
+    func captureImage() {
+        Task {
+            do {
+                let output = try await engine.captureImage()
+                captureResult = .success(output)
+            } catch {
+                captureResult = .failure(error)
+            }
+            bannerDismissTask?.cancel()
+            bannerDismissTask = Task {
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                captureResult = nil
+            }
+        }
     }
 
     func toggleDebugTrackerSubscription() async {

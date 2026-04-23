@@ -98,6 +98,13 @@ public struct CameraView: View {
                 .padding()
                 .background(.black.opacity(0.6))
         }
+        .safeAreaInset(edge: .bottom) {
+            if let result = viewModel.captureResult {
+                bannerView(result: result)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.captureResult != nil)
         .task {
             await viewModel.start()
         }
@@ -195,10 +202,42 @@ public struct CameraView: View {
         Task { await viewModel.updateProcessing(next) }
     }
 
+    // MARK: - Capture banner
+
+    @ViewBuilder
+    private func bannerView(result: Result<StillCaptureOutput, Error>) -> some View {
+        let (text, color): (String, Color) =
+            switch result {
+            case .success(let output):
+                (
+                    "Image saved: \(URL(fileURLWithPath: output.filePath).lastPathComponent)",
+                    .green.opacity(0.85)
+                )
+            case .failure(let error):
+                ("Capture failed: \(error.localizedDescription)", .red.opacity(0.85))
+            }
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(color)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.bottom, 8)
+    }
+
     // MARK: - Bottom bar — Stage-03 controls (kept verbatim from prior stage)
 
     private var bottomBar: some View {
         HStack(spacing: 16) {
+            Button {
+                viewModel.captureImage()
+            } label: {
+                Image(systemName: "camera.shutter.button")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .padding(8)
+            }
             sliderCell(
                 label: "ISO",
                 value: Binding(

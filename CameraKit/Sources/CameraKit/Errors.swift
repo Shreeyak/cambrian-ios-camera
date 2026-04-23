@@ -51,6 +51,7 @@ public enum EngineError: Error, Sendable {
     case metal(MetalError)
     case interop(InteropError)
     case recording(RecordingError)
+    case capture(StillCaptureError)
     case fatal(CameraError)
 }
 
@@ -91,7 +92,7 @@ public struct StillCaptureOutput: Sendable, Hashable {
 ///
 /// Full implementation Stage 06.
 public enum StillCaptureError: Error, Sendable {
-    case captureInProgress
+    case alreadyInFlight
     case metalReadbackFailed
     case fileWriteFailed(String)
 }

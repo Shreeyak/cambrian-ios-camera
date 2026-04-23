@@ -2,6 +2,11 @@ import CoreMedia
 import CoreVideo
 import Foundation
 
+// CVPixelBuffer (CVImageBuffer) is a Core Foundation ref-counted object backed by IOSurface.
+// Its retain/release operations are thread-safe. @unchecked Sendable per G-13: CPU access
+// is strictly gated by CVPixelBufferLockBaseAddress (ADR-06) at all call sites.
+extension CVPixelBuffer: @retroactive @unchecked Sendable {}
+
 /// Atomic unit of publication per ADR-18.
 ///
 /// Stage 06: constructed in `MetalPipeline.addCompletedHandler` from three

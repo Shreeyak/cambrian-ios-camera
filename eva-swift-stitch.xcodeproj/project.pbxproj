@@ -15,6 +15,7 @@
 		14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */; };
 		3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */; };
 		413C07759C3082622F459861 /* Stage05Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */; };
+		4B23642524C1D784A1D02ABB /* Stage07Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */; };
 		5411DD80E5D86868D71B4EF9 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4EFB126527016EEBF27C9B62 /* CameraKit */; };
 		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
@@ -57,6 +58,7 @@
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
+		E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage07Tests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -95,6 +97,7 @@
 				9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */,
 				12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */,
 				B40574632638223EEF0762DC /* Stage06Tests.swift */,
+				E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -311,6 +314,7 @@
 				F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */,
 				413C07759C3082622F459861 /* Stage05Tests.swift in Sources */,
 				FEB5776E21A1294A5CA6ED39 /* Stage06Tests.swift in Sources */,
+				4B23642524C1D784A1D02ABB /* Stage07Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -474,6 +478,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "CameraKit saves captured still images to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo access to save images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -506,6 +511,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "CameraKit saves captured still images to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo access to save images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
