@@ -4,7 +4,7 @@ version: "1.0"
 # Default settings for worktrees
 defaults:
   # Base directory for worktrees (relative to repository root)
-  base_dir: ../worktrees
+  base_dir: .claude/worktrees
 
 # Hooks that run after creating a worktree
 hooks:
@@ -20,7 +20,7 @@ hooks:
       command: wtp list
 
     # More examples (commented out):
-    
+
     # Copy AI context files (typically gitignored):
     # - type: copy
     #   from: .claude     # Claude AI context
@@ -33,7 +33,7 @@ hooks:
     # - type: symlink
     #   from: .bin        # Shared tool cache
     #   to: .bin
-    
+
     # Run setup commands:
     # - type: command
     #   command: npm install
