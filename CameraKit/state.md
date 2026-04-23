@@ -1,3 +1,69 @@
+# state.md — Stage 08
+
+## Current stage
+Stage 08 complete.
+
+## Scaffolding still live
+
+| Slug | File | Line | Retires in |
+|------|------|------|-----------|
+| `01:skip-completion-guard` | `MetalPipeline.swift` | `addCompletedHandler` | Stage 09 |
+
+Pre-flight grep command (Stage 09 must run before modifying sources):
+```
+grep -rn '01:skip-completion-guard' CameraKit/Sources/
+```
+Must return ≥1 hit before any Stage 09 edit.
+
+## What's built — Stage 08 (permanent)
+
+- `CameraKitCxx` SPM target (C++20) — `PixelSink.hpp` abstract class; `PixelSinkCallbacks.h` C-ABI struct; `PixelSinkPool.cpp` (`std::mutex`-guarded, `pipeline > stage > consumer` lock order per D-16, thread cap `CPP_POOL_THREAD_COUNT = min(4, hardware_concurrency)`); `CaptureAtomic.cpp` (`std::atomic<bool>` CAS, C-ABI bridge); `CannyStubConsumer.cpp` (real OpenCV v4.13 Canny, 64-entry ring buffer of edge counts per ADR-29).
+- `CameraKitInterop` Swift target (`.interoperabilityMode(.Cxx)` per ADR-13) — `CppPixelSinkPool`; `CppCaptureAtomic`; `CppCannyStub` with `edgeCount(at:)`.
+- `Frameworks/opencv2.xcframework` — flat arm64-only xcframework (converted from versioned macOS framework via lipo + xcodebuild).
+- `PixelSink.swift` — `ConsumerRegistry.registerCallback(stream:callbacks:)` real implementation backed by `CppPixelSinkPool`; dual-dispatch `yield()` to both Swift `AsyncStream` subscribers and C++ pool; `nativePipelinePointer()`.
+- `StillCapture.swift` — `captureInFlight: CppCaptureAtomic`; `ManagedAtomic<Bool>` and `import Atomics` removed.
+- `MetalPipeline.swift` / `TexturePoolManager.swift` / `Shaders/ColorShaders.metal` — `01:simple-metal-passthrough` scaffold comments removed.
+- `CameraEngine.swift` — `getNativePipelineHandle() -> UInt64?` real implementation.
+- `Errors.swift` — `InteropError.invalidCallbacks` and `.retainMismatch` added; `.notWired` removed.
+- `Constants.swift` — `cppPoolThreadCount` added.
+- `Package.swift` — `binaryTarget(opencv2)`, `CameraKitCxx`, `CameraKitInterop` targets; `.interoperabilityMode(.Cxx)` on `CameraKit` + `CameraKitTests` (required by Swift's transitive C++ interop rule, decision 38).
+- `eva-swift-stitch.xcodeproj` — `OTHER_SWIFT_FLAGS += -cxx-interoperability-mode=default` on `eva-swift-stitch` + `eva-swift-stitchTests` (both Debug + Release).
+- `Stage08Tests.swift` — 7 `@Test` functions.
+
+## Public API exposed — Stage 08
+
+```swift
+public func registerCallback(stream: StreamId, callbacks: PixelSinkCallbacks) async throws -> ConsumerToken  // ConsumerRegistry (real)
+public func getNativePipelineHandle() -> UInt64?  // CameraEngine
+```
+
+## Manual test evidence — Stage 08
+
+| Test ID | Status | Notes |
+|---------|--------|-------|
+| `08:cpp-pixelsink-registration-roundtrip` | PASS | Stage08Tests |
+| `08:canny-stub-consumer-receives-tracker-frames` | PASS | Stage08Tests |
+| `08:get-native-pipeline-handle-holds-actor` | PASS | Stage08Tests (nil path) |
+| `08:c-abi-callbacks-without-on-frame-rejected` | PASS | Stage08Tests |
+| `08:lock-order-pipeline-stage-consumer` | PASS | Stage08Tests (concurrent dispatch, no deadlock) |
+| `08:still-capture-uses-cpp-atomic` | PASS | Stage08Tests |
+| `08:swift-subscribe-is-facade-over-cpp-pool` | PASS | Stage08Tests |
+| `06:frame-set-publication` | PASS | carried forward |
+| `06:swift-consumer-drop-on-busy` | PASS | carried forward |
+| `07:still-capture-in-flight-guard` | PASS | carried forward |
+| `08:external-canny-stub-runs-on-device` | PENDING | `measurements/stage-08/canny.md` — awaiting device run |
+
+## Decisions taken that weren't in briefs — Stage 08
+
+See decisions 35–38 in `CameraKit/DECISIONS.md`.
+
+## Open questions for next stage
+
+1. **HITL `08:external-canny-stub-runs-on-device`** — pending device run; evidence template in `measurements/stage-08/canny.md`.
+2. **ADR-13 upstream revision** — C++ interop transitivity requires all importers to enable the flag; upstream should revise ADR-13.
+3. **OpenCV xcframework Mac slice** — xcframework contains only `ios-arm64`; Mac "Designed for iPad" fallback build unverified for Stage 08 C++ targets.
+4. **Carried open questions from Stage 07** (focalLengthMm, sigmoid curve, D-17 revision).
+
 # state.md — Stage 07
 
 ## Current stage
