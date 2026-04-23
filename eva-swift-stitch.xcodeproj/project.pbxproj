@@ -13,6 +13,7 @@
 		14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */; };
 		14E07E352F8E513F00E9F7FC /* eva_swift_stitchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */; };
 		14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */; };
+		1597FE0511AFD9C0406D7498 /* Stage09Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE72B917051A958CCDA6299B /* Stage09Tests.swift */; };
 		3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */; };
 		413C07759C3082622F459861 /* Stage05Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */; };
 		4B23642524C1D784A1D02ABB /* Stage07Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */; };
@@ -58,6 +59,7 @@
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
+		DE72B917051A958CCDA6299B /* Stage09Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage09Tests.swift; sourceTree = "<group>"; };
 		E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage07Tests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -98,6 +100,7 @@
 				12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */,
 				B40574632638223EEF0762DC /* Stage06Tests.swift */,
 				E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */,
+				DE72B917051A958CCDA6299B /* Stage09Tests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -315,6 +318,7 @@
 				413C07759C3082622F459861 /* Stage05Tests.swift in Sources */,
 				FEB5776E21A1294A5CA6ED39 /* Stage06Tests.swift in Sources */,
 				4B23642524C1D784A1D02ABB /* Stage07Tests.swift in Sources */,
+				1597FE0511AFD9C0406D7498 /* Stage09Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
