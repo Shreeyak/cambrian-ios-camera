@@ -135,9 +135,10 @@ public actor ConsumerRegistry {
         )
         let token = cppPool.register(stream: stream.rawPoolId, callbacks: cbs)
         if CameraKitLog.isEnabled {
-            CameraKitLog.consumers.info(
+            let msg =
                 "registerCallback: stream=\(stream.rawPoolId) token=\(token) cppCount=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
-            )
+            CameraKitLog.consumers.info("\(msg)")
+            CameraKitLog.write("[consumers] \(msg)")
         }
         return ConsumerToken(id: token, stream: stream)
     }
@@ -160,8 +161,10 @@ public actor ConsumerRegistry {
             cppPool.unregister(token: token.id)
         }
         if CameraKitLog.isEnabled {
-            CameraKitLog.consumers.info(
-                "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(foundSwift ? "swift" : "cpp")")
+            let msg =
+                "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(foundSwift ? "swift" : "cpp")"
+            CameraKitLog.consumers.info("\(msg)")
+            CameraKitLog.write("[consumers] \(msg)")
         }
     }
 
@@ -209,9 +212,10 @@ public actor ConsumerRegistry {
         // Throttle: log every 300 frames (~10 s at 30 fps) to avoid flooding.
         if CameraKitLog.isEnabled && frameSet.frameNumber % 300 == 0 {
             let hasSurface = surface != nil
-            CameraKitLog.consumers.info(
+            let msg =
                 "yield: frame=\(frameSet.frameNumber) stream=\(stream.rawPoolId) surface=\(hasSurface) cppConsumers=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
-            )
+            CameraKitLog.consumers.info("\(msg)")
+            CameraKitLog.write("[consumers] \(msg)")
         }
     }
 

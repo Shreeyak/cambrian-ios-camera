@@ -26,9 +26,8 @@ struct eva_swift_stitchApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
-        // Enable CameraKit unified logging. View output in Console.app
-        // filtered to subsystem "com.cambrian.camerakit".
         CameraKitLog.isEnabled = true
+        CameraKitLog.enableFileLogging()  // writes to <Documents>/camerakit.log
     }
 
     var body: some Scene {
