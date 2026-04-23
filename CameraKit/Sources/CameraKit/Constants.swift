@@ -94,4 +94,23 @@ enum Constants {
         default: return recoveryBackoff5PlusMs
         }
     }
+
+    // MARK: - Stage 10 — Recording mode
+
+    /// AE lower frame-rate bound while recording — allows AE to halve in low light.
+    /// constants.md#FRAME_RATE_RECORDING_MIN_FPS.
+    static let frameRateRecordingMinFps: Int = 15
+    /// Default video bitrate. TARGET_BITRATE_MBPS is marked "measurements/" upstream;
+    /// 40 Mbps is reasonable for 4K HEVC @ 30fps. See state.md open questions.
+    static let recordingTargetBitrateBpsDefault: Int = 40_000_000
+    /// Deadline for AVAssetWriter.finishWriting.
+    ///
+    /// Past this, cancel to avoid corrupt MP4
+    /// (ADR-16, G-08). constants.md#RECORDING_FINISH_TIMEOUT_SECONDS.
+    static let recordingFinishTimeoutSeconds: Double = 5.0
+    /// Recording EOS drain budget. constants.md#DRAIN_TIMEOUT_SECONDS.
+    static let drainTimeoutSeconds: Double = 5.0
+    /// Native VideoToolbox encoder input pixel format (NV12 video-range).
+    /// constants.md#ENCODER_PIXEL_FORMAT.
+    static let encoderPixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 }
