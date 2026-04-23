@@ -1,3 +1,87 @@
+# state.md — Stage 10
+
+## Current stage
+Stage 10 complete.
+
+## Scaffolding still live
+
+| Slug | File | Line | Retires in |
+|------|------|------|-----------|
+| `10:synchronous-drain-pause` | `CameraEngine.swift` | `pause()` | Stage 12 |
+
+Pre-flight grep command (Stage 11 must run before modifying sources):
+```
+grep -rn '10:synchronous-drain-pause' CameraKit/Sources/
+```
+Must return ≥1 hit before any Stage 11 edit.
+
+## What's built — Stage 10 (permanent)
+
+- `Constants.swift` — `frameRateRecordingMinFps = 15`, `recordingTargetBitrateBpsDefault = 40_000_000`, `recordingFinishTimeoutSeconds = 5.0`, `drainTimeoutSeconds = 5.0`, `encoderPixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange`.
+- `SessionState.swift` — `RecordingState` reshaped to `idle(lastUri:) / recording / finalizing / paused`; `RecordingOptions` expanded with `bitrateBps / fps / outputDirectory / fileName`; `RecordingStart` reshaped to `uri / displayName`.
+- `Errors.swift` — `RecordingError` gains `notReadyForMoreMediaData`, `finalizeTimeout`, `finalizeFailed(reason:)`, `cancelledByPause`.
+- `AssetWriting.swift` — `AssetWriting` + `AssetWriterPixelBufferAdapting` protocol seams (Sendable); `AVAssetWritingBox` / `AVAdaptorBox` production wrappers; `AssetWriterFactory` typealias; `DefaultAssetWriterFactory.make`.
+- `TexturePoolManager.swift` — `makeEncoderNV12Pool(size:)`, `dequeueEncoderBuffer(pool:)`, `makePlaneWriteTexture(from:planeIndex:format:)`; `makeEncoderNV12PoolForTest` static test seam.
+- `Shaders/NV12Encode.metal` — `rgba16fToNV12` compute kernel (BT.709 video-range, 2×2 chroma downsample).
+- `MetalPipeline.swift` — `encoderPool: CVPixelBufferPool`, `nv12EncodePSO: MTLComputePipelineState`, `isRecording: ManagedAtomic<Bool>` (nonisolated let), `onEncodedBufferReady` closure; Pass 5 dispatch in `encode()`; delivery in completion handler.
+- `Recording.swift` — `actor Recording` coordinator: `start(options:captureSize:)`, `stop(reason:)`, `submitEncodedBuffer(_:pts:)`, `Recording.Hooks`, `Recording.StopReason`; `withTaskGroup` deadline-cancel race (D-04, ADR-16).
+- `CameraSession.swift` — `setPreviewFrameRateRange()`, `setRecordingFrameRateRange()` async throws.
+- `CameraEngine.swift` — `startRecording(options:)`, `stopRecording()`, `pause()`, `resume()`, `recordingStateStream()`; Pass 5 submission closure; AE range toggle; `scaffolding:10:synchronous-drain-pause` in `pause()`.
+- `ViewModel.swift` — `recordingState`, `recordingElapsedSeconds`, `toggleRecording()`, `startRecordingTimer()`; `recordingStateTask` + `recordingTimerTask`.
+- `CameraView.swift` — Record/stop button (red dot + mm:ss timer) in bottom bar.
+- `Stage10Tests.swift` — 8 `@Test` functions covering all §8 TESTABLEs.
+
+## Public API exposed — Stage 10
+
+```swift
+public func startRecording(options: RecordingOptions) async throws -> RecordingStart  // CameraEngine
+public func stopRecording() async throws -> String                                     // CameraEngine
+public func pause() async throws                                                       // CameraEngine
+public func resume() async throws                                                      // CameraEngine
+public func recordingStateStream() -> AsyncStream<RecordingState>                     // CameraEngine
+public protocol AssetWriting: Sendable { ... }
+public protocol AssetWriterPixelBufferAdapting: Sendable { ... }
+public typealias AssetWriterFactory = @Sendable (_ outputURL: URL, _ size: Size, _ bitrateBps: Int, _ fps: Int) async throws -> (AssetWriting, AssetWriterPixelBufferAdapting)
+public enum DefaultAssetWriterFactory { public static let make: AssetWriterFactory }
+public actor Recording { ... }
+```
+
+## Manual test evidence — Stage 10
+
+| Test ID | Status | Notes |
+|---------|--------|-------|
+| `10:record-start-stop-happy-path` | PASS | Stage10Tests |
+| `10:recording-truncated-on-deadline` | PASS | Stage10Tests (FastClock collapses deadline) |
+| `10:ae-frame-rate-range-toggles-on-mode` | PASS | Stage10Tests (options.fps forwarding verified) |
+| `10:nv12-encoder-pass-byte-layout` | PASS | Stage10Tests (IOSurface-backed pool validated at pool level) |
+| `10:pause-during-recording-finalizes-synchronously` | PASS | Stage10Tests |
+| `10:resume-from-pause-restarts-session` | PASS | Stage10Tests |
+| `10:adaptor-not-ready-drops-frame` | PASS | Stage10Tests |
+| `10:fatal-finalize-emits-recording-failed` | PASS | Stage10Tests |
+| `10:mp4-plays-in-photos` | DEFERRED | HITL — see measurements/stage-10/recording.md |
+| `10:low-light-ae-drops-below-30fps` | DEFERRED | HITL — see measurements/stage-10/recording.md |
+| `10:empirical-format-fps-range-fallback` | DEFERRED | HITL — see measurements/stage-10/recording.md |
+
+## Decisions taken that weren't in briefs — Stage 10
+
+43. **RecordingState reshape — brief §4 vs architecture §Recording state machine.** Brief §4 names `idle/recording/finalizing/paused`; architecture doc uses `preparing/stopping`. Brief wins per CLAUDE.md §8. Flagged upstream.
+
+44. **`AssetWriting` / `AssetWriterPixelBufferAdapting` protocol seam.** Not in brief. Required for TESTABLEs that fake `AVAssetWriter`. Mirrors `CaptureDeviceProviding` pattern already in repo.
+
+45. **`recordingTargetBitrateBpsDefault = 40_000_000`.** Brief §Parameters says "measurements/"; 40 Mbps is a reasonable default for 4K HEVC @ 30fps pending on-device measurement. Open question for next stage.
+
+46. **`pause()` resets AE frame-rate range only in `stopRecording()`, not in `pause()`.** Consistent with the brief's intent that `pause()` is a session-only teardown; AE range reset on resume is not specified. Open question for Stage 12.
+
+47. **`FakeAssetWriter.finishWriting()` polls on `cancelled` flag.** Enables the `withTaskGroup` deadline race to resolve deterministically in tests without requiring Swift structured concurrency cooperative cancellation.
+
+## Open questions for next stage
+
+1. `TARGET_BITRATE_MBPS` upstream value after device measurements.
+2. Stage 12 retires `10:synchronous-drain-pause` via `UIApplication.beginBackgroundTask` wrap.
+3. Empirical format-fps range fallback — evidence in `measurements/stage-10/recording.md`.
+4. BUG (carried from Stage 09): `09:camera-in-use-self-heal-device` FAIL — fix needed for Stage 10 or 11.
+5. Should `pause()` also reset AE frame-rate range to preview mode?
+
 # state.md — Stage 09
 
 ## Current stage
