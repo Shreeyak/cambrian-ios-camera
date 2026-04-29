@@ -126,6 +126,17 @@ public struct WhiteBalanceGains: Sendable, Hashable {
     }
 }
 
+extension WhiteBalanceGains {
+    /// Gray-world reciprocal gains from a sampled center patch.
+    ///
+    /// Mirrors `CalibrationCompute.grayWorldGains(sample:)`; provided here for
+    /// call-site ergonomics (`WhiteBalanceGains(fromGrayWorld: sample)` reads
+    /// naturally at the calibrate-WB path).
+    public init(fromGrayWorld sample: RgbSample) {
+        self = CalibrationCompute.grayWorldGains(sample: sample)
+    }
+}
+
 public enum CameraPosition: String, Sendable, Hashable {
     case back
     case front
