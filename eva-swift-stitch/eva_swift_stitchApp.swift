@@ -5,9 +5,9 @@
 //  Created by shrek on 4/14/26.
 //
 
+import CameraKit
 import SwiftUI
 import UIKit
-import CameraKit
 
 // Enforces landscape-right at the UIKit level regardless of device rotation.
 // Info.plist UISupportedInterfaceOrientations~ipad alone is not always respected
@@ -17,7 +17,7 @@ private class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
-        .landscapeRight
+        OrientationLock.declaredSupported
     }
 }
 
