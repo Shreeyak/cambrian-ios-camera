@@ -335,10 +335,17 @@ final class CameraSession: @unchecked Sendable {
     /// Caller must dispatch onto `sessionQueue` (ADR-07).
     func setPreviewFrameRateRange() async throws {
         guard let device = device else { return }
-        try await device.setVideoFrameDurationRange(
-            minFrameDurationFps: Constants.frameRateTargetFPS,
-            maxFrameDurationFps: Constants.frameRateTargetFPS
-        )
+        try await device.lockForConfiguration()
+        do {
+            try await device.setVideoFrameDurationRange(
+                minFrameDurationFps: Constants.frameRateTargetFPS,
+                maxFrameDurationFps: Constants.frameRateTargetFPS
+            )
+            await device.unlockForConfiguration()
+        } catch {
+            await device.unlockForConfiguration()
+            throw error
+        }
     }
 
     /// Recording mode — allow AE to halve frame rate in low light.
@@ -348,10 +355,17 @@ final class CameraSession: @unchecked Sendable {
     /// Caller must dispatch onto `sessionQueue` (ADR-07).
     func setRecordingFrameRateRange() async throws {
         guard let device = device else { return }
-        try await device.setVideoFrameDurationRange(
-            minFrameDurationFps: Constants.frameRateTargetFPS,
-            maxFrameDurationFps: Constants.frameRateRecordingMinFps
-        )
+        try await device.lockForConfiguration()
+        do {
+            try await device.setVideoFrameDurationRange(
+                minFrameDurationFps: Constants.frameRateTargetFPS,
+                maxFrameDurationFps: Constants.frameRateRecordingMinFps
+            )
+            await device.unlockForConfiguration()
+        } catch {
+            await device.unlockForConfiguration()
+            throw error
+        }
     }
 
     // MARK: - Settings commit
@@ -399,11 +413,19 @@ final class CameraSession: @unchecked Sendable {
                         let g = settings.wbGainG,
                         let b = settings.wbGainB
                     {
+                        // Bug 7: AVFoundation requires each gain in [1.0, maxWhiteBalanceGain]
+                        // and throws NSInvalidArgumentException → SIGABRT otherwise.
+                        // grayWorldGains() can produce out-of-range values for any
+                        // non-gray sample, so clamp here regardless of source.
+                        let maxGain = await device.maxWhiteBalanceGain
+                        let clamp: (Double) -> Float = { v in
+                            min(maxGain, max(1.0, Float(v)))
+                        }
                         try await device.setWhiteBalanceModeLocked(
                             gains: WhiteBalanceGains(
-                                red: Float(r),
-                                green: Float(g),
-                                blue: Float(b)))
+                                red: clamp(r),
+                                green: clamp(g),
+                                blue: clamp(b)))
                     }
                 case .locked:
                     try await device.setWhiteBalanceLocked()
