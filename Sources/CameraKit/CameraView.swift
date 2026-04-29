@@ -1,233 +1,396 @@
 import MetalKit
 import SwiftUI
 
-/// Public SwiftUI view that renders a split camera preview (left natural,
-/// right processed) plus a color-calibration sidebar.
+/// Public SwiftUI view that renders the camera preview, controls, and overlays.
 ///
-/// Hosts two MTKViewRepresentable instances (natural / processed) and reacts
-/// to scene phase transitions via ViewModel.handleScenePhase(_:)
-/// (08-ui.md §scenePhase wiring, ADR-09, D-06).
-/// CameraEngine lifecycle is owned by ViewModel.
+/// Composes the parent `ViewModel` (engine lifecycle + session state) with six
+/// `@Observable @MainActor` child VMs (display, recording, hardware, processing,
+/// calibration, errors). Stage 11 surface per `domain-revised/09-ui-behaviors.md`:
+/// 5-button bottom bar, expanded bar (ISO/Shutter/Focus/Zoom), color-calibration
+/// sidebar with WB/BB Calibrate, recording indicator with `mm:ss` timer, capture
+/// banner, non-fatal error toast (auto-dismiss), blocking fatal-error dialog,
+/// state-driven enable/disable, scanning overlay bound to `SessionState`,
+/// landscape-right orientation lock.
 public struct CameraView: View {
 
     @State private var viewModel = ViewModel()
     @State private var sidebarVisible: Bool = false
+    @State private var showExpandedBar: Bool = false
     @Environment(\.scenePhase) private var scenePhase
 
     public init() {}
 
     public var body: some View {
-        ZStack {
-            HStack(spacing: 0) {
-                // Left half — natural preview.
-                MTKViewRepresentable(textureAccessor: { viewModel.naturalTex })
-                // Right half — processed preview.
-                MTKViewRepresentable(textureAccessor: { viewModel.processedTex })
-            }
-            .background(Color.black)
-            .ignoresSafeArea()
-            if sidebarVisible {
-                HStack {
-                    Spacer()
-                    calibrationSidebar
-                        .frame(width: 280)
-                        .background(.black.opacity(0.7))
-                }
-            }
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(sidebarVisible ? "Hide Cal" : "Calibrate Color") {
-                        sidebarVisible.toggle()
-                    }
-                    .padding(8)
-                    .background(.black.opacity(0.6))
-                    .foregroundStyle(.white)
-                    .padding()
-                }
-                Spacer()
-            }
+        let enablement = viewModel.controlEnablement
+        return ZStack {
+            previewArea
+            scanningOverlay(enablement: enablement)
             #if DEBUG
-            // Debug overlay: frame number + capture time (top-left).
-            if let overlay = viewModel.debugOverlay {
-                VStack {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("#\(overlay.frameNumber)  t=\(overlay.captureTimeMs)ms")
-                            if let edges = overlay.edgeCount {
-                                Text("edges=\(edges)")
-                            }
-                        }
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.yellow)
-                        .padding(6)
-                        .background(.black.opacity(0.6))
-                        .padding([.top, .leading], 8)
-                        Spacer()
-                    }
-                    Spacer()
-                }
-            }
-            // Tracker thumbnail (bottom-left) when subscribed.
-            if viewModel.debugTrackerSubscribed {
-                VStack {
-                    Spacer()
-                    HStack {
-                        MTKViewRepresentable(textureAccessor: { viewModel.trackerTex })
-                            .frame(width: 160, height: 120)
-                            .border(.yellow, width: 1)
-                            .padding([.bottom, .leading], 80)
-                        Spacer()
-                    }
-                }
-            }
-            // Debug toggle button (top-right, below Calibrate Color button).
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(viewModel.debugTrackerSubscribed ? "Hide Tracker" : "Show Tracker") {
-                        Task { await viewModel.toggleDebugTrackerSubscription() }
-                    }
-                    .padding(8)
-                    .background(.black.opacity(0.6))
-                    .foregroundStyle(.yellow)
-                    .padding(.top, 56)
-                    .padding(.trailing, 16)
-                }
-                Spacer()
-            }
+            debugSurface
             #endif
+            calibrationSidebarLayer(enablement: enablement)
+        }
+        .overlay(alignment: .top) {
+            if let toast = viewModel.errors.currentToast {
+                errorToast(toast).padding(.top, 20)
+            }
+        }
+        .alert(
+            "Camera Error",
+            isPresented: Binding(
+                get: { viewModel.errors.fatalDialog != nil },
+                set: { if !$0 { viewModel.errors.dismissFatal() } }
+            ),
+            presenting: viewModel.errors.fatalDialog
+        ) { _ in
+            Button("Retry") { Task { await viewModel.retryFromFatal() } }
+            Button("Dismiss", role: .cancel) { viewModel.errors.dismissFatal() }
+        } message: { err in
+            Text("\(err.code.rawValue)\n\n\(err.message)")
         }
         .safeAreaInset(edge: .bottom) {
-            bottomBar
-                .padding()
-                .background(.black.opacity(0.6))
+            bottomBarLayer(enablement: enablement)
         }
         .safeAreaInset(edge: .bottom) {
             if let result = viewModel.captureResult {
-                bannerView(result: result)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            if let err = viewModel.currentError, !err.isFatal {
-                recoveryBanner(err)
+                captureBanner(result: result)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.captureResult != nil)
-        .animation(.easeInOut(duration: 0.3), value: viewModel.currentError != nil)
-        .alert(
-            "Camera Error",
-            isPresented: Binding(
-                get: { viewModel.currentError?.isFatal == true },
-                set: { if !$0 { viewModel.currentError = nil } }
-            ),
-            presenting: viewModel.currentError
-        ) { _ in
-            Button("OK", role: .cancel) { viewModel.currentError = nil }
-        } message: { err in
-            Text("\(err.code.rawValue): \(err.message)")
-        }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.errors.currentToast != nil)
+        .animation(.easeInOut(duration: 0.2), value: showExpandedBar)
+        .animation(.easeInOut(duration: 0.2), value: sidebarVisible)
         .task {
             await viewModel.start()
         }
-        .onChange(of: viewModel.sessionState) { _, _ in
-            // Future: react to state changes (error overlay, recovery UI, etc.)
-        }
-        // 08-ui.md §scenePhase wiring: .task(id:) auto-cancels and re-runs on phase change.
-        // handleScenePhase enforces D-06 strict gating on .inactive and drives
-        // backgroundSuspend / backgroundResume for .background / .active.
         .task(id: scenePhase) {
             await viewModel.handleScenePhase(scenePhase)
         }
     }
 
-    // MARK: - Sidebar (08-ui.md §Color calibration sidebar)
+    // MARK: - Preview area (split natural / processed)
 
-    private var calibrationSidebar: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var previewArea: some View {
+        HStack(spacing: 0) {
+            MTKViewRepresentable(textureAccessor: { viewModel.display.naturalTex })
+            MTKViewRepresentable(textureAccessor: { viewModel.display.processedTex })
+        }
+        .background(Color.black)
+        .ignoresSafeArea()
+    }
+
+    // MARK: - Scanning overlay (J4: bound to SessionState, not focusDistance)
+
+    @ViewBuilder
+    private func scanningOverlay(enablement: ControlEnablement) -> some View {
+        if enablement.showScanningAnimation {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .scaleEffect(1.4)
+                Text(viewModel.sessionState == .recovering ? "Recovering camera…" : "Opening camera…")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+            }
+            .padding(24)
+            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    // MARK: - Bottom bar (5 buttons + expanded bar above)
+
+    @ViewBuilder
+    private func bottomBarLayer(enablement: ControlEnablement) -> some View {
+        VStack(spacing: 8) {
+            if showExpandedBar {
+                expandedBar(enablement: enablement)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            bottomBar(enablement: enablement)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func bottomBar(enablement: ControlEnablement) -> some View {
+        HStack(spacing: 18) {
+            barButton(
+                label: "Settings",
+                systemImage: "slider.horizontal.3",
+                enabled: enablement.isSettingsEnabled
+            ) { showExpandedBar.toggle() }
+            barButton(
+                label: "Calibrate",
+                systemImage: "paintpalette",
+                enabled: enablement.isCalibrateEnabled
+            ) { sidebarVisible.toggle() }
+            captureButton(enabled: enablement.isCaptureEnabled)
+            recordButton(
+                isRecording: isRecordingActive,
+                startEnabled: enablement.isRecordEnabled,
+                stopEnabled: enablement.isStopEnabled
+            )
+            resolutionLabel(enabled: enablement.isResolutionEnabled)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    @ViewBuilder
+    private func barButton(
+        label: String, systemImage: String, enabled: Bool, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: systemImage).font(.title3)
+                Text(label).font(.caption2)
+            }
+            .frame(minWidth: 60)
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1.0 : 0.4)
+        .accessibilityLabel(label)
+    }
+
+    @ViewBuilder
+    private func captureButton(enabled: Bool) -> some View {
+        Button {
+            viewModel.captureImage()
+        } label: {
+            ZStack {
+                Circle()
+                    .strokeBorder(.white, lineWidth: 3)
+                    .frame(width: 56, height: 56)
+                Circle()
+                    .fill(.white.opacity(0.15))
+                    .frame(width: 46, height: 46)
+                Image(systemName: "camera.shutter.button")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(.white)
+            }
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1.0 : 0.4)
+        .accessibilityLabel("Capture")
+        .accessibilityHint("Takes a photo")
+    }
+
+    @ViewBuilder
+    private func recordButton(isRecording: Bool, startEnabled: Bool, stopEnabled: Bool) -> some View {
+        Button {
+            viewModel.recording.toggleRecording()
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(isRecording ? Color.red : Color.white)
+                    .frame(width: 18, height: 18)
+                if isRecording {
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        Text(elapsedMMSS)
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
+                } else {
+                    Text("REC").font(.caption.bold()).foregroundStyle(.white)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.6), in: Capsule())
+        }
+        .disabled(isRecording ? !stopEnabled : !startEnabled)
+        .opacity((isRecording ? stopEnabled : startEnabled) ? 1.0 : 0.4)
+        .accessibilityLabel(isRecording ? "Stop recording" : "Start recording")
+    }
+
+    @ViewBuilder
+    private func resolutionLabel(enabled: Bool) -> some View {
+        Text(resolutionText)
+            .font(.caption.monospaced())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .opacity(enabled ? 1.0 : 0.4)
+    }
+
+    private var resolutionText: String {
+        guard let caps = viewModel.capabilities else { return "—" }
+        return "\(caps.activeCaptureResolution.width)×\(caps.activeCaptureResolution.height)"
+    }
+
+    private var isRecordingActive: Bool {
+        if case .recording = viewModel.recording.recordingState { return true }
+        return false
+    }
+
+    private var elapsedMMSS: String {
+        let s = viewModel.recording.recordingElapsedSeconds
+        return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+
+    // MARK: - Expanded bar (ISO / Shutter / Focus / Zoom)
+
+    @ViewBuilder
+    private func expandedBar(enablement: ControlEnablement) -> some View {
+        let settings = viewModel.hardware.currentSettings
+        let frame = viewModel.lastFrameResult
+        let caps = viewModel.capabilities
+
+        VStack(alignment: .leading, spacing: 10) {
+            expandedRow(
+                label: "ISO",
+                readback: frame?.iso.map { "\($0)" } ?? "AUTO",
+                initial: Double(settings.iso ?? Int(frame?.iso ?? 400)),
+                range: caps.map {
+                    Double($0.isoRange.lowerBound)...Double($0.isoRange.upperBound)
+                } ?? 30...3200,
+                push: viewModel.hardware.pushISO
+            )
+            expandedRow(
+                label: "Shutter (ms)",
+                readback: frame?.exposureTimeNs.map { String(format: "%.1f", Double($0) / 1_000_000) } ?? "AUTO",
+                initial: Double(settings.exposureTimeNs ?? frame?.exposureTimeNs ?? 16_666_667) / 1_000_000.0,
+                range: 1.0...100.0,
+                push: { ms in viewModel.hardware.pushShutter(ms * 1_000_000) }
+            )
+            expandedRow(
+                label: "Focus",
+                readback: frame?.focusDistance.map { String(format: "%.2f", $0) } ?? "AUTO",
+                initial: settings.focusDistance ?? frame?.focusDistance ?? 0.5,
+                range: 0.0...1.0,
+                push: viewModel.hardware.pushFocus
+            )
+            expandedRow(
+                label: "Zoom",
+                readback: String(format: "%.1fx", settings.zoomRatio ?? 1.0),
+                initial: settings.zoomRatio ?? 1.0,
+                range: 1.0...4.0,
+                push: viewModel.hardware.pushZoom
+            )
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .opacity(enablement.isSettingsEnabled ? 1.0 : 0.4)
+        .disabled(!enablement.isSettingsEnabled)
+    }
+
+    @ViewBuilder
+    private func expandedRow(
+        label: String,
+        readback: String,
+        initial: Double,
+        range: ClosedRange<Double>,
+        push: @escaping (Double) -> Void
+    ) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.white).frame(width: 100, alignment: .leading)
+            Text(readback)
+                .font(.caption.monospaced())
+                .foregroundStyle(.white)
+                .frame(width: 80, alignment: .trailing)
+            SliderRebinding(initial: initial, range: range, onChange: push)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: - Calibration sidebar
+
+    @ViewBuilder
+    private func calibrationSidebarLayer(enablement: ControlEnablement) -> some View {
+        if sidebarVisible {
+            HStack {
+                Spacer()
+                calibrationSidebar(enablement: enablement)
+                    .frame(width: 300)
+                    .padding(.trailing, 12)
+                    .padding(.vertical, 12)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func calibrationSidebar(enablement: ControlEnablement) -> some View {
+        let processing = viewModel.processing.currentProcessing
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Color Calibration").foregroundStyle(.white).font(.headline)
-
-            sliderRow(
-                label: "Brightness",
-                value: Binding(
-                    get: { viewModel.currentProcessing.brightness },
-                    set: { v in mutateProcessing { $0.brightness = v } }),
-                range: -1.0...1.0)
-            sliderRow(
-                label: "Contrast",
-                value: Binding(
-                    get: { viewModel.currentProcessing.contrast },
-                    set: { v in mutateProcessing { $0.contrast = v } }),
-                range: 0.0...2.0)
-            sliderRow(
-                label: "Saturation",
-                value: Binding(
-                    get: { viewModel.currentProcessing.saturation },
-                    set: { v in mutateProcessing { $0.saturation = v } }),
-                range: -1.0...1.0)
-            sliderRow(
-                label: "Gamma",
-                value: Binding(
-                    get: { viewModel.currentProcessing.gamma },
-                    set: { v in mutateProcessing { $0.gamma = v } }),
-                range: 0.1...4.0)
+            HStack(spacing: 10) {
+                Button("WB Calibrate") { viewModel.calibration.calibrateWB() }
+                    .buttonStyle(.borderedProminent)
+                Button("BB Calibrate") { viewModel.calibration.calibrateBB() }
+                    .buttonStyle(.bordered)
+            }
             Divider().background(.white.opacity(0.5))
             sliderRow(
-                label: "Black R",
-                value: Binding(
-                    get: { viewModel.currentProcessing.blackR },
-                    set: { v in mutateProcessing { $0.blackR = v } }),
-                range: 0.0...0.5)
+                label: "Brightness",
+                current: processing.brightness,
+                range: -1.0...1.0,
+                push: viewModel.processing.pushBrightness
+            )
             sliderRow(
-                label: "Black G",
-                value: Binding(
-                    get: { viewModel.currentProcessing.blackG },
-                    set: { v in mutateProcessing { $0.blackG = v } }),
-                range: 0.0...0.5)
+                label: "Contrast",
+                current: processing.contrast,
+                range: 0.0...2.0,
+                push: viewModel.processing.pushContrast
+            )
             sliderRow(
-                label: "Black B",
-                value: Binding(
-                    get: { viewModel.currentProcessing.blackB },
-                    set: { v in mutateProcessing { $0.blackB = v } }),
-                range: 0.0...0.5)
+                label: "Saturation",
+                current: processing.saturation,
+                range: -1.0...1.0,
+                push: viewModel.processing.pushSaturation
+            )
+            sliderRow(
+                label: "Gamma",
+                current: processing.gamma,
+                range: 0.1...4.0,
+                push: viewModel.processing.pushGamma
+            )
+            Divider().background(.white.opacity(0.5))
+            sliderRow(
+                label: "Black R", current: processing.blackR, range: 0.0...0.5,
+                push: viewModel.processing.pushBlackR)
+            sliderRow(
+                label: "Black G", current: processing.blackG, range: 0.0...0.5,
+                push: viewModel.processing.pushBlackG)
+            sliderRow(
+                label: "Black B", current: processing.blackB, range: 0.0...0.5,
+                push: viewModel.processing.pushBlackB)
             Spacer()
             Button("Reset") {
-                Task { await viewModel.resetProcessing() }
+                Task { await viewModel.processing.resetProcessing() }
             }
             .foregroundStyle(.white)
             .padding(8)
             .frame(maxWidth: .infinity)
-            .background(.gray.opacity(0.5))
+            .background(.gray.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
         }
-        .padding()
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .disabled(!enablement.isCalibrateEnabled)
+        .opacity(enablement.isCalibrateEnabled ? 1.0 : 0.4)
     }
 
     private func sliderRow(
         label: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>
+        current: Double,
+        range: ClosedRange<Double>,
+        push: @escaping (Double) -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(label).foregroundStyle(.white).font(.caption)
                 Spacer()
-                Text(String(format: "%.2f", value.wrappedValue))
+                Text(String(format: "%.2f", current))
                     .foregroundStyle(.white).font(.caption.monospacedDigit())
             }
-            Slider(value: value, in: range)
+            SliderRebinding(initial: current, range: range, onChange: push)
         }
     }
 
-    private func mutateProcessing(_ mutate: (inout ProcessingParameters) -> Void) {
-        var next = viewModel.currentProcessing
-        mutate(&next)
-        Task { await viewModel.updateProcessing(next) }
-    }
-
-    // MARK: - Capture banner
+    // MARK: - Capture banner (bottom, auto-dismiss)
 
     @ViewBuilder
-    private func bannerView(result: Result<StillCaptureOutput, Error>) -> some View {
+    private func captureBanner(result: Result<StillCaptureOutput, Error>) -> some View {
         let (text, color): (String, Color) =
             switch result {
             case .success(let output):
@@ -243,144 +406,119 @@ public struct CameraView: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(color)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .background(color, in: RoundedRectangle(cornerRadius: 8))
             .padding(.bottom, 8)
     }
 
-    // MARK: - Recovery banner
+    // MARK: - Error toast (top, auto-dismiss after ≥3s)
 
     @ViewBuilder
-    private func recoveryBanner(_ err: CameraError) -> some View {
-        HStack {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text("\(err.code.rawValue): \(err.message)")
-                .lineLimit(2)
+    private func errorToast(_ err: CameraError) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.yellow)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(err.code.rawValue).font(.caption.bold())
+                Text(err.message).font(.caption2).lineLimit(2)
+            }
             Spacer()
-            Button("Dismiss") { viewModel.currentError = nil }
         }
-        .padding(12)
-        .background(Color.orange.opacity(0.85))
+        .padding(10)
         .foregroundStyle(.white)
-        .cornerRadius(8)
-        .padding(.horizontal, 12)
+        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: 400)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    // MARK: - Bottom bar
+    // MARK: - DEBUG surface (overlays + tracker thumbnail)
 
-    private var bottomBar: some View {
-        VStack(spacing: 8) {
-            // Row 1: sliders — each takes equal share of the full width.
-            HStack(spacing: 12) {
-                sliderCell(
-                    label: "ISO",
-                    value: Binding(
-                        get: { Double(viewModel.currentSettings.iso ?? 100) },
-                        set: { new in Task { await viewModel.updateISO(Int(new)) } }),
-                    range: viewModel.capabilities.map {
-                        Double($0.isoRange.lowerBound)...Double($0.isoRange.upperBound)
-                    } ?? 30...3200,
-                    readback: viewModel.lastFrameResult?.iso.flatMap { Optional("\($0)") } ?? "—")
-                sliderCell(
-                    label: "Shutter (ms)",
-                    value: Binding(
-                        get: { Double(viewModel.currentSettings.exposureTimeNs ?? 33_000_000) / 1_000_000 },
-                        set: { new in Task { await viewModel.updateShutterNs(Int64(new * 1_000_000)) } }),
-                    range: 1...100,
-                    readback: viewModel.lastFrameResult?.exposureTimeNs.flatMap {
-                        Optional(String(format: "%.1f", Double($0) / 1_000_000))
-                    } ?? "—")
-                sliderCell(
-                    label: "Focus",
-                    value: Binding(
-                        get: { viewModel.currentSettings.focusDistance ?? 0.0 },
-                        set: { new in Task { await viewModel.updateFocus(new) } }),
-                    range: 0...1,
-                    readback: viewModel.lastFrameResult?.focusDistance
-                        .flatMap { Optional(String(format: "%.2f", $0)) } ?? "—")
-                sliderCell(
-                    label: "Zoom",
-                    value: Binding(
-                        get: { viewModel.currentSettings.zoomRatio ?? 1.0 },
-                        set: { new in Task { await viewModel.updateZoom(new) } }),
-                    range: 1...5,
-                    readback: String(format: "%.2fx", viewModel.currentSettings.zoomRatio ?? 1.0))
-            }
-            .frame(maxWidth: .infinity)
-
-            // Row 2: action buttons centered below the sliders.
-            HStack(spacing: 32) {
-                Button {
-                    viewModel.captureImage()
-                } label: {
-                    ZStack {
-                        Circle()
-                            .strokeBorder(.white, lineWidth: 3)
-                            .frame(width: 64, height: 64)
-                        Circle()
-                            .fill(.white.opacity(0.15))
-                            .frame(width: 54, height: 54)
-                        Image(systemName: "camera.shutter.button")
-                            .font(.system(size: 24, weight: .regular))
-                            .foregroundStyle(.white)
-                    }
-                }
-                .accessibilityLabel("Capture")
-                .accessibilityHint("Takes a photo")
-
-                Button(action: { viewModel.toggleRecording() }) {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(isRecordingActive ? Color.red : Color.white)
-                            .frame(width: 18, height: 18)
-                        if isRecordingActive {
-                            Text(elapsedMMSS)
-                                .font(.body.monospacedDigit())
-                                .foregroundStyle(.white)
-                        } else {
-                            Text("REC")
-                                .font(.caption.bold())
-                                .foregroundStyle(.white)
+    #if DEBUG
+    @ViewBuilder
+    private var debugSurface: some View {
+        // Frame number overlay (top-left).
+        if let overlay = viewModel.display.debugOverlay {
+            VStack {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("#\(overlay.frameNumber)  t=\(overlay.captureTimeMs)ms")
+                        if let edges = overlay.edgeCount {
+                            Text("edges=\(edges)")
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.black.opacity(0.6), in: Capsule())
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.yellow)
+                    .padding(6)
+                    .background(.black.opacity(0.6))
+                    .padding([.top, .leading], 8)
+                    Spacer()
                 }
-                .accessibilityLabel(isRecordingActive ? "Stop recording" : "Start recording")
-                .accessibilityHint("Toggles video recording")
+                Spacer()
             }
         }
-    }
-
-    private func sliderCell(
-        label: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        readback: String
-    ) -> some View {
+        // Tracker thumbnail (bottom-left) when subscribed.
+        if viewModel.display.debugTrackerSubscribed {
+            VStack {
+                Spacer()
+                HStack {
+                    MTKViewRepresentable(textureAccessor: { viewModel.display.trackerTex })
+                        .frame(width: 160, height: 120)
+                        .border(.yellow, width: 1)
+                        .padding([.bottom, .leading], 80)
+                    Spacer()
+                }
+            }
+        }
+        // Show/hide tracker toggle (top-right).
         VStack {
-            Text(label).foregroundStyle(.white).font(.caption)
-            Slider(value: value, in: range)
-            Text(readback).foregroundStyle(.white).font(.caption2)
+            HStack {
+                Spacer()
+                Button(viewModel.display.debugTrackerSubscribed ? "Hide Tracker" : "Show Tracker") {
+                    Task { await viewModel.display.toggleDebugTrackerSubscription() }
+                }
+                .padding(8)
+                .background(.black.opacity(0.6), in: Capsule())
+                .foregroundStyle(.yellow)
+                .padding(.top, 12)
+                .padding(.trailing, 12)
+            }
+            Spacer()
         }
     }
+    #endif
+}
 
-    // MARK: - Stage 10 — Recording state helpers
+// MARK: - SliderRebinding (avoid mid-drag write-back oscillation)
 
-    private var isRecordingActive: Bool {
-        if case .recording = viewModel.recordingState { return true } else { return false }
+/// A slider whose `value` is owned by local `@State` and whose updates are forwarded
+/// through `onChange` instead of a two-way `Binding`.
+///
+/// The two-way `Binding(get:set:)` pattern oscillates mid-drag when the upstream
+/// (debouncer-driven) view-model writes a slightly different committed value back
+/// — SwiftUI re-renders the parent and the slider snaps. Keeping the slider's
+/// state local and forwarding only the user input via `onChange` gives the
+/// debouncer authority over the dispatch.
+struct SliderRebinding: View {
+
+    let initial: Double
+    let range: ClosedRange<Double>
+    let onChange: (Double) -> Void
+    @State private var local: Double
+
+    init(initial: Double, range: ClosedRange<Double>, onChange: @escaping (Double) -> Void) {
+        self.initial = initial
+        self.range = range
+        self.onChange = onChange
+        _local = State(initialValue: initial)
     }
 
-    private var elapsedMMSS: String {
-        let s = viewModel.recordingElapsedSeconds
-        return String(format: "%02d:%02d", s / 60, s % 60)
+    var body: some View {
+        Slider(value: $local, in: range)
+            .onChange(of: local) { _, new in onChange(new) }
     }
 }
 
-// MARK: - MTKViewRepresentable (parameterized by a texture closure)
+// MARK: - MTKViewRepresentable + Coordinator (preview rendering — unchanged from Stage 10)
 
-/// Internal UIViewRepresentable that wraps MTKView for the SwiftUI hierarchy.
+/// Internal `UIViewRepresentable` wrapping `MTKView` for the SwiftUI hierarchy.
 ///
 /// Parameterized by a texture accessor closure to support both natural and
 /// processed preview panels.
@@ -393,7 +531,6 @@ struct MTKViewRepresentable: UIViewRepresentable {
         mtkView.device = MTLCreateSystemDefaultDevice()
         mtkView.framebufferOnly = false
         mtkView.colorPixelFormat = .rgba16Float
-        // Tag the CAMetalLayer as sRGB so the system treats values as gamma-encoded, not linear.
         (mtkView.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         mtkView.preferredFramesPerSecond = 30
         mtkView.backgroundColor = .black
@@ -408,10 +545,10 @@ struct MTKViewRepresentable: UIViewRepresentable {
     }
 }
 
-// MARK: - MTKViewCoordinator (reads texture via closure)
-
-/// Drives the MTKView draw loop and blits the texture returned by the accessor
-/// closure into each drawable.
+/// Drives the `MTKView` draw loop and blits the texture returned by the accessor.
+///
+/// Acquire drawable → unconditional clear-pass → conditional blit → always present
+/// (CLAUDE.md §8 invariant — never return between drawable acquire and present).
 final class MTKViewCoordinator: NSObject, MTKViewDelegate {
 
     let textureAccessor: () -> MTLTexture?
@@ -424,19 +561,14 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
         self.commandQueue = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
     }
 
-    // MARK: MTKViewDelegate
-
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         // Stage 01: no-op. Resize handling arrives in a later stage.
     }
 
     func draw(in view: MTKView) {
-        // Acquire drawable first; every early-exit after this point must present.
         guard let drawable = view.currentDrawable else { return }
         guard let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
-        // Always clear to black and always present — ensures the CAMetalLayer never
-        // shows uninitialized GPU memory (green) regardless of whether a texture is ready.
         let renderDesc = MTLRenderPassDescriptor()
         renderDesc.colorAttachments[0].texture = drawable.texture
         renderDesc.colorAttachments[0].loadAction = .clear
@@ -449,7 +581,6 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
         if let texture = textureAccessor(),
             let blitEncoder = commandBuffer.makeBlitCommandEncoder()
         {
-            // Blit the region that fits both source and destination (Stage 01: no scaling).
             let srcWidth = min(texture.width, drawable.texture.width)
             let srcHeight = min(texture.height, drawable.texture.height)
             blitEncoder.copy(
