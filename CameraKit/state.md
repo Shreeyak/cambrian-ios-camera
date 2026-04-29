@@ -1,9 +1,9 @@
 # state.md — Stage 11
 
 ## Current stage
-Stage 11 complete (Phase E §8 TESTABLEs verified). **Pre-existing bugs block Stage 12 — see flag below.**
+Stage 11 complete (Phase E §8 TESTABLEs verified). **Bugs 2-4 + 3 HITL passes block Stage 12 — see flag below.**
 
-## ⚠️ Pre-existing bugs blocking Stage 12
+## ⚠️ Blocking Stage 12 — bugs + HITL
 
 Stage 11 regression surfaced **four** pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`:
 
@@ -14,7 +14,15 @@ Stage 11 regression surfaced **four** pre-existing bugs (none introduced by Stag
 | 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | open — `errorStreamDeliversEveryTransition()` skipped |
 | 4 | `processedTex` freezes on long sessions (right preview stuck 2-3 min while natural+tracker keep flowing) | MED-HIGH | open, unverified |
 
-**Stage 12 must clear bugs 2-4** before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work. The Phase E regression sweep ran with explicit skips for bugs 2 and 3; bug 4 was observed empirically on iPad iOS 26.4.1 during the long regression run.
+Three Stage 11 §11 HITL evidence items also still pending — must be captured into `measurements/stage-11/ui.md` before Stage 12 begins:
+
+| Slug | What to verify | Status |
+|------|----------------|--------|
+| `11:full-bar-and-sidebar-match-domain-09` | Bottom bar + expanded bar + calibration sidebar match `domain-revised/09-ui-behaviors.md` visually on iPad Pro M1 | DEFERRED |
+| `11:liquid-glass-and-landscape-lock` | Liquid Glass styling visible on bars/sidebar/toast; orientation stays landscape-right under physical rotation | DEFERRED |
+| `11:accessibility-voiceover-pass` | VoiceOver navigates the 5-button bar, expanded sliders, calibration sidebar, error toast/dialog correctly | DEFERRED |
+
+**Stage 12 must clear bugs 2-4 and complete the three HITL passes** before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work. The Phase E regression sweep ran with explicit skips for bugs 2 and 3; bug 4 was observed empirically on iPad iOS 26.4.1 during the long regression run. HITL items require human verification on a physical iPad — cannot be automated.
 
 ## Scaffolding still live
 
