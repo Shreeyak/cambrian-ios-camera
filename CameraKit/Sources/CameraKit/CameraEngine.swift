@@ -35,15 +35,18 @@ public actor CameraEngine {
     // before the continuation was non-nil; emits during that window were dropped.
     private nonisolated let stateContinuationBox =
         Mutex<AsyncStream<SessionState>.Continuation?>(nil)
-    private var cachedStateStream: AsyncStream<SessionState>?
+    // Bug 5: nonisolated(unsafe) so the eager construction in init() can install
+    // the continuation before any publishX(...) call. Writers afterwards are
+    // actor-isolated (init then optional clear in close()); single-writer-per-phase.
+    nonisolated(unsafe) private var cachedStateStream: AsyncStream<SessionState>?
     private nonisolated let errorContinuationBox =
         Mutex<AsyncStream<CameraError>.Continuation?>(nil)
-    private var cachedErrorStream: AsyncStream<CameraError>?
+    nonisolated(unsafe) private var cachedErrorStream: AsyncStream<CameraError>?
     private var isOpen: Bool = false
     private var currentSettings: CameraSettings?
     private nonisolated let frameResultContinuationBox =
         Mutex<AsyncStream<FrameResult>.Continuation?>(nil)
-    private var cachedFrameResultStream: AsyncStream<FrameResult>?
+    nonisolated(unsafe) private var cachedFrameResultStream: AsyncStream<FrameResult>?
     private var frameCounter: UInt64 = 0
 
     private var watchdogs: WatchdogPair?
@@ -85,6 +88,35 @@ public actor CameraEngine {
 
     public init(clock: any CameraKitClock = SystemClock()) {
         self.clock = clock
+        // Bug 5 (docs/stage-11-pre-existing-bugs.md): eagerly construct each
+        // cached stream so its continuation is installed in the box *before*
+        // any publishX(...) can fire. The lazy first-call pattern dropped the
+        // .streaming emit fired inside engine.open() because ViewModel.start()
+        // did not call stateStream() until after open() returned.
+        self.cachedStateStream = AsyncStream<SessionState>(
+            SessionState.self,
+            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+        ) { [weak self] continuation in
+            self?.stateContinuationBox.withLock { $0 = continuation }
+        }
+        self.cachedErrorStream = AsyncStream<CameraError>(
+            CameraError.self,
+            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+        ) { [weak self] continuation in
+            self?.errorContinuationBox.withLock { $0 = continuation }
+        }
+        self.cachedFrameResultStream = AsyncStream<FrameResult>(
+            FrameResult.self,
+            bufferingPolicy: .bufferingNewest(1)
+        ) { [weak self] continuation in
+            self?.frameResultContinuationBox.withLock { $0 = continuation }
+        }
+        self.cachedRecordingStream = AsyncStream<RecordingState>(
+            RecordingState.self,
+            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+        ) { [weak self] continuation in
+            self?.recordingContinuationBox.withLock { $0 = continuation }
+        }
     }
 
     /// Returns the last successfully committed settings, or nil if none have been applied.
@@ -658,7 +690,7 @@ public actor CameraEngine {
     private var recording: Recording?
     private nonisolated let recordingContinuationBox =
         Mutex<AsyncStream<RecordingState>.Continuation?>(nil)
-    private var cachedRecordingStream: AsyncStream<RecordingState>?
+    nonisolated(unsafe) private var cachedRecordingStream: AsyncStream<RecordingState>?
     private var assetWriterFactory: AssetWriterFactory = DefaultAssetWriterFactory.make
 
     /// Returns a stream of `RecordingState` transitions.

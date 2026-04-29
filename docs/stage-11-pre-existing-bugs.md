@@ -213,6 +213,90 @@ Phase D. Confirmed via `git diff HEAD --stat` on those files.
 
 ---
 
+## Bug 5 — Bottom bar permanently greyed on launch (Settings/Calibrate/Capture/REC unusable)
+
+**Severity:** HIGH (entire bottom-bar control surface is unreachable; blocks any
+HITL run that touches sliders/record/capture).
+
+**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 during Bug 4 HITL run on
+Shreeyak's iPad (HEAD `9719ecf`).
+
+**Where it surfaced:** App launches, both previews stream correctly (frame
+counter `#20,060 t=128,700,515ms` visible in tracker overlay), but the bottom
+bar (Settings, Calibrate, Capture, REC, resolution label) is rendered dim and
+non-tappable. DEBUG sidebar buttons (Hide Tracker, Halt Pass 2, Resume Pass 2)
+are tappable — those are not enablement-gated.
+
+**Root-cause hypothesis (UNVERIFIED):**
+`ControlEnablement` (`ControlEnablement.swift:32-37`) gates every bottom-bar
+control on `sessionState == .streaming`. The viewmodel's `sessionState` mirror
+is updated only inside `for await state in await engine.stateStream()` in
+`ViewModel.swift:109-111`, which runs *after* `try await engine.open()` returns.
+If the engine emits `.streaming` during/before `open()` returns and the
+cached `stateStream()` continuation isn't yet installed (Bug 3 sibling: cached
+stream + lazy install pattern), the `.streaming` emit is dropped — the
+`sessionState` mirror stays at its initial `.closed`, and every gated
+enablement boolean stays `false`.
+
+Bug 3 closed the *async-Task install* race for the four cached streams, but
+did **not** address the *cached + lazy first-construction* race where the
+publisher emits before the subscriber ever calls `xStream()`. With
+`bufferingOldest(N)` the lazily-constructed stream cannot replay events that
+predate its construction.
+
+Verification needed: dump `sessionState` value at HITL and grep for `[CameraEngine]`
+state-publish lines in `camerakit.log`. If `publishState(.streaming)` runs
+*before* `ViewModel.start()` reaches `engine.stateStream()`, hypothesis is
+confirmed.
+
+**Fix shape (likely):** Construct the cached `stateStream()` eagerly during
+`CameraEngine.init()` so the box continuation is live before any state-publish
+can happen. Same eager-construction may be needed for the other three cached
+streams (errorStream / frameResultStream / recordingStateStream) — audit each
+publish-before-subscribe risk window.
+
+**Caveats:** Race may also be hidden in the bridge between `engine.open()`'s
+internal state machine and the public `publishState(...)` helper. Walk both
+paths before committing to a fix.
+
+---
+
+## Bug 6 — Green rendering band below previews (CAMetalLayer artifact)
+
+**Severity:** MEDIUM (cosmetic but loud; immediate visual regression).
+
+**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 during the same HITL run.
+
+**Where it surfaced:** Below the two side-by-side previews, the area down to
+the (greyed) bottom bar fills with a uniform bright-green band that spans the
+full window width and the entire vertical gap. Both natural and processed
+preview content above it look correct.
+
+**Root-cause hypothesis (UNVERIFIED):** Classic CAMetalLayer-uninitialized-memory
+symptom from CLAUDE.md §8 invariants. Two candidates:
+1. An MTKView (or layer-hosting view) under the bottom bar acquires a
+   `currentDrawable` but never calls `present(drawable)`. CAMetalLayer then
+   shows whatever was last in that GPU memory — often green when it's an
+   un-cleared YCbCr scratch. Per CLAUDE.md §8: *"Never return between
+   `view.currentDrawable` and `commandBuffer.present(drawable)`."*
+2. A blit with non-zero `sourceOrigin` or `destinationOrigin` on the
+   IOSurface-backed `naturalTex` / `processedTex`. Per CLAUDE.md §8:
+   *"non-zero origins on IOSurface-backed textures … silently break rendering
+   (both previews go green, no crash, no error without the Metal validation
+   layer enabled)."* Visible only as a band below — implies the affected blit
+   targets a layout region that's only the gap between previews and bar.
+
+**Verification needed:** Enable Metal API validation in scheme, relaunch, look
+for blit-origin or unpresented-drawable diagnostics. Inspect view tree —
+which view's CAMetalLayer covers the green region. Likely a stray/zero-sized
+preview MTKView that wasn't culled by the Stage 11 rewire.
+
+**Fix shape (after verification):** Either (a) enforce always-present on every
+drawable acquisition path (drop early returns) or (b) zero out blit origins on
+all IOSurface targets — the §8 invariants spell out the discipline.
+
+---
+
 ## Summary — punch-list before Stage 12
 
 | # | Bug | Severity | Status | File |
@@ -221,8 +305,10 @@ Phase D. Confirmed via `git diff HEAD --stat` on those files.
 | 2 | Stage 06 `frameNumber == 1` test asserts wrong value | HIGH | **FIXED** (2026-04-30; 4 sites updated to `== 0`) | `Stage06Tests.swift` |
 | 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | **FIXED** (2026-04-30; nonisolated Mutex box; all 4 cached streams) | `CameraEngine.swift` |
 | 4 | `processedTex` freezes on long sessions | MED-HIGH | open (unverified) | likely `MetalPipeline.swift` Pass 2 |
+| 5 | Bottom bar permanently greyed (cached-stream lazy-install race) | HIGH | open (unverified) | `ViewModel.swift` / `CameraEngine.swift` (cached streams) |
+| 6 | Green rendering band below previews | MED | open (unverified) | likely Metal preview layer / blit origin |
 
-**Stage 12 must clear bug 4** before retiring
+**Stage 12 must clear bugs 4, 5, and 6** before retiring
 `scaffolding:10:synchronous-drain-pause` and beginning `UIApplication.beginBackgroundTask`
 work. Otherwise the regression sweep won't be trustworthy and the next stage's
 pause/resume work will be tested against a partially-broken baseline.
