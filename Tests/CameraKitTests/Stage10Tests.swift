@@ -14,6 +14,16 @@ private final class StateLog: @unchecked Sendable {
     var snapshot: [RecordingState] { lock.withLock { items } }
 }
 
+// `ErrorLog` is declared in Stage09Tests.swift and reused here (same module).
+
+/// Thread-safe single-value box (used where a factory closure captures an Int?).
+private final class IntBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int?
+    func set(_ v: Int?) { lock.withLock { value = v } }
+    var get: Int? { lock.withLock { value } }
+}
+
 // MARK: - Stage10CoordinatorTests
 
 @Suite("Stage 10 — recording coordinator")
@@ -110,7 +120,7 @@ struct Stage10HappyPathTests {
     func recordStartStopHappyPath() async throws {
         let writer = FakeAssetWriter()
         let adaptor = FakeAdaptor()
-        var states: [RecordingState] = []
+        let states = StateLog()
         let hooks = Recording.Hooks(
             publishState: { states.append($0) },
             emitError: { _ in Issue.record("unexpected error") }
@@ -133,12 +143,13 @@ struct Stage10HappyPathTests {
         }
         let uri = await rec.stop(reason: .user)
         #expect(uri == start.uri)
-        #expect(states.contains(.recording))
-        #expect(states.contains(.finalizing))
-        if case .some(.idle(let last)) = states.last {
+        let snap = states.snapshot
+        #expect(snap.contains(.recording))
+        #expect(snap.contains(.finalizing))
+        if case .some(.idle(let last)) = snap.last {
             #expect(last == uri)
         } else {
-            Issue.record("final state was not idle, got \(String(describing: states.last))")
+            Issue.record("final state was not idle, got \(String(describing: snap.last))")
         }
         let appendedCount = await adaptor.appended.count
         #expect(appendedCount == 30)
@@ -157,7 +168,7 @@ struct Stage10DeadlineCancelTests {
         await writer.setFinishHang(
             until: .now.advanced(by: .seconds(60))
         )
-        var errors: [CameraError] = []
+        let errors = ErrorLog()
         let hooks = Recording.Hooks(
             publishState: { _ in },
             emitError: { errors.append($0) }
@@ -176,7 +187,7 @@ struct Stage10DeadlineCancelTests {
             pts: CMTimeMake(value: 0, timescale: 30)
         )
         let uri = await rec.stop(reason: .user)
-        #expect(errors.contains { $0.code == .recordingTruncated && !$0.isFatal })
+        #expect(errors.snapshot.contains { $0.code == .recordingTruncated && !$0.isFatal })
         #expect(await writer.cancelled == true)
         #expect(uri.hasSuffix(".mp4"))
     }
@@ -188,11 +199,11 @@ struct Stage10DeadlineCancelTests {
 struct Stage10AEFrameRateTests {
     @Test("RecordingOptions fps field is forwarded to the factory")
     func aeFrameRateRangeInOptions() async throws {
-        var capturedFps: Int?
+        let capturedFps = IntBox()
         let writer = FakeAssetWriter()
         let adaptor = FakeAdaptor()
         let factory: AssetWriterFactory = { _, _, _, fps in
-            capturedFps = fps
+            capturedFps.set(fps)
             return (writer, adaptor)
         }
         let rec = Recording(
@@ -204,7 +215,7 @@ struct Stage10AEFrameRateTests {
             options: RecordingOptions(fps: 15),
             captureSize: Size(width: 256, height: 256)
         )
-        #expect(capturedFps == 15)
+        #expect(capturedFps.get == 15)
     }
 }
 
@@ -238,7 +249,7 @@ struct Stage10PauseTests {
     func pauseDuringRecordingFinalizesSynchronously() async throws {
         let writer = FakeAssetWriter()
         let adaptor = FakeAdaptor()
-        var states: [RecordingState] = []
+        let states = StateLog()
         let rec = Recording(
             clock: FastClock(),
             hooks: Recording.Hooks(
@@ -252,9 +263,10 @@ struct Stage10PauseTests {
             captureSize: Size(width: 256, height: 256)
         )
         _ = await rec.stop(reason: .pause)
-        #expect(states.contains(.recording))
-        #expect(states.contains(.finalizing))
-        #expect(states.last == .paused)
+        let snap = states.snapshot
+        #expect(snap.contains(.recording))
+        #expect(snap.contains(.finalizing))
+        #expect(snap.last == .paused)
         let writerStatus = await writer._status
         // Completed or cancelled — either way finalize ran.
         #expect(writerStatus == .completed || writerStatus == .cancelled)
@@ -326,7 +338,7 @@ struct Stage10FatalFinalizeTests {
     func fatalFinalizeEmitsRecordingFailed() async throws {
         let writer = FakeAssetWriter()
         let adaptor = FakeAdaptor()
-        var errors: [CameraError] = []
+        let errors = ErrorLog()
         let rec = Recording(
             clock: FastClock(),
             hooks: Recording.Hooks(
@@ -341,6 +353,6 @@ struct Stage10FatalFinalizeTests {
         )
         await writer.setStatus(.failed, error: NSError(domain: "test", code: 7))
         _ = await rec.stop(reason: .user)
-        #expect(errors.contains { $0.code == .recordingFailed && $0.isFatal })
+        #expect(errors.snapshot.contains { $0.code == .recordingFailed && $0.isFatal })
     }
 }
