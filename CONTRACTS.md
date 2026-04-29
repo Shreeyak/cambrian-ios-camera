@@ -22,20 +22,6 @@ let resumed = ManagedAtomic<Bool>(false)
 let resumeOnce: @Sendable () -> Void = {
 ```
 
-## File: CameraKit/Sources/CameraKit/CalibrationCompute.swift
-```swift
-public enum CalibrationCompute {
-⋮----
-public static func grayWorldGains(sample: RgbSample) -> WhiteBalanceGains {
-let eps = 1e-4
-let r = max(eps, sample.r)
-let g = max(eps, sample.g)
-let b = max(eps, sample.b)
-let mean = (r + g + b) / 3.0
-⋮----
-public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
-```
-
 ## File: CameraKit/Sources/CameraKit/CalibrationViewModel.swift
 ```swift
 protocol CalibrationEngineProtocol: Sendable {
@@ -59,26 +45,6 @@ var delta = CameraSettings()
 func calibrateBB() {
 ⋮----
 let processingVM = self.processingVM
-```
-
-## File: CameraKit/Sources/CameraKit/ControlEnablement.swift
-```swift
-public struct ControlEnablement: Sendable, Hashable {
-⋮----
-public let isRecordEnabled: Bool
-⋮----
-public let isStopEnabled: Bool
-public let isCaptureEnabled: Bool
-public let isResolutionEnabled: Bool
-public let isSettingsEnabled: Bool
-public let isCalibrateEnabled: Bool
-public let showScanningAnimation: Bool
-⋮----
-public init(sessionState: SessionState, recordingState: RecordingState) {
-let isStreaming = sessionState == .streaming
-let isRecording: Bool = {
-⋮----
-let isScanning = (sessionState == .opening || sessionState == .recovering)
 ```
 
 ## File: CameraKit/Sources/CameraKit/DisplayViewModel.swift
@@ -173,13 +139,6 @@ func pushFocus(_ v: Double) { focusDebouncer?.push(v) }
 func pushZoom(_ v: Double) { zoomDebouncer?.push(v) }
 ```
 
-## File: CameraKit/Sources/CameraKit/OrientationLock.swift
-```swift
-public enum OrientationLock {
-⋮----
-public static var declaredSupported: UIInterfaceOrientationMask { .landscapeRight }
-```
-
 ## File: CameraKit/Sources/CameraKit/ProcessingViewModel.swift
 ```swift
 final class ProcessingViewModel {
@@ -248,31 +207,6 @@ func toggleRecording() {
 private func startRecordingTimer() {
 ```
 
-## File: CameraKit/Sources/CameraKit/SliderDebouncer.swift
-```swift
-public final class SliderDebouncer: @unchecked Sendable {
-⋮----
-private let intervalMs: Int
-private let dispatch: Dispatch
-private let continuation: AsyncStream<Double>.Continuation
-private let stream: AsyncStream<Double>
-private var consumerTask: Task<Void, Never>?
-⋮----
-public init(intervalMs: Int = 16, dispatch: @escaping Dispatch) {
-⋮----
-var c: AsyncStream<Double>.Continuation!
-⋮----
-public func start() async {
-⋮----
-let stream = self.stream
-let dispatch = self.dispatch
-let intervalMs = self.intervalMs
-⋮----
-public func push(_ value: Double) {
-⋮----
-public func stop() async {
-```
-
 ## File: CameraKit/Sources/CameraKit/AssetWriting.swift
 ```swift
 public protocol AssetWriting: Sendable {
@@ -318,6 +252,20 @@ let adaptor: AVAssetWriterInputPixelBufferAdaptor
 init(adaptor: AVAssetWriterInputPixelBufferAdaptor) { self.adaptor = adaptor }
 var isReadyForMoreMediaData: Bool { get async { adaptor.assetWriterInput.isReadyForMoreMediaData } }
 func append(_ buffer: CVPixelBuffer, pts: CMTime) async -> Bool {
+```
+
+## File: CameraKit/Sources/CameraKit/CalibrationCompute.swift
+```swift
+public enum CalibrationCompute {
+⋮----
+public static func grayWorldGains(sample: RgbSample) -> WhiteBalanceGains {
+let eps = 1e-4
+let r = max(eps, sample.r)
+let g = max(eps, sample.g)
+let b = max(eps, sample.b)
+let mean = (r + g + b) / 3.0
+⋮----
+public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
 ```
 
 ## File: CameraKit/Sources/CameraKit/Capabilities.swift
@@ -393,6 +341,33 @@ public init() {}
 public func nowMs() -> UInt64 {
 ⋮----
 public func sleep(milliseconds: Int) async throws {
+```
+
+## File: CameraKit/Sources/CameraKit/ControlEnablement.swift
+```swift
+public struct ControlEnablement: Sendable, Hashable {
+⋮----
+public let isRecordEnabled: Bool
+⋮----
+public let isStopEnabled: Bool
+public let isCaptureEnabled: Bool
+public let isResolutionEnabled: Bool
+public let isSettingsEnabled: Bool
+public let isCalibrateEnabled: Bool
+public let showScanningAnimation: Bool
+⋮----
+public init(sessionState: SessionState, recordingState: RecordingState) {
+let isStreaming = sessionState == .streaming
+let isRecording: Bool = {
+⋮----
+let isScanning = (sessionState == .opening || sessionState == .recovering)
+```
+
+## File: CameraKit/Sources/CameraKit/OrientationLock.swift
+```swift
+public enum OrientationLock {
+⋮----
+public static var declaredSupported: UIInterfaceOrientationMask { .landscapeRight }
 ```
 
 ## File: CameraKit/Sources/CameraKit/ProcessingMetadata.swift
@@ -547,6 +522,31 @@ enum SettingsCoupling {
 ⋮----
 static func apply(rules merged: CameraSettings, latched: DeviceStateSnapshot?) throws -> CameraSettings {
 var out = merged
+```
+
+## File: CameraKit/Sources/CameraKit/SliderDebouncer.swift
+```swift
+public final class SliderDebouncer: @unchecked Sendable {
+⋮----
+private let intervalMs: Int
+private let dispatch: Dispatch
+private let continuation: AsyncStream<Double>.Continuation
+private let stream: AsyncStream<Double>
+private var consumerTask: Task<Void, Never>?
+⋮----
+public init(intervalMs: Int = 16, dispatch: @escaping Dispatch) {
+⋮----
+var c: AsyncStream<Double>.Continuation!
+⋮----
+public func start() async {
+⋮----
+let stream = self.stream
+let dispatch = self.dispatch
+let intervalMs = self.intervalMs
+⋮----
+public func push(_ value: Double) {
+⋮----
+public func stop() async {
 ```
 
 ## File: CameraKit/Sources/CameraKit/UniformStorage.swift
@@ -938,6 +938,49 @@ func setRecordingFrameRateRange() async throws {
 func applySettings(
 ```
 
+## File: CameraKit/Sources/CameraKit/CaptureDelegate.swift
+```swift
+final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+⋮----
+var onSampleBuffer: (@Sendable (CMSampleBuffer) -> Void)?
+⋮----
+weak var engine: CameraEngine?
+⋮----
+var watchdogs: WatchdogPair?
+⋮----
+override init() {
+⋮----
+func captureOutput(
+⋮----
+let engRef = engine
+```
+
+## File: CameraKit/Sources/CameraKit/Errors.swift
+```swift
+public enum ErrorCode: String, Sendable, Hashable {
+⋮----
+public struct CameraError: Sendable, Error, Hashable {
+public let code: ErrorCode
+public let message: String
+public let isFatal: Bool
+⋮----
+public init(code: ErrorCode, message: String, isFatal: Bool) {
+⋮----
+public enum EngineError: Error, Sendable {
+⋮----
+public enum MetalError: Error, Sendable {
+⋮----
+public enum InteropError: Error, Sendable {
+⋮----
+public enum RecordingError: Error, Sendable {
+⋮----
+public struct StillCaptureOutput: Sendable, Hashable {
+public let filePath: String
+public init(filePath: String) { self.filePath = filePath }
+⋮----
+public enum StillCaptureError: Error, Sendable {
+```
+
 ## File: CameraKit/Sources/CameraKit/FrameSet.swift
 ```swift
 public struct FrameSet: @unchecked Sendable, Hashable {
@@ -1001,49 +1044,6 @@ public var r: Double
 public var g: Double
 public var b: Double
 public init(r: Double, g: Double, b: Double) {
-```
-
-## File: CameraKit/Sources/CameraKit/CaptureDelegate.swift
-```swift
-final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
-⋮----
-var onSampleBuffer: (@Sendable (CMSampleBuffer) -> Void)?
-⋮----
-weak var engine: CameraEngine?
-⋮----
-var watchdogs: WatchdogPair?
-⋮----
-override init() {
-⋮----
-func captureOutput(
-⋮----
-let engRef = engine
-```
-
-## File: CameraKit/Sources/CameraKit/Errors.swift
-```swift
-public enum ErrorCode: String, Sendable, Hashable {
-⋮----
-public struct CameraError: Sendable, Error, Hashable {
-public let code: ErrorCode
-public let message: String
-public let isFatal: Bool
-⋮----
-public init(code: ErrorCode, message: String, isFatal: Bool) {
-⋮----
-public enum EngineError: Error, Sendable {
-⋮----
-public enum MetalError: Error, Sendable {
-⋮----
-public enum InteropError: Error, Sendable {
-⋮----
-public enum RecordingError: Error, Sendable {
-⋮----
-public struct StillCaptureOutput: Sendable, Hashable {
-public let filePath: String
-public init(filePath: String) { self.filePath = filePath }
-⋮----
-public enum StillCaptureError: Error, Sendable {
 ```
 
 ## File: CameraKit/Sources/CameraKit/PixelSink.swift
