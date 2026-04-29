@@ -83,6 +83,10 @@ final class CameraSession: @unchecked Sendable {
             throw EngineError.noBackCamera
         }
 
+        // bug6: dump every available format for offline analysis. One-time at
+        // session configure; cheap (a few dozen lines).
+        Bug6Probe.dumpDeviceFormats(avDevice)
+
         // ── 2. Format selection (G-17) ──────────────────────────────────────────────
         // Filter: 8-bit biplanar YUV (FullRange preferred, VideoRange accepted per G-17
         // and architecture/03-camera-session.md §Enumeration step 1).

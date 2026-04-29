@@ -304,6 +304,10 @@ final class MetalPipeline: @unchecked Sendable {
             throw MetalError.pipelineStateCompilation("tracker sampler state")
         }
         trackerSampler = sampler
+
+        // bug6: log destination texture sizes that the per-frame pools were
+        // created at. Compared against incoming pixel-buffer dims in encode().
+        Bug6Probe.noteConfigured(captureSize: captureSize, trackerSize: trackerSize)
     }
 
     /// Encodes a YUV→RGBA + color-transform + tracker-downsample compute pass for one camera frame.
@@ -316,6 +320,8 @@ final class MetalPipeline: @unchecked Sendable {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
         }
+        // bug6: compare incoming buffer dims against allocated dest size.
+        Bug6Probe.noteIncomingPixelBuffer(pixelBuffer, frame: frameNumber)
 
         // 2. Wrap YUV planes as zero-copy MTLTextures (ADR-06).
         let yTexture: MTLTexture
