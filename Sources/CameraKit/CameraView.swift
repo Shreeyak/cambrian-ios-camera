@@ -73,8 +73,14 @@ public struct CameraView: View {
 
     private var previewArea: some View {
         HStack(spacing: 0) {
-            MTKViewRepresentable(textureAccessor: { viewModel.display.naturalTex })
-            MTKViewRepresentable(textureAccessor: { viewModel.display.processedTex })
+            MTKViewRepresentable(
+                textureAccessor: { viewModel.display.naturalTex },
+                label: "natural"
+            )
+            MTKViewRepresentable(
+                textureAccessor: { viewModel.display.processedTex },
+                label: "processed"
+            )
         }
         .background(Color.black)
         .ignoresSafeArea()
@@ -459,10 +465,13 @@ public struct CameraView: View {
             VStack {
                 Spacer()
                 HStack {
-                    MTKViewRepresentable(textureAccessor: { viewModel.display.trackerTex })
-                        .frame(width: 160, height: 120)
-                        .border(.yellow, width: 1)
-                        .padding([.bottom, .leading], 80)
+                    MTKViewRepresentable(
+                        textureAccessor: { viewModel.display.trackerTex },
+                        label: "tracker"
+                    )
+                    .frame(width: 160, height: 120)
+                    .border(.yellow, width: 1)
+                    .padding([.bottom, .leading], 80)
                     Spacer()
                 }
             }
@@ -540,6 +549,8 @@ struct SliderRebinding: View {
 struct MTKViewRepresentable: UIViewRepresentable {
 
     let textureAccessor: () -> MTLTexture?
+    // bug6: identifies which preview lane this view renders, for log correlation.
+    var label: String = "preview"
 
     func makeUIView(context: Context) -> MTKView {
         let mtkView = MTKView()
@@ -556,7 +567,7 @@ struct MTKViewRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: MTKView, context: Context) {}
 
     func makeCoordinator() -> MTKViewCoordinator {
-        MTKViewCoordinator(textureAccessor: textureAccessor)
+        MTKViewCoordinator(textureAccessor: textureAccessor, label: label)
     }
 }
 
@@ -567,12 +578,14 @@ struct MTKViewRepresentable: UIViewRepresentable {
 final class MTKViewCoordinator: NSObject, MTKViewDelegate {
 
     let textureAccessor: () -> MTLTexture?
+    let label: String
 
     /// Cached command queue — created once to avoid per-frame allocation at 30 fps.
     let commandQueue: MTLCommandQueue?
 
-    init(textureAccessor: @escaping () -> MTLTexture?) {
+    init(textureAccessor: @escaping () -> MTLTexture?, label: String = "preview") {
         self.textureAccessor = textureAccessor
+        self.label = label
         self.commandQueue = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
     }
 
@@ -596,6 +609,15 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
         if let texture = textureAccessor(),
             let blitEncoder = commandBuffer.makeBlitCommandEncoder()
         {
+            // bug6: log tex vs drawable size — flags underfill of the drawable.
+            Bug6Probe.noteDraw(
+                label: label,
+                texture: texture,
+                drawable: drawable,
+                drawableTextureWidth: drawable.texture.width,
+                drawableTextureHeight: drawable.texture.height,
+                viewBounds: view.bounds.size
+            )
             let srcWidth = min(texture.width, drawable.texture.width)
             let srcHeight = min(texture.height, drawable.texture.height)
             blitEncoder.copy(
