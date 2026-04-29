@@ -22,88 +22,6 @@ let resumed = ManagedAtomic<Bool>(false)
 let resumeOnce: @Sendable () -> Void = {
 ```
 
-## File: CameraKit/Sources/CameraKit/Bug6Probe.swift
-```swift
-enum Bug6Probe {
-⋮----
-nonisolated(unsafe) static var enabled: Bool = true
-⋮----
-nonisolated(unsafe) private static var lastConfiguredSize: (w: Int, h: Int)?
-nonisolated(unsafe) private static var lastBufferSig: (yW: Int, yH: Int, cW: Int, cH: Int, fullW: Int, fullH: Int)?
-nonisolated(unsafe) private static var lastDrawSig:
-⋮----
-nonisolated(unsafe) private static var mismatchCount: Int = 0
-⋮----
-static func noteConfigured(captureSize: Size, trackerSize: Size) {
-⋮----
-let line =
-⋮----
-static func noteIncomingPixelBuffer(_ pb: CVPixelBuffer, frame: UInt64) {
-⋮----
-let yW = CVPixelBufferGetWidthOfPlane(pb, 0)
-let yH = CVPixelBufferGetHeightOfPlane(pb, 0)
-let cW = CVPixelBufferGetWidthOfPlane(pb, 1)
-let cH = CVPixelBufferGetHeightOfPlane(pb, 1)
-let fullW = CVPixelBufferGetWidth(pb)
-let fullH = CVPixelBufferGetHeight(pb)
-let sig = (yW: yW, yH: yH, cW: cW, cH: cH, fullW: fullW, fullH: fullH)
-⋮----
-let cfg = lastConfiguredSize
-let cfgW = cfg?.w ?? -1
-let cfgH = cfg?.h ?? -1
-let mismatch = (cfgW != yW) || (cfgH != yH) || (cfgW != fullW) || (cfgH != fullH)
-⋮----
-let tag = mismatch ? "[mismatch]" : "[ok]"
-⋮----
-static func dumpDeviceFormats(_ device: AVCaptureDevice) {
-⋮----
-let header =
-⋮----
-let dims = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-let sub = CMFormatDescriptionGetMediaSubType(f.formatDescription)
-let subStr = fourCC(sub)
-let fpsRanges = f.videoSupportedFrameRateRanges
-⋮----
-let binned = f.isVideoBinned
-let hqPhoto = f.isHighestPhotoQualitySupported
-let hPhoto = f.isHighPhotoQualitySupported
-let maxPhoto = f.supportedMaxPhotoDimensions
-⋮----
-let fov = f.videoFieldOfView
-let stabStd = f.isVideoStabilizationModeSupported(.standard)
-let stabCine = f.isVideoStabilizationModeSupported(.cinematic)
-⋮----
-let footer = "[bug6][formats][end]"
-⋮----
-private static func fourCC(_ code: FourCharCode) -> String {
-let bytes: [UInt8] = [
-⋮----
-let s = String(bytes: bytes, encoding: .ascii) ?? "?"
-⋮----
-/// Called from `MTKViewCoordinator.draw(in:)`.
-///
-/// Logs once on first draw and again on any subsequent dimension change.
-/// Flags when the source preview texture is smaller than the drawable —
-/// the un-blitted region is what shows the persistent green band.
-static func noteDraw(
-⋮----
-_ = drawable  // documents intent
-let texW = texture.width
-let texH = texture.height
-let drW = drawableTextureWidth
-let drH = drawableTextureHeight
-let vW = Int(viewBounds.width.rounded())
-let vH = Int(viewBounds.height.rounded())
-let sig = (
-⋮----
-return  // no change since last log
-⋮----
-let dropX = drW - texW
-let dropY = drH - texH
-let underfill = dropX > 0 || dropY > 0
-let tag = underfill ? "[underfill]" : "[fits]"
-```
-
 ## File: CameraKit/Sources/CameraKit/Capabilities.swift
 ```swift
 public struct Size: Sendable, Hashable {
@@ -389,6 +307,88 @@ let frame = frameSeen.load(ordering: .relaxed)
 static func resume() {
 ⋮----
 let line = "[bug4][resume] halt cleared"
+```
+
+## File: CameraKit/Sources/CameraKit/Bug6Probe.swift
+```swift
+enum Bug6Probe {
+⋮----
+nonisolated(unsafe) static var enabled: Bool = true
+⋮----
+nonisolated(unsafe) private static var lastConfiguredSize: (w: Int, h: Int)?
+nonisolated(unsafe) private static var lastBufferSig: (yW: Int, yH: Int, cW: Int, cH: Int, fullW: Int, fullH: Int)?
+nonisolated(unsafe) private static var lastDrawSig:
+⋮----
+nonisolated(unsafe) private static var mismatchCount: Int = 0
+⋮----
+static func noteConfigured(captureSize: Size, trackerSize: Size) {
+⋮----
+let line =
+⋮----
+static func noteIncomingPixelBuffer(_ pb: CVPixelBuffer, frame: UInt64) {
+⋮----
+let yW = CVPixelBufferGetWidthOfPlane(pb, 0)
+let yH = CVPixelBufferGetHeightOfPlane(pb, 0)
+let cW = CVPixelBufferGetWidthOfPlane(pb, 1)
+let cH = CVPixelBufferGetHeightOfPlane(pb, 1)
+let fullW = CVPixelBufferGetWidth(pb)
+let fullH = CVPixelBufferGetHeight(pb)
+let sig = (yW: yW, yH: yH, cW: cW, cH: cH, fullW: fullW, fullH: fullH)
+⋮----
+let cfg = lastConfiguredSize
+let cfgW = cfg?.w ?? -1
+let cfgH = cfg?.h ?? -1
+let mismatch = (cfgW != yW) || (cfgH != yH) || (cfgW != fullW) || (cfgH != fullH)
+⋮----
+let tag = mismatch ? "[mismatch]" : "[ok]"
+⋮----
+static func dumpDeviceFormats(_ device: AVCaptureDevice) {
+⋮----
+let header =
+⋮----
+let dims = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
+let sub = CMFormatDescriptionGetMediaSubType(f.formatDescription)
+let subStr = fourCC(sub)
+let fpsRanges = f.videoSupportedFrameRateRanges
+⋮----
+let binned = f.isVideoBinned
+let hqPhoto = f.isHighestPhotoQualitySupported
+let hPhoto = f.isHighPhotoQualitySupported
+let maxPhoto = f.supportedMaxPhotoDimensions
+⋮----
+let fov = f.videoFieldOfView
+let stabStd = f.isVideoStabilizationModeSupported(.standard)
+let stabCine = f.isVideoStabilizationModeSupported(.cinematic)
+⋮----
+let footer = "[bug6][formats][end]"
+⋮----
+private static func fourCC(_ code: FourCharCode) -> String {
+let bytes: [UInt8] = [
+⋮----
+let s = String(bytes: bytes, encoding: .ascii) ?? "?"
+⋮----
+/// Called from `MTKViewCoordinator.draw(in:)`.
+///
+/// Logs once on first draw and again on any subsequent dimension change.
+/// Flags when the source preview texture is smaller than the drawable —
+/// the un-blitted region is what shows the persistent green band.
+static func noteDraw(
+⋮----
+_ = drawable  // documents intent
+let texW = texture.width
+let texH = texture.height
+let drW = drawableTextureWidth
+let drH = drawableTextureHeight
+let vW = Int(viewBounds.width.rounded())
+let vH = Int(viewBounds.height.rounded())
+let sig = (
+⋮----
+return  // no change since last log
+⋮----
+let dropX = drW - texW
+let dropY = drH - texH
+let underfill = dropX > 0 || dropY > 0
+let tag = underfill ? "[underfill]" : "[fits]"
 ```
 
 ## File: CameraKit/Sources/CameraKit/CalibrationCompute.swift
