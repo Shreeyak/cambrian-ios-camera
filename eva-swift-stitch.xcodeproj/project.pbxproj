@@ -20,6 +20,7 @@
 		5411DD80E5D86868D71B4EF9 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4EFB126527016EEBF27C9B62 /* CameraKit */; };
 		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
+		CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47509CEAA74698DC7E545FE /* Stage11Tests.swift */; };
 		E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */; };
 		F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45007E7AF3327300AB0630E3 /* Stage02Tests.swift */; };
 		F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */; };
@@ -63,6 +64,7 @@
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
 		DE72B917051A958CCDA6299B /* Stage09Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage09Tests.swift; sourceTree = "<group>"; };
 		E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage07Tests.swift; sourceTree = "<group>"; };
+		E47509CEAA74698DC7E545FE /* Stage11Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage11Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage11Tests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -186,6 +188,7 @@
 			isa = PBXGroup;
 			children = (
 				AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */,
+				E47509CEAA74698DC7E545FE /* Stage11Tests.swift */,
 			);
 			name = CameraKitTests;
 			sourceTree = "<group>";
@@ -347,6 +350,7 @@
 				4B23642524C1D784A1D02ABB /* Stage07Tests.swift in Sources */,
 				1597FE0511AFD9C0406D7498 /* Stage09Tests.swift in Sources */,
 				E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */,
+				CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
