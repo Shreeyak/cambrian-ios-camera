@@ -146,23 +146,30 @@ public actor ConsumerRegistry {
     // MARK: - Unregister
 
     /// Finishes the subscriber's continuation (Swift lane) or removes the C++ pool entry.
+    ///
+    /// Same recursive-lock concern as `release()`: extract the continuation
+    /// under lock, finish it once the lock is released.
     public func unregister(token: ConsumerToken) {
-        var foundSwift = false
-        state.withLock { inner in
-            guard var lane = inner.subscribers[token.stream] else { return }
-            if let idx = lane.firstIndex(where: { $0.id == token.id }) {
-                lane[idx].continuation.finish()
-                lane.remove(at: idx)
-                inner.subscribers[token.stream] = lane
-                foundSwift = true
+        let foundContinuation: AsyncStream<FrameSet>.Continuation? = state.withLock {
+            inner in
+            guard var lane = inner.subscribers[token.stream] else { return nil }
+            guard let idx = lane.firstIndex(where: { $0.id == token.id }) else {
+                return nil
             }
+            let c = lane[idx].continuation
+            lane.remove(at: idx)
+            inner.subscribers[token.stream] = lane
+            return c
         }
-        if !foundSwift {
+        if let c = foundContinuation {
+            c.finish()
+        } else {
             cppPool.unregister(token: token.id)
         }
         if CameraKitLog.isEnabled {
+            let lane = foundContinuation != nil ? "swift" : "cpp"
             let msg =
-                "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(foundSwift ? "swift" : "cpp")"
+                "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(lane)"
             CameraKitLog.consumers.info("\(msg)")
             CameraKitLog.write("[consumers] \(msg)")
         }
@@ -243,14 +250,19 @@ public actor ConsumerRegistry {
 
     /// Finishes every subscriber's continuation.
     ///
-    /// Called from `CameraEngine.close()`.
+    /// Called from `CameraEngine.close()`. `continuation.finish()` synchronously
+    /// invokes the `onTermination` handler set in `subscribe(stream:)`, which
+    /// re-acquires `state.withLock`. Calling `finish()` while holding the lock
+    /// recursively acquires the underlying `os_unfair_lock` and aborts (Stage 11
+    /// regression caught this on iPad iOS 26.4.1). Drain the continuations
+    /// outside the lock to avoid the recursion.
     func release() {
-        state.withLock { inner in
-            for (_, lane) in inner.subscribers {
-                for sub in lane { sub.continuation.finish() }
-            }
+        let toFinish: [AsyncStream<FrameSet>.Continuation] = state.withLock { inner in
+            let conts = inner.subscribers.values.flatMap { $0.map(\.continuation) }
             inner.subscribers.removeAll()
+            return conts
         }
+        for c in toFinish { c.finish() }
     }
 
     // MARK: - Test-visible metrics
