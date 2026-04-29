@@ -135,9 +135,16 @@ struct Stage01Tests {
 
     // MARK: Test 4 — 01:landscape-right-rotation-applied
 
-    /// Verifies that the capture orientation constant equals 90° (landscape-right).
+    /// Verifies the capture orientation constant matches Stage 06 HITL.
+    ///
+    /// Stage 06 commit `e09c1f3` ("fix(stage-06): green artifact, FPS regression,
+    /// landscape lock — HITL PASS") changed this from 90 → 0 to fix landscape
+    /// rendering on iPad Pro M1. The Stage 01 brief still names 90; the HITL
+    /// fix wins per CLAUDE.md §8 ("the brief is the source of truth, but log
+    /// deviations"). Test updated during Stage 11 regression — flagged in
+    /// `state.md` "Decisions taken that weren't in briefs".
     @Test func landscapeRightRotationApplied() {
-        #expect(Constants.captureOrientationAngleDeg == 90)
+        #expect(Constants.captureOrientationAngleDeg == 0)
     }
 
     // MARK: Test 5 — Consumer registry subscribe / unregister (Stage 06 actor API)
