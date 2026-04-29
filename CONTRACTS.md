@@ -22,191 +22,6 @@ let resumed = ManagedAtomic<Bool>(false)
 let resumeOnce: @Sendable () -> Void = {
 ```
 
-## File: CameraKit/Sources/CameraKit/CalibrationViewModel.swift
-```swift
-protocol CalibrationEngineProtocol: Sendable {
-func sampleCenterPatch() async throws -> RgbSample
-func updateSettings(_ settings: CameraSettings) async throws
-⋮----
-final class CalibrationViewModel {
-⋮----
-private let engine: any CalibrationEngineProtocol
-private let processingVM: ProcessingViewModel
-⋮----
-init(engine: any CalibrationEngineProtocol, processingVM: ProcessingViewModel) {
-⋮----
-func calibrateWB() {
-let engine = self.engine
-⋮----
-let sample = try await engine.sampleCenterPatch()
-let gains = CalibrationCompute.grayWorldGains(sample: sample)
-var delta = CameraSettings()
-⋮----
-func calibrateBB() {
-⋮----
-let processingVM = self.processingVM
-```
-
-## File: CameraKit/Sources/CameraKit/DisplayViewModel.swift
-```swift
-struct DebugOverlay: Equatable {
-var frameNumber: UInt64
-var captureTimeMs: Int64
-⋮----
-var edgeCount: UInt32?
-⋮----
-nonisolated(unsafe) var processedTex: MTLTexture?
-⋮----
-var debugOverlay: DebugOverlay?
-var debugTrackerSubscribed: Bool = false
-⋮----
-@ObservationIgnored private var naturalSubscriberTask: Task<Void, Never>?
-@ObservationIgnored private var trackerSubscriberTask: Task<Void, Never>?
-@ObservationIgnored private let cannyStub: CppCannyStub = CppCannyStub()
-@ObservationIgnored private var cannyToken: ConsumerToken?
-⋮----
-private let engine: CameraEngine
-⋮----
-func attachAfterOpen() async {
-⋮----
-func detachBeforeClose() async {
-⋮----
-private func startDebugOverlay() {
-⋮----
-let processed = self.cannyStub.processedCount
-let edgeCount: UInt32? =
-⋮----
-let overlay = DebugOverlay(
-⋮----
-func toggleDebugTrackerSubscription() async {
-⋮----
-let tex = self.engine.currentTrackerTexture()
-```
-
-## File: CameraKit/Sources/CameraKit/ErrorPresenterViewModel.swift
-```swift
-final class ErrorPresenterViewModel {
-⋮----
-var currentToast: CameraError?
-⋮----
-var fatalDialog: CameraError?
-⋮----
-@ObservationIgnored private var errorConsumerTask: Task<Void, Never>?
-@ObservationIgnored private var toastDismissTask: Task<Void, Never>?
-⋮----
-private let engine: CameraEngine
-⋮----
-init(engine: CameraEngine) {
-⋮----
-func start() async {
-⋮----
-func stop() async {
-⋮----
-func dismissFatal() {
-⋮----
-func _feedErrorForTest(_ err: CameraError) {
-⋮----
-private func handleError(_ err: CameraError) {
-```
-
-## File: CameraKit/Sources/CameraKit/HardwareControlsViewModel.swift
-```swift
-final class HardwareControlsViewModel {
-⋮----
-var currentSettings: CameraSettings = CameraSettings()
-⋮----
-@ObservationIgnored private var isoDebouncer: SliderDebouncer?
-@ObservationIgnored private var shutterDebouncer: SliderDebouncer?
-@ObservationIgnored private var focusDebouncer: SliderDebouncer?
-@ObservationIgnored private var zoomDebouncer: SliderDebouncer?
-⋮----
-private let engine: CameraEngine
-⋮----
-init(engine: CameraEngine) {
-⋮----
-func start() async {
-⋮----
-let engine = self.engine
-let applyDelta: @Sendable (CameraSettings) async -> Void = { [weak self] delta in
-⋮----
-var d = CameraSettings()
-⋮----
-func stop() async {
-⋮----
-func pushISO(_ v: Double) { isoDebouncer?.push(v) }
-func pushShutter(_ v: Double) { shutterDebouncer?.push(v) }
-func pushFocus(_ v: Double) { focusDebouncer?.push(v) }
-func pushZoom(_ v: Double) { zoomDebouncer?.push(v) }
-```
-
-## File: CameraKit/Sources/CameraKit/ProcessingViewModel.swift
-```swift
-final class ProcessingViewModel {
-⋮----
-var currentProcessing: ProcessingParameters = .identity
-⋮----
-@ObservationIgnored private var brightnessDebouncer: SliderDebouncer?
-@ObservationIgnored private var contrastDebouncer: SliderDebouncer?
-@ObservationIgnored private var saturationDebouncer: SliderDebouncer?
-@ObservationIgnored private var gammaDebouncer: SliderDebouncer?
-@ObservationIgnored private var blackRDebouncer: SliderDebouncer?
-@ObservationIgnored private var blackGDebouncer: SliderDebouncer?
-@ObservationIgnored private var blackBDebouncer: SliderDebouncer?
-⋮----
-private let engine: CameraEngine
-⋮----
-init(engine: CameraEngine) {
-⋮----
-func start() async {
-⋮----
-func stop() async {
-⋮----
-func pushBrightness(_ v: Double) { brightnessDebouncer?.push(v) }
-func pushContrast(_ v: Double) { contrastDebouncer?.push(v) }
-func pushSaturation(_ v: Double) { saturationDebouncer?.push(v) }
-func pushGamma(_ v: Double) { gammaDebouncer?.push(v) }
-func pushBlackR(_ v: Double) { blackRDebouncer?.push(v) }
-func pushBlackG(_ v: Double) { blackGDebouncer?.push(v) }
-func pushBlackB(_ v: Double) { blackBDebouncer?.push(v) }
-⋮----
-func applyBlackBalance(sample: RgbSample) async {
-let offsets = CalibrationCompute.blackBalanceOffsets(sample: sample)
-var next = currentProcessing
-⋮----
-func resetProcessing() async {
-let next = ProcessingParameters.identity
-⋮----
-private func makeDebouncer(
-⋮----
-let engine = self.engine
-⋮----
-let next = await MainActor.run { () -> ProcessingParameters in
-var p = self.currentProcessing
-```
-
-## File: CameraKit/Sources/CameraKit/RecordingViewModel.swift
-```swift
-final class RecordingViewModel {
-⋮----
-var recordingState: RecordingState = .idle(lastUri: nil)
-var recordingElapsedSeconds: Int = 0
-⋮----
-@ObservationIgnored private var recordingStateTask: Task<Void, Never>?
-@ObservationIgnored private var recordingTimerTask: Task<Void, Never>?
-⋮----
-private let engine: CameraEngine
-⋮----
-init(engine: CameraEngine) {
-⋮----
-func start() async {
-⋮----
-func stop() async {
-⋮----
-func toggleRecording() {
-⋮----
-private func startRecordingTimer() {
-```
-
 ## File: CameraKit/Sources/CameraKit/AssetWriting.swift
 ```swift
 public protocol AssetWriting: Sendable {
@@ -266,6 +81,31 @@ let b = max(eps, sample.b)
 let mean = (r + g + b) / 3.0
 ⋮----
 public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
+```
+
+## File: CameraKit/Sources/CameraKit/CalibrationViewModel.swift
+```swift
+protocol CalibrationEngineProtocol: Sendable {
+func sampleCenterPatch() async throws -> RgbSample
+func updateSettings(_ settings: CameraSettings) async throws
+⋮----
+final class CalibrationViewModel {
+⋮----
+private let engine: any CalibrationEngineProtocol
+private let processingVM: ProcessingViewModel
+⋮----
+init(engine: any CalibrationEngineProtocol, processingVM: ProcessingViewModel) {
+⋮----
+func calibrateWB() {
+let engine = self.engine
+⋮----
+let sample = try await engine.sampleCenterPatch()
+let gains = CalibrationCompute.grayWorldGains(sample: sample)
+var delta = CameraSettings()
+⋮----
+func calibrateBB() {
+⋮----
+let processingVM = self.processingVM
 ```
 
 ## File: CameraKit/Sources/CameraKit/Capabilities.swift
@@ -363,6 +203,98 @@ let isRecording: Bool = {
 let isScanning = (sessionState == .opening || sessionState == .recovering)
 ```
 
+## File: CameraKit/Sources/CameraKit/DisplayViewModel.swift
+```swift
+struct DebugOverlay: Equatable {
+var frameNumber: UInt64
+var captureTimeMs: Int64
+⋮----
+var edgeCount: UInt32?
+⋮----
+nonisolated(unsafe) var processedTex: MTLTexture?
+⋮----
+var debugOverlay: DebugOverlay?
+var debugTrackerSubscribed: Bool = false
+⋮----
+@ObservationIgnored private var naturalSubscriberTask: Task<Void, Never>?
+@ObservationIgnored private var trackerSubscriberTask: Task<Void, Never>?
+@ObservationIgnored private let cannyStub: CppCannyStub = CppCannyStub()
+@ObservationIgnored private var cannyToken: ConsumerToken?
+⋮----
+private let engine: CameraEngine
+⋮----
+func attachAfterOpen() async {
+⋮----
+func detachBeforeClose() async {
+⋮----
+private func startDebugOverlay() {
+⋮----
+let processed = self.cannyStub.processedCount
+let edgeCount: UInt32? =
+⋮----
+let overlay = DebugOverlay(
+⋮----
+func toggleDebugTrackerSubscription() async {
+⋮----
+let tex = self.engine.currentTrackerTexture()
+```
+
+## File: CameraKit/Sources/CameraKit/ErrorPresenterViewModel.swift
+```swift
+final class ErrorPresenterViewModel {
+⋮----
+var currentToast: CameraError?
+⋮----
+var fatalDialog: CameraError?
+⋮----
+@ObservationIgnored private var errorConsumerTask: Task<Void, Never>?
+@ObservationIgnored private var toastDismissTask: Task<Void, Never>?
+⋮----
+private let engine: CameraEngine
+⋮----
+init(engine: CameraEngine) {
+⋮----
+func start() async {
+⋮----
+func stop() async {
+⋮----
+func dismissFatal() {
+⋮----
+func _feedErrorForTest(_ err: CameraError) {
+⋮----
+private func handleError(_ err: CameraError) {
+```
+
+## File: CameraKit/Sources/CameraKit/HardwareControlsViewModel.swift
+```swift
+final class HardwareControlsViewModel {
+⋮----
+var currentSettings: CameraSettings = CameraSettings()
+⋮----
+@ObservationIgnored private var isoDebouncer: SliderDebouncer?
+@ObservationIgnored private var shutterDebouncer: SliderDebouncer?
+@ObservationIgnored private var focusDebouncer: SliderDebouncer?
+@ObservationIgnored private var zoomDebouncer: SliderDebouncer?
+⋮----
+private let engine: CameraEngine
+⋮----
+init(engine: CameraEngine) {
+⋮----
+func start() async {
+⋮----
+let engine = self.engine
+let applyDelta: @Sendable (CameraSettings) async -> Void = { [weak self] delta in
+⋮----
+var d = CameraSettings()
+⋮----
+func stop() async {
+⋮----
+func pushISO(_ v: Double) { isoDebouncer?.push(v) }
+func pushShutter(_ v: Double) { shutterDebouncer?.push(v) }
+func pushFocus(_ v: Double) { focusDebouncer?.push(v) }
+func pushZoom(_ v: Double) { zoomDebouncer?.push(v) }
+```
+
 ## File: CameraKit/Sources/CameraKit/OrientationLock.swift
 ```swift
 public enum OrientationLock {
@@ -383,6 +315,51 @@ public let whiteBalanceGains: WhiteBalanceGains
 public init(
 ⋮----
 init(color: ColorUniform, crop: CropUniform) {
+```
+
+## File: CameraKit/Sources/CameraKit/ProcessingViewModel.swift
+```swift
+final class ProcessingViewModel {
+⋮----
+var currentProcessing: ProcessingParameters = .identity
+⋮----
+@ObservationIgnored private var brightnessDebouncer: SliderDebouncer?
+@ObservationIgnored private var contrastDebouncer: SliderDebouncer?
+@ObservationIgnored private var saturationDebouncer: SliderDebouncer?
+@ObservationIgnored private var gammaDebouncer: SliderDebouncer?
+@ObservationIgnored private var blackRDebouncer: SliderDebouncer?
+@ObservationIgnored private var blackGDebouncer: SliderDebouncer?
+@ObservationIgnored private var blackBDebouncer: SliderDebouncer?
+⋮----
+private let engine: CameraEngine
+⋮----
+init(engine: CameraEngine) {
+⋮----
+func start() async {
+⋮----
+func stop() async {
+⋮----
+func pushBrightness(_ v: Double) { brightnessDebouncer?.push(v) }
+func pushContrast(_ v: Double) { contrastDebouncer?.push(v) }
+func pushSaturation(_ v: Double) { saturationDebouncer?.push(v) }
+func pushGamma(_ v: Double) { gammaDebouncer?.push(v) }
+func pushBlackR(_ v: Double) { blackRDebouncer?.push(v) }
+func pushBlackG(_ v: Double) { blackGDebouncer?.push(v) }
+func pushBlackB(_ v: Double) { blackBDebouncer?.push(v) }
+⋮----
+func applyBlackBalance(sample: RgbSample) async {
+let offsets = CalibrationCompute.blackBalanceOffsets(sample: sample)
+var next = currentProcessing
+⋮----
+func resetProcessing() async {
+let next = ProcessingParameters.identity
+⋮----
+private func makeDebouncer(
+⋮----
+let engine = self.engine
+⋮----
+let next = await MainActor.run { () -> ProcessingParameters in
+var p = self.currentProcessing
 ```
 
 ## File: CameraKit/Sources/CameraKit/Recording.swift
@@ -443,6 +420,29 @@ let truncErr = CameraError(
 ⋮----
 let writerErr = await writer.writerError
 let failErr = CameraError(
+```
+
+## File: CameraKit/Sources/CameraKit/RecordingViewModel.swift
+```swift
+final class RecordingViewModel {
+⋮----
+var recordingState: RecordingState = .idle(lastUri: nil)
+var recordingElapsedSeconds: Int = 0
+⋮----
+@ObservationIgnored private var recordingStateTask: Task<Void, Never>?
+@ObservationIgnored private var recordingTimerTask: Task<Void, Never>?
+⋮----
+private let engine: CameraEngine
+⋮----
+init(engine: CameraEngine) {
+⋮----
+func start() async {
+⋮----
+func stop() async {
+⋮----
+func toggleRecording() {
+⋮----
+private func startRecordingTimer() {
 ```
 
 ## File: CameraKit/Sources/CameraKit/RecoveryCoordinator.swift
@@ -1046,6 +1046,79 @@ public var b: Double
 public init(r: Double, g: Double, b: Double) {
 ```
 
+## File: CameraKit/Sources/CameraKit/Constants.swift
+```swift
+enum Constants {
+static let frameRateTargetFPS: Int = 30
+static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+static let workingPixelFormat: MTLPixelFormat = .rgba16Float
+static let captureDefaultWidthPx: Int = 4160
+static let captureDefaultHeightPx: Int = 3120
+static let captureFallbackWidthPx: Int = 1280
+static let captureFallbackHeightPx: Int = 960
+static let cropDefaultWidthPx: Int = 1600
+static let cropDefaultHeightPx: Int = 1200
+static let captureOrientationAngleDeg: CGFloat = 0
+static let stateStreamBufferSize: Int = 64
+⋮----
+static let sessionLifecycleTimeoutSeconds: Double = 2.0
+⋮----
+static let frameResultHeartbeatHz: Int = 3
+static let frameResultHeartbeatIntervalFrames: Int = 10
+⋮----
+static let resolutionResizeTimeoutSeconds: Double = 5.0
+⋮----
+static let centerPatchSizePx: Int = 96
+⋮----
+static let centerPatchTrimPercent: Int = 10
+⋮----
+static let frameLatencyBudgetMs: Int = 33
+⋮----
+static let processedPixelFormat: OSType = kCVPixelFormatType_64RGBAHalf
+⋮----
+static let trackerHeightPx: Int = 480
+⋮----
+static let poolMinBufferCount: Int = 3
+⋮----
+static let poolMaxBufferAgeSeconds: Double = 1.0
+⋮----
+static let cppPoolThreadCount: Int = min(4, ProcessInfo.processInfo.processorCount)
+⋮----
+static let stallGpuThresholdMs: Int = 3000
+⋮----
+static let stallCaptureThresholdMs: Int = 5000
+⋮----
+static let aeConvergenceTimeoutMs: Int = 5000
+⋮----
+static let fpsDegradedThresholdFps: Double = 15.0
+⋮----
+static let fpsDegradedStreakCount: Int = 3
+⋮----
+static let fpsMeasurementWindowFrames: Int = 30
+⋮----
+static let hwErrorThresholdConsecutive: Int = 5
+⋮----
+static let recoveryMaxRetries: Int = 5
+⋮----
+static let recoveryBackoff1Ms: Int = 500
+static let recoveryBackoff2Ms: Int = 1000
+static let recoveryBackoff3Ms: Int = 2000
+static let recoveryBackoff4Ms: Int = 4000
+static let recoveryBackoff5PlusMs: Int = 8000
+⋮----
+static func recoveryBackoffMs(attempt: Int) -> Int {
+⋮----
+static let frameRateRecordingMinFps: Int = 15
+⋮----
+static let recordingTargetBitrateBpsDefault: Int = 40_000_000
+⋮----
+static let recordingFinishTimeoutSeconds: Double = 5.0
+⋮----
+static let drainTimeoutSeconds: Double = 5.0
+⋮----
+static let encoderPixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+```
+
 ## File: CameraKit/Sources/CameraKit/PixelSink.swift
 ```swift
 public struct ConsumerToken: Sendable, Hashable {
@@ -1196,79 +1269,6 @@ var cvTexture: CVMetalTexture?
 let status = CVMetalTextureCacheCreateTextureFromImage(
 ⋮----
 private func makeTexture(
-```
-
-## File: CameraKit/Sources/CameraKit/Constants.swift
-```swift
-enum Constants {
-static let frameRateTargetFPS: Int = 30
-static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-static let workingPixelFormat: MTLPixelFormat = .rgba16Float
-static let captureDefaultWidthPx: Int = 4160
-static let captureDefaultHeightPx: Int = 3120
-static let captureFallbackWidthPx: Int = 1280
-static let captureFallbackHeightPx: Int = 960
-static let cropDefaultWidthPx: Int = 1600
-static let cropDefaultHeightPx: Int = 1200
-static let captureOrientationAngleDeg: CGFloat = 0
-static let stateStreamBufferSize: Int = 64
-⋮----
-static let sessionLifecycleTimeoutSeconds: Double = 2.0
-⋮----
-static let frameResultHeartbeatHz: Int = 3
-static let frameResultHeartbeatIntervalFrames: Int = 10
-⋮----
-static let resolutionResizeTimeoutSeconds: Double = 5.0
-⋮----
-static let centerPatchSizePx: Int = 96
-⋮----
-static let centerPatchTrimPercent: Int = 10
-⋮----
-static let frameLatencyBudgetMs: Int = 33
-⋮----
-static let processedPixelFormat: OSType = kCVPixelFormatType_64RGBAHalf
-⋮----
-static let trackerHeightPx: Int = 480
-⋮----
-static let poolMinBufferCount: Int = 3
-⋮----
-static let poolMaxBufferAgeSeconds: Double = 1.0
-⋮----
-static let cppPoolThreadCount: Int = min(4, ProcessInfo.processInfo.processorCount)
-⋮----
-static let stallGpuThresholdMs: Int = 3000
-⋮----
-static let stallCaptureThresholdMs: Int = 5000
-⋮----
-static let aeConvergenceTimeoutMs: Int = 5000
-⋮----
-static let fpsDegradedThresholdFps: Double = 15.0
-⋮----
-static let fpsDegradedStreakCount: Int = 3
-⋮----
-static let fpsMeasurementWindowFrames: Int = 30
-⋮----
-static let hwErrorThresholdConsecutive: Int = 5
-⋮----
-static let recoveryMaxRetries: Int = 5
-⋮----
-static let recoveryBackoff1Ms: Int = 500
-static let recoveryBackoff2Ms: Int = 1000
-static let recoveryBackoff3Ms: Int = 2000
-static let recoveryBackoff4Ms: Int = 4000
-static let recoveryBackoff5PlusMs: Int = 8000
-⋮----
-static func recoveryBackoffMs(attempt: Int) -> Int {
-⋮----
-static let frameRateRecordingMinFps: Int = 15
-⋮----
-static let recordingTargetBitrateBpsDefault: Int = 40_000_000
-⋮----
-static let recordingFinishTimeoutSeconds: Double = 5.0
-⋮----
-static let drainTimeoutSeconds: Double = 5.0
-⋮----
-static let encoderPixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 ```
 
 ## File: CameraKit/Sources/CameraKit/ViewModel.swift
