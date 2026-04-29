@@ -181,6 +181,16 @@ final class CameraSession: @unchecked Sendable {
 
         avSession.beginConfiguration()
 
+        // bug6: set sessionPreset to .inputPriority before adding the input so the
+        // device's activeFormat is honored. The default preset (.high) overrides
+        // activeFormat and silently downgrades the delivered buffer to 1080p,
+        // which left the destination textures (sized at format dims, e.g.
+        // 4032×3024) under-filled and showing un-sampled BT.601-of-zero green
+        // along the bottom and right edges.
+        if avSession.canSetSessionPreset(.inputPriority) {
+            avSession.sessionPreset = .inputPriority
+        }
+
         if avSession.canAddInput(deviceInput) {
             avSession.addInput(deviceInput)
         }
