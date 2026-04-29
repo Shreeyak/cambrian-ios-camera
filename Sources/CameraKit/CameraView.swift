@@ -467,16 +467,31 @@ public struct CameraView: View {
                 }
             }
         }
-        // Show/hide tracker toggle (top-right).
+        // Show/hide tracker toggle + bug4 halt button (top-right).
         VStack {
             HStack {
                 Spacer()
-                Button(viewModel.display.debugTrackerSubscribed ? "Hide Tracker" : "Show Tracker") {
-                    Task { await viewModel.display.toggleDebugTrackerSubscription() }
+                VStack(alignment: .trailing, spacing: 6) {
+                    Button(viewModel.display.debugTrackerSubscribed ? "Hide Tracker" : "Show Tracker") {
+                        Task { await viewModel.display.toggleDebugTrackerSubscription() }
+                    }
+                    .padding(8)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .foregroundStyle(.yellow)
+                    Button("Halt Pass 2 (bug4)") {
+                        Bug4Probe.dumpAndHalt(reason: "manual")
+                    }
+                    .padding(8)
+                    .background(.red.opacity(0.7), in: Capsule())
+                    .foregroundStyle(.white)
+                    Button("Resume Pass 2") {
+                        Bug4Probe.resume()
+                    }
+                    .padding(6)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .foregroundStyle(.yellow)
+                    .font(.caption)
                 }
-                .padding(8)
-                .background(.black.opacity(0.6), in: Capsule())
-                .foregroundStyle(.yellow)
                 .padding(.top, 12)
                 .padding(.trailing, 12)
             }
