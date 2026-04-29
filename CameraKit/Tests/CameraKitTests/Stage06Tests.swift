@@ -51,9 +51,11 @@ struct Stage06Tests {
         let p = await processedTask.value
         let t = await trackerTask.value
 
-        #expect(n?.frameNumber == 1)
-        #expect(p?.frameNumber == 1)
-        #expect(t?.frameNumber == 1)
+        // MetalPipeline assigns frameNumber, then increments — first FrameSet is 0.
+        // See docs/stage-11-pre-existing-bugs.md Bug 2.
+        #expect(n?.frameNumber == 0)
+        #expect(p?.frameNumber == 0)
+        #expect(t?.frameNumber == 0)
         #expect(CVPixelBufferGetIOSurface(n!.natural) != nil)
         #expect(CVPixelBufferGetIOSurface(p!.processed) != nil)
         #expect(CVPixelBufferGetIOSurface(t!.tracker) != nil)
@@ -193,7 +195,9 @@ struct Stage06Tests {
         try await Task.sleep(nanoseconds: 200_000_000)
         task.cancel()
         let fs = await task.value
-        #expect(fs?.frameNumber == 1)
+        // First FrameSet has frameNumber 0 (assign-then-increment in MetalPipeline).
+        // See docs/stage-11-pre-existing-bugs.md Bug 2.
+        #expect(fs?.frameNumber == 0)
         #expect(CVPixelBufferGetIOSurface(fs!.natural) != nil)
     }
 

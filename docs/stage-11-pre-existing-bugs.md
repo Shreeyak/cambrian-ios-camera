@@ -49,8 +49,8 @@ introduced the actor-based `ConsumerRegistry`) exposed the recursive shape; the
 
 **Severity:** HIGH (4 failing test issues; pre-existing; blocks regression).
 
-**Status:** **NOT YET FIXED.** Skipped in Stage 11 regression (`-skip-testing
-:eva-swift-stitchTests/Stage06Tests`). Punch-list item for Stage 12.
+**Status:** **FIXED 2026-04-30.** Test assertions updated to match the
+assign-then-increment ordering. All 7 `Stage06Tests` pass on iPad iOS 26.4.1.
 
 **Where it surfaced:** `Stage06Tests.swift`
 - `frameSetPublication()` lines 54–56 (3 assertions: natural / processed / tracker)
@@ -91,9 +91,13 @@ sweep. Filtering to Stage 09/10 in earlier stages bypassed Stage 06 entirely.
 
 **Severity:** HIGH (test hangs forever; blocks any full regression).
 
-**Status:** **NOT YET FIXED.** Skipped in Stage 11 regression (`-skip-testing
-:eva-swift-stitchTests/Stage09ErrorStreamTests/errorStreamDeliversEveryTransition()`).
-Punch-list item for Stage 12.
+**Status:** **FIXED 2026-04-30.** All four cached-stream patterns in
+`CameraEngine.swift` (`stateStream`, `errorStream`, `frameResultStream`,
+`recordingStateStream`) converted from actor-isolated `Task { await
+self?.setXContinuation(c) }` to synchronous `nonisolated let
+xContinuationBox = Mutex<Continuation?>(nil)` + `box.withLock { $0 = c }`
+inside the AsyncStream init closure. The `_emitErrorForTest` race window is
+gone; `errorStreamDeliversEveryTransition()` passes deterministically.
 
 **Where it surfaced:** `Stage09Tests.swift:222–240`. Test was the lone
 "started-but-never-completed" entry in the Stage 11 regression's parallel
@@ -214,11 +218,11 @@ Phase D. Confirmed via `git diff HEAD --stat` on those files.
 | # | Bug | Severity | Status | File |
 |---|-----|----------|--------|------|
 | 1 | Recursive `os_unfair_lock` in `PixelSink.release/unregister` | BLOCKER | **FIXED** (Stage 11 Phase D-cleanup) | `PixelSink.swift` |
-| 2 | Stage 06 `frameNumber == 1` test asserts wrong value | HIGH | open | `Stage06Tests.swift` (3 sites) |
-| 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | open | `CameraEngine.swift:345-355` |
+| 2 | Stage 06 `frameNumber == 1` test asserts wrong value | HIGH | **FIXED** (2026-04-30; 4 sites updated to `== 0`) | `Stage06Tests.swift` |
+| 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | **FIXED** (2026-04-30; nonisolated Mutex box; all 4 cached streams) | `CameraEngine.swift` |
 | 4 | `processedTex` freezes on long sessions | MED-HIGH | open (unverified) | likely `MetalPipeline.swift` Pass 2 |
 
-**Stage 12 must clear bugs 2-4** (1 is already fixed) before retiring
+**Stage 12 must clear bug 4** before retiring
 `scaffolding:10:synchronous-drain-pause` and beginning `UIApplication.beginBackgroundTask`
 work. Otherwise the regression sweep won't be trustworthy and the next stage's
 pause/resume work will be tested against a partially-broken baseline.

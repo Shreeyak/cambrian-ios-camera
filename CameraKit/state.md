@@ -1,18 +1,20 @@
 # state.md — Stage 11
 
 ## Current stage
-Stage 11 complete (Phase E §8 TESTABLEs verified). **Bugs 2-4 + 3 HITL passes block Stage 12 — see flag below.**
+Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1-3 fixed. **Bug 4 + 3 HITL passes block Stage 12 — see flag below.**
 
-## ⚠️ Blocking Stage 12 — bugs + HITL
+## ⚠️ Blocking Stage 12 — bug 4 + HITL
 
 Stage 11 regression surfaced **four** pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`:
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
 | 1 | Recursive `os_unfair_lock` in `PixelSink.release/unregister` | BLOCKER | **FIXED** (Stage 11 Phase D-cleanup; drain continuations outside lock) |
-| 2 | Stage 06 `frameNumber == 1` test asserts wrong value | HIGH | open — test skipped via `-skip-testing:eva-swift-stitchTests/Stage06Tests` |
-| 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | open — `errorStreamDeliversEveryTransition()` skipped |
-| 4 | `processedTex` freezes on long sessions (right preview stuck 2-3 min while natural+tracker keep flowing) | MED-HIGH | open, unverified |
+| 2 | Stage 06 `frameNumber == 1` test asserts wrong value | HIGH | **FIXED** (2026-04-30; 4 sites updated to `== 0`) |
+| 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | **FIXED** (2026-04-30; nonisolated `Mutex<Continuation?>` boxes; all 4 cached streams in `CameraEngine`) |
+| 4 | `processedTex` freezes on long sessions (right preview stuck 2-3 min while natural+tracker keep flowing) | MED-HIGH | open, unverified — needs HITL on iPad |
+
+Full regression after fixes (2026-04-30, iPad iOS 26.4.1, scheme `eva-swift-stitch`, no `-skip-testing` flags): **71 passed, 0 failed, 1 skipped** (same DEBUG-gated skip as Stage 11 baseline).
 
 Three Stage 11 §11 HITL evidence items also still pending — must be captured into `measurements/stage-11/ui.md` before Stage 12 begins:
 
@@ -22,7 +24,7 @@ Three Stage 11 §11 HITL evidence items also still pending — must be captured 
 | `11:liquid-glass-and-landscape-lock` | Liquid Glass styling visible on bars/sidebar/toast; orientation stays landscape-right under physical rotation | DEFERRED |
 | `11:accessibility-voiceover-pass` | VoiceOver navigates the 5-button bar, expanded sliders, calibration sidebar, error toast/dialog correctly | DEFERRED |
 
-**Stage 12 must clear bugs 2-4 and complete the three HITL passes** before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work. The Phase E regression sweep ran with explicit skips for bugs 2 and 3; bug 4 was observed empirically on iPad iOS 26.4.1 during the long regression run. HITL items require human verification on a physical iPad — cannot be automated.
+**Stage 12 must clear bug 4 and complete the three HITL passes** before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work. Bugs 2 and 3 are now resolved and the regression runs clean without skip flags. Bug 4 was observed empirically on iPad iOS 26.4.1 during the long regression run; reproduction + root-cause needs an HITL session (5+ min iPad run with `processedTex` visible, plus temporary Pass 2 / pool-state logging in `MetalPipeline`). HITL items require human verification on a physical iPad — cannot be automated.
 
 ## Scaffolding still live
 
@@ -60,6 +62,11 @@ UI control plane decomposed from a single 398-line `ViewModel` into a parent + s
 
 - **`PixelSink.release()` / `unregister()`** — drain continuations outside `state.withLock`, then `finish()`. Was crashing the Stage 11 regression with `BUG IN CLIENT OF LIBPLATFORM: Trying to recursively lock an os_unfair_lock` on iPad iOS 26.4.1; cascaded as 58 false "Crash" entries. Bug 1 in `docs/stage-11-pre-existing-bugs.md`. Latent since Stage 06 (commit `5d51be0`); exposed by 26.4.1 timing change.
 - **`Stage01Tests.swift` `landscapeRightRotationApplied`** — updated assertion from `== 90` to `== 0` to match the Stage 06 HITL fix (`captureOrientationAngleDeg = 0`, commit `e09c1f3`). Test was the leftover stale assertion from Stage 01 brief; brief vs. HITL conflict resolved per CLAUDE.md §8 ("HITL fix wins; log deviations").
+
+### Pre-existing bug fixes folded in 2026-04-30 (post-Stage 11)
+
+- **Bug 2** — `Stage06Tests.swift` 4 sites: `?.frameNumber == 1` → `== 0`. `MetalPipeline` assigns `fn = frameNumber` then increments after; first FrameSet's frameNumber is 0. Test was wrong from inception; latent because Bug 1 was aborting the test process before Stage 06 ran.
+- **Bug 3** — `CameraEngine.swift`: all four cached-stream + Task-set patterns (`stateStream`, `errorStream`, `frameResultStream`, `recordingStateStream`) converted from actor-isolated `Task { await self?.setXContinuation(c) }` to nonisolated `Mutex<AsyncStream<X>.Continuation?>` boxes installed synchronously inside the AsyncStream init closure. Continuation is non-nil before `errorStream()` etc. return to the caller — the race window where early emits were silently dropped is gone. Symmetric audit-fix per the bug doc's "Same fix likely needed in `stateStream()` and any other cached-stream-with-Task-set pattern".
 
 ## Public API exposed — Stage 11
 
@@ -120,7 +127,7 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
 
 ## Open questions for next stage
 
-- Bugs 2-4 from `docs/stage-11-pre-existing-bugs.md` — fix before retiring `10:synchronous-drain-pause` in Stage 12.
+- Bug 4 from `docs/stage-11-pre-existing-bugs.md` — `processedTex` long-session freeze. Needs HITL on iPad: 5+ min run + temporary Pass 2 / pool-state logging in `MetalPipeline`. Hypotheses (unverified): silent Pass 2 error, processed pool exhaustion, uniforms.withLock contention, ObservationIgnored race on `DisplayViewModel.processedTex`. Fix before retiring `10:synchronous-drain-pause` in Stage 12.
 - `SessionState.closing` enum reconciliation (Decision #50). Either add the case in `architecture/04-state.md` and use it, or drop `.closing` from brief §8 enablement matrix.
 - HITL evidence under `measurements/stage-11/` — three slugs deferred.
 - ADR-22 error routing for `updateSettings` failures (Decision #58).

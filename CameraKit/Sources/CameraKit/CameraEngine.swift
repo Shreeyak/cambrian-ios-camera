@@ -29,13 +29,20 @@ public actor CameraEngine {
     /// share state.
     public nonisolated let consumers: ConsumerRegistry = ConsumerRegistry()
     private var deliveryQueue: DispatchQueue?
-    private var stateContinuation: AsyncStream<SessionState>.Continuation?
+    // Bug 3 fix (docs/stage-11-pre-existing-bugs.md): continuations live in nonisolated
+    // Mutex boxes so the AsyncStream init closure can install them synchronously. The
+    // previous `Task { await self?.setXContinuation(c) }` hop returned to the caller
+    // before the continuation was non-nil; emits during that window were dropped.
+    private nonisolated let stateContinuationBox =
+        Mutex<AsyncStream<SessionState>.Continuation?>(nil)
     private var cachedStateStream: AsyncStream<SessionState>?
-    private var errorContinuation: AsyncStream<CameraError>.Continuation?
+    private nonisolated let errorContinuationBox =
+        Mutex<AsyncStream<CameraError>.Continuation?>(nil)
     private var cachedErrorStream: AsyncStream<CameraError>?
     private var isOpen: Bool = false
     private var currentSettings: CameraSettings?
-    private var frameResultContinuation: AsyncStream<FrameResult>.Continuation?
+    private nonisolated let frameResultContinuationBox =
+        Mutex<AsyncStream<FrameResult>.Continuation?>(nil)
     private var cachedFrameResultStream: AsyncStream<FrameResult>?
     private var frameCounter: UInt64 = 0
 
@@ -285,8 +292,10 @@ public actor CameraEngine {
         if let live = cameraSession?.device as? LiveCaptureDevice {
             await live.cancelKVO()
         }
-        frameResultContinuation?.finish()
-        frameResultContinuation = nil
+        frameResultContinuationBox.withLock {
+            $0?.finish()
+            $0 = nil
+        }
         cachedFrameResultStream = nil
         frameCounter = 0
         await consumers.release()
@@ -312,9 +321,8 @@ public actor CameraEngine {
             SessionState.self,
             bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
         ) { [weak self] continuation in
-            // Store the continuation so the engine can publish state changes.
-            // This closure runs synchronously during AsyncStream init.
-            Task { await self?.setStateContinuation(continuation) }
+            // Synchronous install via nonisolated box — see Bug 3.
+            self?.stateContinuationBox.withLock { $0 = continuation }
         }
         cachedStateStream = stream
         return stream
@@ -328,14 +336,10 @@ public actor CameraEngine {
             FrameResult.self,
             bufferingPolicy: .bufferingNewest(1)
         ) { [weak self] continuation in
-            Task { await self?.setFrameResultContinuation(continuation) }
+            self?.frameResultContinuationBox.withLock { $0 = continuation }
         }
         cachedFrameResultStream = stream
         return stream
-    }
-
-    private func setFrameResultContinuation(_ c: AsyncStream<FrameResult>.Continuation) {
-        frameResultContinuation = c
     }
 
     /// Stream of error notifications (non-fatal + fatal).
@@ -348,18 +352,14 @@ public actor CameraEngine {
             CameraError.self,
             bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
         ) { [weak self] continuation in
-            Task { await self?.setErrorContinuation(continuation) }
+            self?.errorContinuationBox.withLock { $0 = continuation }
         }
         cachedErrorStream = stream
         return stream
     }
 
-    private func setErrorContinuation(_ continuation: AsyncStream<CameraError>.Continuation) {
-        errorContinuation = continuation
-    }
-
     private func publishError(_ err: CameraError) {
-        errorContinuation?.yield(err)
+        errorContinuationBox.withLock { $0?.yield(err) }
     }
 
     /// Test-only: emit an arbitrary CameraError without driving the recovery machine.
@@ -376,8 +376,7 @@ public actor CameraEngine {
         frameCounter &+= 1
         guard frameCounter % UInt64(Constants.frameResultHeartbeatIntervalFrames) == 0,
             let device = cameraSession?.device,
-            let snap = await device.lastSnapshot,
-            let cont = frameResultContinuation
+            let snap = await device.lastSnapshot
         else { return }
         let r = FrameResult(
             iso: Int(snap.iso),
@@ -386,7 +385,7 @@ public actor CameraEngine {
             wbGainR: Double(snap.whiteBalanceGains.red),
             wbGainG: Double(snap.whiteBalanceGains.green),
             wbGainB: Double(snap.whiteBalanceGains.blue))
-        cont.yield(r)
+        frameResultContinuationBox.withLock { $0?.yield(r) }
     }
 
     /// Full settings merge→couple→validate→commit→persist pipeline (Stage 03).
@@ -657,7 +656,8 @@ public actor CameraEngine {
     // MARK: - Stage 10: Recording
 
     private var recording: Recording?
-    private var recordingContinuation: AsyncStream<RecordingState>.Continuation?
+    private nonisolated let recordingContinuationBox =
+        Mutex<AsyncStream<RecordingState>.Continuation?>(nil)
     private var cachedRecordingStream: AsyncStream<RecordingState>?
     private var assetWriterFactory: AssetWriterFactory = DefaultAssetWriterFactory.make
 
@@ -670,21 +670,14 @@ public actor CameraEngine {
             RecordingState.self,
             bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
         ) { [weak self] c in
-            guard let self else { return }
-            Task { await self.storeRecordingContinuation(c) }
+            self?.recordingContinuationBox.withLock { $0 = c }
         }
         cachedRecordingStream = stream
         return stream
     }
 
-    private func storeRecordingContinuation(
-        _ c: AsyncStream<RecordingState>.Continuation
-    ) {
-        recordingContinuation = c
-    }
-
     private func publishRecordingState(_ s: RecordingState) {
-        recordingContinuation?.yield(s)
+        recordingContinuationBox.withLock { $0?.yield(s) }
     }
 
     /// Test seam — swap the writer factory before startRecording().
@@ -794,12 +787,8 @@ public actor CameraEngine {
 
     // MARK: - Private helpers
 
-    private func setStateContinuation(_ continuation: AsyncStream<SessionState>.Continuation) {
-        stateContinuation = continuation
-    }
-
     private func publishState(_ state: SessionState) {
-        stateContinuation?.yield(state)
+        stateContinuationBox.withLock { $0?.yield(state) }
     }
 
     // MARK: - Stage 09 internal hooks
