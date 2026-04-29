@@ -26,16 +26,14 @@ final class DisplayViewModel {
 
     // MARK: - Texture mailboxes (read on Metal rendering thread, never enter SwiftUI tracking)
 
-    /// Set once after `engine.open()` succeeds; stable for session lifetime.
+    /// Live forwarders to the engine's pipeline mailboxes.
     ///
-    /// `@ObservationIgnored` skips `@Observable`'s tracking rewrite so the property
-    /// is a plain stored field; `nonisolated(unsafe)` allows cross-isolation reads
-    /// from `MTKViewCoordinator.draw(in:)`.
-    @ObservationIgnored
-    nonisolated(unsafe) var naturalTex: MTLTexture?
-
-    @ObservationIgnored
-    nonisolated(unsafe) var processedTex: MTLTexture?
+    /// `nonisolated` so `MTKViewCoordinator.draw(in:)` can read them off the
+    /// MainActor without an actor hop. Each call returns the *current* value
+    /// of `MetalPipeline.latestNaturalTex` / `latestProcessedTex` — never a
+    /// captured pointer (Bug 4: pool rotation strands cached pointers).
+    nonisolated var naturalTex: MTLTexture? { engine.currentTexture() }
+    nonisolated var processedTex: MTLTexture? { engine.currentProcessedTexture() }
 
     @ObservationIgnored
     nonisolated(unsafe) var trackerTex: MTLTexture?
@@ -56,12 +54,12 @@ final class DisplayViewModel {
         self.engine = engine
     }
 
-    /// Grab session-stable textures and register the DEBUG Canny stub.
+    /// Register the DEBUG Canny stub on the tracker stream.
     ///
     /// Called once from the parent's `start()` after `engine.open()` succeeds.
+    /// Bug 4: `naturalTex`/`processedTex` are now live computed forwarders; no
+    /// session-time capture is needed (or correct).
     func attachAfterOpen() async {
-        naturalTex = engine.currentTexture()
-        processedTex = engine.currentProcessedTexture()
         #if DEBUG
         let cbs = PixelSinkCallbacks(
             onFrame: cannyStub.onFrameCallback(),

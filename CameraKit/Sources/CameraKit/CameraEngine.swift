@@ -70,14 +70,12 @@ public actor CameraEngine {
     /// armed for a stale session (D-10, Inv 9, Inv 12).
     nonisolated let sessionToken: ManagedAtomic<UInt64> = ManagedAtomic(0)
 
-    // MTLTexture is non-Sendable; stored nonisolated(unsafe) so ViewModel can read it
-    // synchronously after open() returns, without crossing an actor boundary.
-    // Written once in open() before startRunning(); read after open() completes — no race.
-    nonisolated(unsafe) private var _naturalTex: (any MTLTexture)?
-
-    // Same pattern as _naturalTex: written once in open() before the GPU
-    // pipeline is consumed; read by ViewModel from MainActor without actor hop.
-    nonisolated(unsafe) private var _processedTex: (any MTLTexture)?
+    // Bug 4 fix: previewTex accessors forward live to MetalPipeline mailboxes
+    // (`latestNaturalTex` / `latestProcessedTex`) — which the pipeline rewrites
+    // every frame. The previous capture-once snapshot pattern sat on whichever
+    // pool buffer was dequeued at open() time and froze whenever pool rotation
+    // moved past it (typical after any transient back-pressure). Tracker tex
+    // already followed this live-forward pattern (line ~565).
 
     // Stage 06: tracker texture mailbox — see latestTrackerTex on MetalPipeline (G-13).
     // Written on the delivery queue via the pipeline's completedHandler; read by
@@ -191,8 +189,6 @@ public actor CameraEngine {
         self.metalPipeline = pipeline
         self._metalPipeline = pipeline
         stillCapture = StillCapture()
-        self._naturalTex = pipeline.currentTexture()
-        self._processedTex = pipeline.currentProcessedTex()
         self.deliveryQueue = delivery
 
         // Install KVO ingest so `lastSnapshot` is populated for Rule 3.
@@ -336,8 +332,6 @@ public actor CameraEngine {
         metalPipeline = nil
         stillCapture = nil
         _metalPipeline = nil
-        _naturalTex = nil
-        _processedTex = nil
         deliveryQueue = nil
         isOpen = false
         publishState(.closed)
@@ -482,8 +476,6 @@ public actor CameraEngine {
         await session.stopRunningAsync()
         metalPipeline = nil
         _metalPipeline = nil
-        _naturalTex = nil
-        _processedTex = nil
 
         try await session.reconfigureSize(size)
 
@@ -510,8 +502,6 @@ public actor CameraEngine {
         }
         metalPipeline = pipeline
         _metalPipeline = pipeline
-        _naturalTex = pipeline.currentTexture()
-        _processedTex = pipeline.currentProcessedTex()
 
         submissionGate.store(true, ordering: .sequentiallyConsistent)
         await session.startRunningAsync()
@@ -543,17 +533,21 @@ public actor CameraEngine {
         submissionGate.store(true, ordering: .sequentiallyConsistent)
     }
 
-    /// Exposes the naturalTex for the MTKView draw pass. nil if engine not open.
-    /// nonisolated so ViewModel can call synchronously without actor hop (MTLTexture is non-Sendable).
+    /// Exposes the live natural-tex mailbox for the MTKView draw pass.
+    ///
+    /// Forwards to `MetalPipeline.latestNaturalTex` — the pipeline updates this
+    /// mailbox in the per-frame completion handler (single writer: delivery
+    /// queue). MUST be re-evaluated each draw; do not cache the returned
+    /// pointer (Bug 4: pool rotation strands cached pointers).
     public nonisolated func currentTexture() -> (any MTLTexture)? {
-        _naturalTex
+        _metalPipeline?.latestNaturalTex
     }
 
-    /// Stage 04: returns the processedTex for the right-half MTKView.
+    /// Exposes the live processed-tex mailbox for the right-half MTKView draw.
     ///
-    /// nonisolated so ViewModel can call synchronously without actor hop.
+    /// Same live-mailbox contract as `currentTexture()` — re-evaluate per draw.
     public nonisolated func currentProcessedTexture() -> (any MTLTexture)? {
-        _processedTex
+        _metalPipeline?.latestProcessedTex
     }
 
     /// Stage 06: returns the latest tracker texture for external consumers.
