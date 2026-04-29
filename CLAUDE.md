@@ -424,19 +424,41 @@ underlying issue and ask again — do not `--amend` around it.
   Once that directory exists every scheme must be an explicit `.xcscheme` file.
   The shared app scheme lives at
   `eva-swift-stitch.xcodeproj/xcshareddata/xcschemes/eva-swift-stitch.xcscheme`.
-- **Device log capture (`start_device_log_cap`) fails on Shreeyak's iPad**
+- **Two test iPads, two UDID schemes — always look up which is connected.**
+  This project rotates between two physical iPads (Shreeyak's iPad Pro 11"
+  2nd-gen, iPad8,9; and an iPad A16, iPad15,7). Each device has *two distinct
+  identifiers* that different tools use:
+  - **xctrace / xcodebuild / XcodeBuildMCP destination** — hardware ECID UDID,
+    e.g. `00008027-000539EA0184402E`. Use for `-destination "platform=iOS,id=<udid>"`,
+    XcodeBuildMCP `session_set_defaults deviceId`, build/test commands.
+  - **devicectl CoreDevice UDID** — different scheme, e.g.
+    `DAD37FD5-685B-50E0-911E-F9BC40BBDBE5`. Use for `xcrun devicectl device copy
+    from --device <id>`, devicectl manage / process commands.
+
+  Verify before any device command — the wrong UDID silently targets the wrong
+  device or fails with "device not found":
+  ```bash
+  xcrun xctrace list devices       # build/test UDID column
+  xcrun devicectl list devices     # devicectl Identifier column + connected/unavailable state
+  ```
+  XcodeBuildMCP session defaults already store the xctrace UDID under
+  `deviceId`; check with `mcp__XcodeBuildMCP__session_show_defaults` first.
+- **Device log capture (`start_device_log_cap`) fails on these iPads**
   ("No provider was found") over both network and USB. For no-crash evidence,
-  pull system crash logs instead:
-  `xcrun devicectl device copy from --device DAD37FD5-685B-50E0-911E-F9BC40BBDBE5
-  --domain-type systemCrashLogs --source "/" --destination /tmp/crash/` —
-  absence of the app bundle name in results confirms no process termination.
+  pull system crash logs instead (substitute the *devicectl* UDID for the
+  currently-connected device — see two-iPad note above):
+  ```bash
+  xcrun devicectl device copy from --device <devicectl-udid> \
+    --domain-type systemCrashLogs --source "/" --destination /tmp/crash/
+  ```
+  Absence of the app bundle name in results confirms no process termination.
 - **Reading app logs (Wi-Fi device, no USB):** `--console` on `devicectl process launch`
   requires USB — it silently kills the app over Wi-Fi. `idevicesyslog` and `xctrace`
   also require USB. Use the file sink instead: `CameraKitLog.enableFileLogging()` writes
-  to `<Documents>/camerakit.log`; pull it with:
+  to `<Documents>/camerakit.log`; pull it with (devicectl UDID, look up first):
   ```bash
   xcrun devicectl device copy from \
-    --device "DAD37FD5-685B-50E0-911E-F9BC40BBDBE5" \
+    --device "<devicectl-udid>" \
     --domain-type appDataContainer \
     --domain-identifier com.cambrian.eva-swift-stitch \
     --source /Documents/camerakit.log \
