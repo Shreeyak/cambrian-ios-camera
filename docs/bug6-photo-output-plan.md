@@ -71,6 +71,29 @@ needed and gets retired.
   - Set the photo connection's `videoRotationAngle` to match
     `Constants.captureOrientationAngleDeg` (ADR-17 — same angle, same
     rule).
+  - Capture-readiness configuration (order matters — set before
+    `commitConfiguration()`, see Apple "Managing responsive capture"):
+    1. `if photoOutput.isResponsiveCaptureSupported { photoOutput.isResponsiveCaptureEnabled = true }`
+       — lets the next capture begin before the previous one fully
+       returns. Materially raises sustained throughput when the user
+       taps shutter quickly.
+    2. `if photoOutput.isZeroShutterLagSupported { photoOutput.isZeroShutterLagEnabled = true }`
+       — keeps a rolling buffer of recent frames so the photo "is
+       already taken" at shutter-press; makes the shot feel instant.
+    3. After `commitConfiguration()` and before exposing capture to the
+       user, prime the pipeline with
+       `photoOutput.setPreparedPhotoSettingsArray([template], completionHandler:)`
+       where `template` is a representative `AVCapturePhotoSettings`
+       matching what `StillCapture` will issue (BGRA, max dimensions,
+       `.balanced` quality). Without this, the first shot pays a
+       buffer-allocation tax of tens of ms.
+  - **Deferred for a later stage:** `isAutoDeferredPhotoDeliveryEnabled`
+    + the proxy/full-quality two-callback delegate flow. Adds
+    background ISP processing that returns a fast proxy first and the
+    full-quality result later — useful for burst UX but requires
+    StillCapture to handle two delegate callbacks per shot and a
+    proxy-replacement flow in Photos. Not in this plan; revisit once
+    responsive-capture path is shipping cleanly.
 - Extend the return tuple: `(device: …, captureSize: …, photoOutput: AVCapturePhotoOutput)`.
 - `photoOutput` itself is class-bound and `@unchecked Sendable` by use;
   callers serialize via `sessionQueue` for `capturePhoto(with:delegate:)`

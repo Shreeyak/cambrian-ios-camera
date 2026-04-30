@@ -170,6 +170,16 @@ final class CameraSession: @unchecked Sendable {
         let frameDuration = CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS))
         avDevice.activeVideoMinFrameDuration = frameDuration
         avDevice.activeVideoMaxFrameDuration = frameDuration
+
+        // bug6: disable low-light boost. LLB multiplies analog gain in dim
+        // scenes, which sacrifices spatial detail for SNR. Stills come out
+        // softer when LLB engages mid-frame. Disabling makes detail
+        // deterministic across exposure conditions; AE still handles low
+        // light via shutter/ISO within format limits.
+        if avDevice.isLowLightBoostSupported {
+            avDevice.automaticallyEnablesLowLightBoostWhenAvailable = false
+        }
+
         avDevice.unlockForConfiguration()
 
         // ── 4. Wire session input + output ──────────────────────────────────────────
@@ -245,6 +255,13 @@ final class CameraSession: @unchecked Sendable {
                     reason: "videoRotationAngle \(angle)° not supported on this device (ADR-17)")
             }
             connection.videoRotationAngle = angle  // ADR-17
+
+            // bug6: disable video stabilization. The standard / cinematic modes
+            // warp each frame (rolling-shutter correction + bilinear resample +
+            // crop), which softens fine detail. Off makes the captured frame a
+            // raw read of the sensor's ISP-processed output without geometric
+            // post-processing — material sharpness gain on stills.
+            connection.preferredVideoStabilizationMode = .off
         }
 
         return (device: liveDevice, captureSize: chosenSize)
