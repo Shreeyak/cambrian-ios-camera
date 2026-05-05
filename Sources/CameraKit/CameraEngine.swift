@@ -129,7 +129,7 @@ public actor CameraEngine {
     public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
         guard !isOpen else { throw EngineError.alreadyOpen }
         if CameraKitLog.isEnabled {
-            CameraKitLog.engine.info("open: requesting camera permission")
+            CameraKitLog.engine.notice("open: requesting camera permission")
             CameraKitLog.write("[engine] open: requesting camera permission")
         }
 
@@ -280,7 +280,7 @@ public actor CameraEngine {
             let poolPtr = consumers.nativePipelinePointer()
             let msg =
                 "open: pipeline ready — \(captureSize.width)×\(captureSize.height) pool=0x\(String(poolPtr, radix: 16))"
-            CameraKitLog.engine.info("\(msg)")
+            CameraKitLog.engine.notice("\(msg, privacy: .public)")
             CameraKitLog.write("[engine] \(msg)")
         }
         return SessionCapabilities(
@@ -309,7 +309,7 @@ public actor CameraEngine {
         recovery = nil
         guard isOpen else { return }
         if CameraKitLog.isEnabled {
-            CameraKitLog.engine.info("close: tearing down pipeline")
+            CameraKitLog.engine.notice("close: tearing down pipeline")
             CameraKitLog.write("[engine] close: tearing down pipeline")
         }
         // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
@@ -576,7 +576,10 @@ public actor CameraEngine {
             return nil
         }
         let ptr = consumers.nativePipelinePointer()
-        if CameraKitLog.isEnabled { CameraKitLog.engine.info("getNativePipelineHandle: 0x\(String(ptr, radix: 16))") }
+        if CameraKitLog.isEnabled {
+            let hex = String(ptr, radix: 16)
+            CameraKitLog.engine.info("getNativePipelineHandle: 0x\(hex, privacy: .public)")
+        }
         return ptr
     }
 
