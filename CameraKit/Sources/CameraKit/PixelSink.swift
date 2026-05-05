@@ -137,7 +137,7 @@ public actor ConsumerRegistry {
         if CameraKitLog.isEnabled {
             let msg =
                 "registerCallback: stream=\(stream.rawPoolId) token=\(token) cppCount=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
-            CameraKitLog.consumers.info("\(msg)")
+            CameraKitLog.consumers.notice("\(msg, privacy: .public)")
             CameraKitLog.write("[consumers] \(msg)")
         }
         return ConsumerToken(id: token, stream: stream)
@@ -170,7 +170,7 @@ public actor ConsumerRegistry {
             let lane = foundContinuation != nil ? "swift" : "cpp"
             let msg =
                 "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(lane)"
-            CameraKitLog.consumers.info("\(msg)")
+            CameraKitLog.consumers.notice("\(msg, privacy: .public)")
             CameraKitLog.write("[consumers] \(msg)")
         }
     }
@@ -221,7 +221,7 @@ public actor ConsumerRegistry {
             let hasSurface = surface != nil
             let msg =
                 "yield: frame=\(frameSet.frameNumber) stream=\(stream.rawPoolId) surface=\(hasSurface) cppConsumers=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
-            CameraKitLog.consumers.info("\(msg)")
+            CameraKitLog.consumers.info("\(msg, privacy: .public)")
             CameraKitLog.write("[consumers] \(msg)")
         }
     }

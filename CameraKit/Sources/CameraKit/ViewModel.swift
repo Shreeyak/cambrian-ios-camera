@@ -213,18 +213,19 @@ final class ViewModel {
     ///   `.active`     → re-open gate; if returning from `.background`,
     ///                   `backgroundResume()` first.
     func handleScenePhase(_ phase: ScenePhase) async {
-        scenePhaseLog.info(
-            "scenePhase: \(String(describing: self.previousPhase)) → \(String(describing: phase))")
+        let prev = String(describing: self.previousPhase)
+        let next = String(describing: phase)
+        scenePhaseLog.notice("scenePhase: \(prev, privacy: .public) → \(next, privacy: .public)")
         switch phase {
         case .inactive:
             await engine.setGate(false)
             await engine.drainSubmittedFrame()
-            scenePhaseLog.info("scenePhase inactive: gate closed, drain complete")
+            scenePhaseLog.notice("scenePhase inactive: gate closed, drain complete")
 
         case .background:
             cameFromBackground = true
             await engine.backgroundSuspend()
-            scenePhaseLog.info("scenePhase background: backgroundSuspend complete")
+            scenePhaseLog.notice("scenePhase background: backgroundSuspend complete")
 
         case .active:
             if cameFromBackground {
@@ -232,8 +233,8 @@ final class ViewModel {
                 await engine.backgroundResume()
             }
             await engine.setGate(true)
-            scenePhaseLog.info(
-                "scenePhase active: gate open (prevPhase=\(String(describing: self.previousPhase)))")
+            let prevActive = String(describing: self.previousPhase)
+            scenePhaseLog.notice("scenePhase active: gate open (prevPhase=\(prevActive, privacy: .public))")
 
         @unknown default:
             break
