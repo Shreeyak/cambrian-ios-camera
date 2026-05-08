@@ -203,4 +203,76 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     private func setLastSnapshot(_ snap: DeviceStateSnapshot) {
         _lastSnapshot = snap
     }
+
+    /// Current WB gains applied by AVCaptureDevice — whatever continuous AWB or a
+    /// prior manual lock most recently set.
+    ///
+    /// Reads `avDevice.deviceWhiteBalanceGains`.
+    var currentDeviceWBGains: WhiteBalanceGains {
+        let g = avDevice.deviceWhiteBalanceGains
+        return WhiteBalanceGains(red: g.redGain, green: g.greenGain, blue: g.blueGain)
+    }
+
+    /// Awaits `isAdjustingWhiteBalance == false` via KVO.
+    ///
+    /// Returns immediately if already settled. Times out after 2 s (defensive — a
+    /// rarely-stalled AWB shouldn't hang calibration). Source: WWDC 2014 §508
+    /// manual-controls flow.
+    func awaitWBSettled() async {
+        await wbSettledWait(avDevice: avDevice)
+    }
+}
+
+// MARK: - KVO convergence helper (nonisolated free function)
+
+/// Awaits `AVCaptureDevice.isAdjustingWhiteBalance == false` via KVO, with a 2s timeout.
+///
+/// Extracted as a free function so the `sending`-closure constraint of
+/// Swift 6 `withTaskGroup` does not implicate actor isolation on
+/// `LiveCaptureDevice`. `avDevice` is safe to pass across isolation because
+/// `LiveCaptureDevice` declares it `nonisolated(unsafe) let`.
+private func wbSettledWait(avDevice: AVCaptureDevice) async {
+    if !avDevice.isAdjustingWhiteBalance { return }
+    // `AVCaptureDevice` is not `Sendable`; capture via `nonisolated(unsafe) let`
+    // so the `@Sendable` task closure can close over it without a concurrency
+    // diagnostic. The underlying AVFoundation object is thread-safe for KVO
+    // observation; mutations always gate through `lockForConfiguration()` on
+    // sessionQueue (ADR-07).
+    nonisolated(unsafe) let dev = avDevice
+    await withTaskGroup(of: Void.self) { group in
+        group.addTask {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                var done = false
+                let lock = NSLock()
+                var observation: NSKeyValueObservation?
+                observation = dev.observe(
+                    \.isAdjustingWhiteBalance, options: [.new]
+                ) { _, change in
+                    guard change.newValue == false else { return }
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if done { return }
+                    done = true
+                    observation?.invalidate()
+                    cont.resume()
+                }
+                // Race: if already settled by the time the observer is wired up,
+                // resume immediately.
+                if !dev.isAdjustingWhiteBalance {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if !done {
+                        done = true
+                        observation?.invalidate()
+                        cont.resume()
+                    }
+                }
+            }
+        }
+        group.addTask {
+            try? await Task.sleep(for: .seconds(2))
+        }
+        await group.next()
+        group.cancelAll()
+    }
 }
