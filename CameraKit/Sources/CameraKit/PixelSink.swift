@@ -134,12 +134,10 @@ public actor ConsumerRegistry {
             context: callbacks.context
         )
         let token = cppPool.register(stream: stream.rawPoolId, callbacks: cbs)
-        if CameraKitLog.isEnabled {
-            let msg =
-                "registerCallback: stream=\(stream.rawPoolId) token=\(token) cppCount=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
-            CameraKitLog.consumers.notice("\(msg, privacy: .public)")
-            CameraKitLog.write("[consumers] \(msg)")
-        }
+        CameraKitLog.notice(
+            .consumers,
+            "registerCallback: stream=\(stream.rawPoolId) token=\(token) cppCount=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
+        )
         return ConsumerToken(id: token, stream: stream)
     }
 
@@ -161,18 +159,16 @@ public actor ConsumerRegistry {
             inner.subscribers[token.stream] = lane
             return c
         }
+        let lane = foundContinuation != nil ? "swift" : "cpp"
         if let c = foundContinuation {
             c.finish()
         } else {
             cppPool.unregister(token: token.id)
         }
-        if CameraKitLog.isEnabled {
-            let lane = foundContinuation != nil ? "swift" : "cpp"
-            let msg =
-                "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(lane)"
-            CameraKitLog.consumers.notice("\(msg, privacy: .public)")
-            CameraKitLog.write("[consumers] \(msg)")
-        }
+        CameraKitLog.notice(
+            .consumers,
+            "unregister: token=\(token.id) stream=\(token.stream.rawPoolId) lane=\(lane)"
+        )
     }
 
     // MARK: - Publication path (nonisolated — delivery queue, ADR-02)
@@ -217,12 +213,12 @@ public actor ConsumerRegistry {
             presentationTimeNs: presentationNs,
             surface: surface ?? nil)
         // Throttle: log every 300 frames (~10 s at 30 fps) to avoid flooding.
-        if CameraKitLog.isEnabled && frameSet.frameNumber % 300 == 0 {
+        if frameSet.frameNumber % 300 == 0 {
             let hasSurface = surface != nil
-            let msg =
+            CameraKitLog.info(
+                .consumers,
                 "yield: frame=\(frameSet.frameNumber) stream=\(stream.rawPoolId) surface=\(hasSurface) cppConsumers=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
-            CameraKitLog.consumers.info("\(msg, privacy: .public)")
-            CameraKitLog.write("[consumers] \(msg)")
+            )
         }
     }
 

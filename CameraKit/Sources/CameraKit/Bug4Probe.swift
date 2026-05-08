@@ -59,9 +59,7 @@ enum Bug4Probe {
     static func notePass2Err(frame: UInt64, code: Int) {
         guard enabled else { return }
         pass2ErrCount.wrappingIncrement(ordering: .relaxed)
-        let line = "[bug4][pass-err] frame=\(frame) code=\(code)"
-        CameraKitLog.write(line)
-        CameraKitLog.metal.warning("\(line, privacy: .public)")
+        CameraKitLog.warning(.metal, "[bug4][pass-err] frame=\(frame) code=\(code)")
     }
 
     /// Heartbeat — call after the FrameSet publish in the completion handler.
@@ -78,12 +76,11 @@ enum Bug4Probe {
         let dqFail = processedDequeueFailCount.load(ordering: .relaxed)
         let stale = frame &- lastOk
         let isHalted = halted.load(ordering: .acquiring)
-        let line =
+        CameraKitLog.info(
+            .metal,
             "[bug4][heartbeat] frame=\(frame) p2ok=\(okN) p2err=\(errN) "
-            + "lastP2OkFrame=\(lastOk) staleFrames=\(stale) "
-            + "procDequeueFail=\(dqFail) halted=\(isHalted)"
-        CameraKitLog.write(line)
-        CameraKitLog.metal.info("\(line, privacy: .public)")
+                + "lastP2OkFrame=\(lastOk) staleFrames=\(stale) "
+                + "procDequeueFail=\(dqFail) halted=\(isHalted)")
     }
 
     /// Manual halt — called from the DEBUG button in `CameraView`.
@@ -99,12 +96,11 @@ enum Bug4Probe {
         let lastOk = lastPass2OkFrame.load(ordering: .relaxed)
         let dqFail = processedDequeueFailCount.load(ordering: .relaxed)
         let stale = frame &- lastOk
-        let line =
+        CameraKitLog.warning(
+            .metal,
             "[bug4][halt reason=\(reason)] frame=\(frame) "
-            + "p2ok=\(okN) p2err=\(errN) lastP2OkFrame=\(lastOk) "
-            + "staleFrames=\(stale) procDequeueFail=\(dqFail)"
-        CameraKitLog.write(line)
-        CameraKitLog.metal.warning("\(line, privacy: .public)")
+                + "p2ok=\(okN) p2err=\(errN) lastP2OkFrame=\(lastOk) "
+                + "staleFrames=\(stale) procDequeueFail=\(dqFail)")
         halted.store(true, ordering: .releasing)
     }
 
@@ -113,8 +109,6 @@ enum Bug4Probe {
     /// DEBUG-only utility.
     static func resume() {
         halted.store(false, ordering: .releasing)
-        let line = "[bug4][resume] halt cleared"
-        CameraKitLog.write(line)
-        CameraKitLog.metal.info("\(line, privacy: .public)")
+        CameraKitLog.info(.metal, "[bug4][resume] halt cleared")
     }
 }
