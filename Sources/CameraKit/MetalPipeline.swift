@@ -305,9 +305,6 @@ final class MetalPipeline: @unchecked Sendable {
         }
         trackerSampler = sampler
 
-        // bug6: log destination texture sizes that the per-frame pools were
-        // created at. Compared against incoming pixel-buffer dims in encode().
-        Bug6Probe.noteConfigured(captureSize: captureSize, trackerSize: trackerSize)
     }
 
     /// Encodes a YUV→RGBA + color-transform + tracker-downsample compute pass for one camera frame.
@@ -315,13 +312,10 @@ final class MetalPipeline: @unchecked Sendable {
     /// Must be called on the `delivery` DispatchQueue (ADR-02).
     /// Frames that cannot be processed are silently dropped.
     func encode(sampleBuffer: CMSampleBuffer) throws {
-        Bug4Probe.noteEncodeEntered(frame: frameNumber)
         // 1. Unwrap the pixel buffer; drop frame if unavailable.
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
         }
-        // bug6: compare incoming buffer dims against allocated dest size.
-        Bug6Probe.noteIncomingPixelBuffer(pixelBuffer, frame: frameNumber)
 
         // 2. Wrap YUV planes as zero-copy MTLTextures (ADR-06).
         let yTexture: MTLTexture
@@ -339,13 +333,8 @@ final class MetalPipeline: @unchecked Sendable {
         do {
             naturalPair = try texturePool.dequeuePoolTexture(
                 pool: naturalPool, width: captureSize.width, height: captureSize.height)
-            do {
-                processedPair = try texturePool.dequeuePoolTexture(
-                    pool: processedPool, width: captureSize.width, height: captureSize.height)
-            } catch {
-                Bug4Probe.noteProcessedDequeueFailed()
-                throw error
-            }
+            processedPair = try texturePool.dequeuePoolTexture(
+                pool: processedPool, width: captureSize.width, height: captureSize.height)
         } catch {
             return  // pool exhausted — drop frame
         }
@@ -393,18 +382,14 @@ final class MetalPipeline: @unchecked Sendable {
         pass1.endEncoding()
 
         // 7. Pass 2: color transform naturalTexI → processedTexI with ColorUniform.
-        // bug4: skip Pass 2 entirely when the probe halts. processedTexI keeps whatever
-        // pixel data was last in the pool slot — the visible preview "freezes" on it.
-        if !Bug4Probe.halted.load(ordering: .acquiring) {
-            let pass2 = commandBuffer.makeComputeCommandEncoder()!
-            pass2.setComputePipelineState(colorTransformPSO)
-            pass2.setTexture(naturalTexI, index: 0)
-            pass2.setTexture(processedTexI, index: 1)
-            var colorLocal = colorSnapshot
-            pass2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
-            pass2.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-            pass2.endEncoding()
-        }
+        let pass2 = commandBuffer.makeComputeCommandEncoder()!
+        pass2.setComputePipelineState(colorTransformPSO)
+        pass2.setTexture(naturalTexI, index: 0)
+        pass2.setTexture(processedTexI, index: 1)
+        var colorLocal = colorSnapshot
+        pass2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
+        pass2.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        pass2.endEncoding()
 
         // 8. Pass 4: tracker downsample naturalTexI → trackerTexI (when subscribed).
         if let trackerPair {
@@ -515,7 +500,6 @@ final class MetalPipeline: @unchecked Sendable {
             // Metal-level error classification (G-02 / ADR-15).
             if cb.status == .error {
                 let code = (cb.error as NSError?)?.code ?? -1
-                Bug4Probe.notePass2Err(frame: fn, code: code)
                 if let cont = self.pendingCaptureContinuation {
                     cont.resume(throwing: MetalError.commandBufferFailed(code: code))
                     self.pendingCaptureContinuation = nil
@@ -523,7 +507,6 @@ final class MetalPipeline: @unchecked Sendable {
                 self.onMetalError?(MetalError.commandBufferFailed(code: code))
                 return
             }
-            Bug4Probe.notePass2OkInCompletion(frame: fn)
             // Deliver still readback buffer to StillCapture if Pass 6 ran.
             if let buf = stillBufForCompletion {
                 let cont = self.pendingCaptureContinuation
@@ -562,7 +545,6 @@ final class MetalPipeline: @unchecked Sendable {
                 self.latestTrackerTex = tTex
             }
             self.texturePool.flush()
-            Bug4Probe.tickHeartbeat(frame: fn)
         }
 
         // 10. Track for drain (ADR-09 waitUntilScheduled path) and increment.

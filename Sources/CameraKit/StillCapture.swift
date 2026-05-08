@@ -38,8 +38,10 @@ final class StillCapture: @unchecked Sendable {
         apertureValue: Double,
         outputURL: URL?
     ) async throws -> StillCaptureOutput {
+        CameraKitLog.notice(.engine, "[still] capture start size=\(captureSize.width)x\(captureSize.height)")
         // 1. CAS guard — wins exclusivity before arming pipeline (prevents race on continuation).
         guard captureInFlight.tryAcquire() else {
+            CameraKitLog.warning(.engine, "[still] already in-flight, rejecting")
             throw StillCaptureError.alreadyInFlight
         }
         defer { captureInFlight.release() }
@@ -107,6 +109,7 @@ final class StillCapture: @unchecked Sendable {
             }
         }
 
+        CameraKitLog.notice(.engine, "[still] capture complete path=\(finalPath)")
         return StillCaptureOutput(filePath: finalPath)
     }
 

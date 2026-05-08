@@ -46,6 +46,10 @@ public actor RecoveryCoordinator {
     @discardableResult
     public func noteHardwareFailure(message: String) async -> Bool {
         consecutiveHwErrors += 1
+        CameraKitLog.warning(
+            .engine,
+            "[recovery] hw-failure consecutive=\(consecutiveHwErrors)/\(Constants.hwErrorThresholdConsecutive) msg=\(message)"
+        )
         if consecutiveHwErrors >= Constants.hwErrorThresholdConsecutive {
             consecutiveHwErrors = 0
             await enterRecovery(
@@ -69,6 +73,7 @@ public actor RecoveryCoordinator {
 
     /// Reset after a successful reopen.
     public func resetAfterSuccess() {
+        CameraKitLog.notice(.engine, "[recovery] retry succeeded attempt=\(attempt), resetting")
         attempt = 0
         consecutiveHwErrors = 0
     }
@@ -80,7 +85,12 @@ public actor RecoveryCoordinator {
 
         // Step 2: budget check.
         attempt += 1
+        CameraKitLog.warning(
+            .engine,
+            "[recovery] enter attempt=\(attempt)/\(Constants.recoveryMaxRetries) error=\(error.message)"
+        )
         if attempt > Constants.recoveryMaxRetries {
+            CameraKitLog.error(.engine, "[recovery] max-retries exceeded, emitting fatal")
             let fatal = CameraError(
                 code: .maxRetriesExceeded,
                 message: "Exceeded \(Constants.recoveryMaxRetries) recovery retries: last=\(error.message)",
