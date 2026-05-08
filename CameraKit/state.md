@@ -124,6 +124,22 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
 56. **`WhiteBalanceGains.init(fromGrayWorld:)`** lives in `FrameSet.swift` (the type's home), not `Settings.swift` as Stage 11 brief §4 names. Brief reference is wrong; flag upstream.
 57. **`CalibrationEngineProtocol` is internal**, not public. Test seam only — exposes `sampleCenterPatch()` + `updateSettings(_:)` for `CalibrationEngineStub`. Real `CameraEngine` adopts via internal extension. No reason to leak to the package's public API.
 58. **`HardwareControlsViewModel` logs `updateSettings` failures via `CameraKitLog.engine.warning`** instead of routing to error stream. ADR-22 errorStream is not yet wired for inline `updateSettings` throws; routing user-facing toasts on hardware-cap failures is **DEFERRED to a future engine pass**. Console-only for now.
+59. **2026-05-08 — BB applied AFTER brightness/contrast/saturation/gamma.**
+    `Shaders/ColorShaders.metal` was reordered to apply the black-balance
+    pedestal as the *final* color step. This contradicts
+    `architecture/07-settings.md §Processing order`, which specifies BB as
+    the first step (noise-floor pre-compensation). Decision is user-directed:
+    BB now behaves like a final shadow lift on the graded image. Pairs with
+    the BB calibration sampling path: a one-shot Pass-2 scratch encode
+    rendered with current BCSG and BB zeroed (`MetalPipeline.dispatchBBCalibrationSample`),
+    so the sample is in the same color space the pedestal subtracts from
+    while not feeding the prior pedestal back into the math. Public-API
+    doc-comments were updated. Upstream should patch the spec.
+60. **2026-05-08 — Manual WB is non-persistent across launches.**
+    `SettingsPersistence.load` strips `wbMode = .manual` and the gain triple
+    on decode. `.auto` and `.locked` round-trip unchanged. Calibration is a
+    per-session intent. Side effect: any latent recurrence of the historical
+    Bug-12 cold-launch-black symptom is rendered harmless.
 
 ## Open questions for next stage
 
