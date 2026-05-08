@@ -630,6 +630,53 @@ public actor CameraEngine {
         return try await pipeline.dispatchCenterPatch()
     }
 
+    /// WB-calibration sampler — reads from `naturalTex` (Pass-1 output).
+    ///
+    /// See `MetalPipeline.dispatchCenterPatchOnNatural` for the rationale.
+    public func sampleCenterPatchOnNatural() async throws -> RgbSample {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        return try await pipeline.dispatchCenterPatchOnNatural()
+    }
+
+    /// BB-calibration sampler — reads from a one-shot scratch render of current
+    /// BCSG with BB zeroed.
+    ///
+    /// See `MetalPipeline.dispatchBBCalibrationSample` for the rationale.
+    public func sampleCenterPatchForBBCalibration() async throws -> RgbSample {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        return try await pipeline.dispatchBBCalibrationSample()
+    }
+
+    /// Current AVCaptureDevice WB gains — whatever continuous AWB or a prior
+    /// manual lock most recently set.
+    ///
+    /// Used by `CalibrationViewModel.calibrateWB` to *stack* the gray-world
+    /// reciprocal correction onto the active gains.
+    public func currentDeviceWBGains() async throws -> WhiteBalanceGains {
+        guard let device = cameraSession?.device as? LiveCaptureDevice else {
+            throw EngineError.notOpen
+        }
+        return await device.currentDeviceWBGains
+    }
+
+    /// Device's max legal WB gain — feeds the per-channel clamp at the end of
+    /// `CalibrationCompute.grayWorldGains`.
+    public func maxWhiteBalanceGain() async throws -> Float {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        return await device.maxWhiteBalanceGain
+    }
+
+    /// Awaits AE/AWB convergence after a mode switch (KVO-backed, 2s timeout).
+    ///
+    /// Used by `CalibrationViewModel.calibrateWB` between writing `.auto` and
+    /// reading `currentDeviceWBGains`.
+    public func awaitWBSettled() async {
+        guard let device = cameraSession?.device as? LiveCaptureDevice else { return }
+        await device.awaitWBSettled()
+    }
+
     /// Stage 04: returns the persisted ProcessingParameters without requiring
     /// an active session. Implementation per architecture/07-settings.md
     /// §Load path: "static / nonisolated accessor so the UI can pre-populate
