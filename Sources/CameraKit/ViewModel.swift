@@ -50,6 +50,13 @@ final class ViewModel {
     /// `.inactive` (gate-reopen only).
     private var previousPhase: ScenePhase = .active
 
+    /// True when the app entered `.background` and has not yet returned to `.active`.
+    ///
+    /// iOS transitions `.background → .inactive → .active` on restore, so
+    /// `previousPhase == .background` is never true at the `.active` site.
+    /// This flag survives the intermediate `.inactive` hop.
+    private var cameFromBackground = false
+
     // MARK: - Init
 
     init() {
@@ -106,8 +113,24 @@ final class ViewModel {
             }
         }
 
+        var needsPostRecoverySetup = false
         for await state in await engine.stateStream() {
             sessionState = state
+            if state == .recovering { needsPostRecoverySetup = true }
+            if state == .streaming && needsPostRecoverySetup {
+                needsPostRecoverySetup = false
+                frameResultTask?.cancel()
+                frameResultTask = nil
+                frameResultTask = Task { [weak self] in
+                    guard let engine = self?.engine else { return }
+                    for await r in await engine.frameResultStream() {
+                        guard let self else { return }
+                        await MainActor.run { self.lastFrameResult = r }
+                    }
+                }
+                await display.detachBeforeClose()
+                await display.attachAfterOpen()
+            }
         }
     }
 
@@ -199,11 +222,13 @@ final class ViewModel {
             scenePhaseLog.info("scenePhase inactive: gate closed, drain complete")
 
         case .background:
+            cameFromBackground = true
             await engine.backgroundSuspend()
             scenePhaseLog.info("scenePhase background: backgroundSuspend complete")
 
         case .active:
-            if previousPhase == .background {
+            if cameFromBackground {
+                cameFromBackground = false
                 await engine.backgroundResume()
             }
             await engine.setGate(true)

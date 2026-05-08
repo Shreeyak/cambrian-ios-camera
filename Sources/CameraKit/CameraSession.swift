@@ -346,6 +346,8 @@ final class CameraSession: @unchecked Sendable {
 
     private func handleInterruption(note: Notification, ended: Bool) {
         let rawReason = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int ?? -1
+        let keys = note.userInfo?.keys.map { "\($0)" } ?? []
+        CameraKitLog.write("[interruption] ended=\(ended) rawReason=\(rawReason) keys=\(keys)")
         let reason = AVCaptureSession.InterruptionReason(rawValue: rawReason)
         if reason == .videoDeviceInUseByAnotherClient {
             onSessionEvent?(ended ? .cameraInUseEnded : .cameraInUseBegan)

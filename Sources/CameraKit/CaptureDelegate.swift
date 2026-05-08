@@ -31,6 +31,9 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     /// Set by `CameraEngine` in `open()` before `startRunning()`.
     var watchdogs: WatchdogPair?
 
+    /// Set to true by backgroundSuspend; logs once when the next frame arrives.
+    nonisolated(unsafe) var logNextFrame: Bool = false
+
     // MARK: - Init
 
     override init() {
@@ -48,6 +51,10 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
+        if logNextFrame {
+            logNextFrame = false
+            CameraKitLog.write("[capture] first-frame after suspend")
+        }
         watchdogs?.gpu.refresh()
         watchdogs?.capture.refresh()
         onSampleBuffer?(sampleBuffer)
