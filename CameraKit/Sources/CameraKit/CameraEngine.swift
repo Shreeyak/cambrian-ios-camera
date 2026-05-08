@@ -512,25 +512,31 @@ public actor CameraEngine {
     /// Gates GPU submission, drains any in-flight
     /// frame, and stops the capture session via sessionQueue with timeout (ADR-30).
     ///
-    /// Step 1 (disarm watchdogs) is a placeholder no-op until Stage 09.
+    /// Step 1 (disarm watchdogs) is intentionally omitted: watchdogs must stay armed
+    /// during background suspension so the capture stall is detected and recovery fires.
     public func backgroundSuspend() async {
-        // Disarm watchdogs (placeholder; arrives Stage 09).
+        CameraKitLog.write("[bgsuspend] enter gate=false stopRunning")
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         await drainSubmittedFrame()
         if let session = cameraSession {
+            captureDelegate?.logNextFrame = true
             await session.stopRunningAsync()
         }
+        CameraKitLog.write("[bgsuspend] stopRunning returned")
     }
 
     /// Signals the app returned to foreground.
     ///
-    /// Re-opens the GPU submission gate.
-    ///
-    /// Session restart is driven by AVCaptureSessionInterruptionEnded (not wired until
-    /// a later stage). Until then the session remains stopped — idempotent and harmless
-    /// per brief test 02:background-resume-is-noop-until-interruption-ended.
+    /// Re-opens the GPU submission gate and restarts the capture session that was
+    /// stopped by `backgroundSuspend()`.
     public func backgroundResume() async {
+        CameraKitLog.write("[bgresume] enter gate=true sessionRunning=\(cameraSession?.avSession.isRunning == true)")
         submissionGate.store(true, ordering: .sequentiallyConsistent)
+        CameraKitLog.write("[bgresume] gate opened")
+        if let session = cameraSession {
+            await session.startRunningAsync()
+            CameraKitLog.write("[bgresume] startRunning returned sessionRunning=\(session.avSession.isRunning)")
+        }
     }
 
     /// Exposes the live natural-tex mailbox for the MTKView draw pass.

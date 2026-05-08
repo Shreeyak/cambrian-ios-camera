@@ -101,7 +101,10 @@ final class DisplayViewModel {
                     frameNumber: fs.frameNumber,
                     captureTimeMs: Int64(CMTimeGetSeconds(fs.captureTime) * 1000),
                     edgeCount: edgeCount)
-                await MainActor.run { self.debugOverlay = overlay }
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.debugOverlay = overlay
+                }
             }
         }
     }
