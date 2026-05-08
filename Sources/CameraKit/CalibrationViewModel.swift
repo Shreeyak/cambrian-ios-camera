@@ -7,6 +7,8 @@ import Foundation
 /// requiring an `AVCaptureSession`.
 protocol CalibrationEngineProtocol: Sendable {
     func sampleCenterPatch() async throws -> RgbSample
+    func currentDeviceWBGains() async throws -> WhiteBalanceGains
+    func maxWhiteBalanceGain() async throws -> Float
     func updateSettings(_ settings: CameraSettings) async throws
 }
 
@@ -41,7 +43,13 @@ final class CalibrationViewModel {
         Task {
             do {
                 let sample = try await engine.sampleCenterPatch()
-                let gains = CalibrationCompute.grayWorldGains(sample: sample)
+                let currentGains = try await engine.currentDeviceWBGains()
+                let maxGain = try await engine.maxWhiteBalanceGain()
+                let gains = CalibrationCompute.grayWorldGains(
+                    sample: sample,
+                    current: currentGains,
+                    maxGain: maxGain
+                )
                 var delta = CameraSettings()
                 delta.wbMode = .manual
                 delta.wbGainR = Double(gains.red)
