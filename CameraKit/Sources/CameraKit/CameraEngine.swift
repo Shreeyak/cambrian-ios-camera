@@ -577,6 +577,16 @@ public actor CameraEngine {
     ///
     /// Wholesale replacement (no merge — `ProcessingParameters` is non-nullable per
     /// architecture/07-settings.md §ProcessingParameters).
+    ///
+    /// **Pipeline order (`Shaders/ColorShaders.metal`):**
+    ///   1. Brightness → 2. Contrast → 3. Saturation → 4. Gamma → 5. Black balance.
+    ///
+    /// Black balance is the **last** step — pedestal is subtracted from the
+    /// graded output, behaving like a final shadow lift rather than a
+    /// pre-grade noise-floor compensation. Calibration sampling for BB must
+    /// therefore read from a render where BCSG is applied and BB is zeroed
+    /// (see `MetalPipeline.dispatchBBCalibrationSample`) so each calibrate
+    /// isn't biased by the previously-applied pedestal.
     public func setProcessingParameters(_ params: ProcessingParameters) async {
         // Route through the mutex so the delivery-queue snapshot in encode() is always coherent.
         metalPipeline?.uniforms.withLock { storage in

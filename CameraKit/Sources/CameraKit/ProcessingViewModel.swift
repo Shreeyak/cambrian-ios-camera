@@ -81,7 +81,25 @@ final class ProcessingViewModel {
 
     // MARK: - Calibration / reset entry points
 
-    /// Called by `CalibrationViewModel` after BB-Calibrate sample.
+    /// Writes per-channel black-balance pedestal into `currentProcessing`
+    /// based on a dark-patch sample.
+    ///
+    /// The GPU pipeline subtracts these pedestals as the **final** color
+    /// step, after brightness/contrast/saturation/gamma — see
+    /// `Shaders/ColorShaders.metal`.
+    ///
+    /// **Sample lane requirement:** the sample must be read from a render
+    /// where BCSG is applied and BB is zeroed — typically via
+    /// `CameraEngine.sampleCenterPatchForBBCalibration`, which runs a
+    /// one-shot Pass-2 encode into a scratch texture with BB temporarily
+    /// zeroed. Rationale:
+    ///   - BB operates on the graded image, so the sample must be in the
+    ///     same color space (BCSG applied) for the offsets to correctly
+    ///     subtract a dark patch.
+    ///   - The sample must NOT include the previously-written BB pedestal,
+    ///     or each calibrate would stack on top of the prior result.
+    /// Sampling from `processedTex` would violate the second requirement;
+    /// sampling from `naturalTex` would violate the first.
     ///
     /// Mutates the mirror BEFORE dispatching so the MainActor read-modify-write is
     /// atomic — `await engine.setProcessingParameters` would otherwise suspend

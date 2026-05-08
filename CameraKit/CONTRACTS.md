@@ -119,6 +119,15 @@ static func apply(rules merged: CameraSettings, latched: DeviceStateSnapshot?) t
 var out = merged
 ```
 
+## File: CameraKit/Sources/CameraKit/UniformStorage.swift
+```swift
+struct UniformStorage: Sendable, Hashable {
+var color: ColorUniform
+var crop: CropUniform
+⋮----
+static func identity(captureSize: Size) -> UniformStorage {
+```
+
 ## File: CameraKit/Sources/CameraKit/AssetWriting.swift
 ```swift
 public protocol AssetWriting: Sendable {
@@ -444,15 +453,6 @@ let intervalMs = self.intervalMs
 public func push(_ value: Double) {
 ⋮----
 public func stop() async {
-```
-
-## File: CameraKit/Sources/CameraKit/UniformStorage.swift
-```swift
-struct UniformStorage: Sendable, Hashable {
-var color: ColorUniform
-var crop: CropUniform
-⋮----
-static func identity(captureSize: Size) -> UniformStorage {
 ```
 
 ## File: CameraKit/Sources/CameraKit/CalibrationCompute.swift
