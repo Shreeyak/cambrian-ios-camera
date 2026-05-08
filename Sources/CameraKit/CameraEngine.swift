@@ -879,7 +879,16 @@ public actor CameraEngine {
         if fpsFrameCount >= Constants.fpsMeasurementWindowFrames {
             let elapsedMs = max(1, now - fpsWindowStartMs)
             let fps = Double(fpsFrameCount) * 1000.0 / Double(elapsedMs)
-            if fps < Constants.fpsDegradedThresholdFps {
+            let expectedFps: Double
+            if currentSettings?.exposureMode == .manual,
+                let expNs = currentSettings?.exposureTimeNs, expNs > 0
+            {
+                expectedFps = min(1_000_000_000.0 / Double(expNs), Double(Constants.frameRateTargetFPS))
+            } else {
+                expectedFps = Double(Constants.frameRateTargetFPS)
+            }
+            let degradedThreshold = expectedFps * Constants.fpsDegradedFraction
+            if fps < degradedThreshold {
                 fpsLowStreak += 1
                 if fpsLowStreak >= Constants.fpsDegradedStreakCount {
                     publishError(

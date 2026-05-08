@@ -64,8 +64,11 @@ enum Constants {
     static let aeConvergenceTimeoutMs: Int = 5000
 
     // Stage 09: FPS degradation.
-    /// FPS floor for degradation notification. constants.md#FPS_DEGRADED_THRESHOLD_FPS.
-    static let fpsDegradedThresholdFps: Double = 15.0
+    /// Fraction of expected fps below which a window is counted as degraded.
+    ///
+    /// Expected fps accounts for manual exposure: min(1e9/exposureNs, targetFps).
+    /// Replaces the upstream fixed floor (FPS_DEGRADED_THRESHOLD_FPS=15) — see DECISIONS.md.
+    static let fpsDegradedFraction: Double = 0.8
     /// Consecutive below-threshold windows required before emitting. constants.md#FPS_DEGRADED_STREAK_COUNT.
     static let fpsDegradedStreakCount: Int = 3
     /// One FPS measurement per window of this many frames. constants.md#FPS_MEASUREMENT_WINDOW_FRAMES.
