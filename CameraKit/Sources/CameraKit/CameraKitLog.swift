@@ -9,10 +9,55 @@ public enum CameraKitLog {
     // nonisolated(unsafe): safe because startup write precedes all concurrent reads.
     public nonisolated(unsafe) static var isEnabled: Bool = false
 
-    static let engine = Logger(subsystem: "com.cambrian.camerakit", category: "engine")
-    static let consumers = Logger(subsystem: "com.cambrian.camerakit", category: "consumers")
-    static let interop = Logger(subsystem: "com.cambrian.camerakit", category: "interop")
-    static let metal = Logger(subsystem: "com.cambrian.camerakit", category: "metal")
+    public enum Category: String {
+        case engine, consumers, scenePhase, interop, metal
+    }
+
+    private enum Loggers {
+        static let engine = Logger(subsystem: "com.cambrian.camerakit", category: "engine")
+        static let consumers = Logger(subsystem: "com.cambrian.camerakit", category: "consumers")
+        static let scenePhase = Logger(subsystem: "com.cambrian.camerakit", category: "scenePhase")
+        static let interop = Logger(subsystem: "com.cambrian.camerakit", category: "interop")
+        static let metal = Logger(subsystem: "com.cambrian.camerakit", category: "metal")
+    }
+
+    private static func logger(for category: Category) -> Logger {
+        switch category {
+        case .engine: return Loggers.engine
+        case .consumers: return Loggers.consumers
+        case .scenePhase: return Loggers.scenePhase
+        case .interop: return Loggers.interop
+        case .metal: return Loggers.metal
+        }
+    }
+
+    public static func notice(_ category: Category, _ msg: @autoclosure () -> String) {
+        guard isEnabled else { return }
+        let s = msg()
+        logger(for: category).notice("\(s, privacy: .public)")
+        write("[\(category.rawValue)] \(s)")
+    }
+
+    public static func info(_ category: Category, _ msg: @autoclosure () -> String) {
+        guard isEnabled else { return }
+        let s = msg()
+        logger(for: category).info("\(s, privacy: .public)")
+        write("[\(category.rawValue)] \(s)")
+    }
+
+    public static func warning(_ category: Category, _ msg: @autoclosure () -> String) {
+        guard isEnabled else { return }
+        let s = msg()
+        logger(for: category).warning("\(s, privacy: .public)")
+        write("[\(category.rawValue)] \(s)")
+    }
+
+    public static func error(_ category: Category, _ msg: @autoclosure () -> String) {
+        guard isEnabled else { return }
+        let s = msg()
+        logger(for: category).error("\(s, privacy: .public)")
+        write("[\(category.rawValue)] \(s)")
+    }
 
     // MARK: - File sink (Wi-Fi device, no USB console available)
 
@@ -38,7 +83,7 @@ public enum CameraKitLog {
         write("=== CameraKit session started \(Date()) ===")
     }
 
-    static func write(_ message: String) {
+    private static func write(_ message: String) {
         guard isEnabled, let fh = fileHandle else { return }
         let line = "\(timestamp()) \(message)\n"
         fh.write(Data(line.utf8))

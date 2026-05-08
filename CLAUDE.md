@@ -452,20 +452,24 @@ underlying issue and ask again — do not `--amend` around it.
     --domain-type systemCrashLogs --source "/" --destination /tmp/crash/
   ```
   Absence of the app bundle name in results confirms no process termination.
-- **Reading app logs (Wi-Fi device, no USB):** `--console` on `devicectl process launch`
-  requires USB — it silently kills the app over Wi-Fi. `idevicesyslog` and `xctrace`
-  also require USB. Use the file sink instead: `CameraKitLog.enableFileLogging()` writes
-  to `<Documents>/camerakit.log`; pull it with (devicectl UDID, look up first):
-  ```bash
-  xcrun devicectl device copy from \
-    --device "<devicectl-udid>" \
-    --domain-type appDataContainer \
-    --domain-identifier com.cambrian.eva-swift-stitch \
-    --source /Documents/camerakit.log \
-    --destination /tmp/app-logs
-  ```
-  Enable logging in `eva_swift_stitchApp.init()`:
-  `CameraKitLog.isEnabled = true; CameraKitLog.enableFileLogging()`.
+- **Reading app logs from device — use `scripts/device-log-live.sh` (the `ipad-logs`
+  skill).** iOS 26.4 broke local WiFi device connectivity for every classic logging
+  path: `log collect --device-udid` fails with "Device not configured (6)" (iOS 17+
+  removed the lockdown pairing record it needs); `log stream` has no `--device` flag;
+  `--console` on `devicectl process launch` is USB-only, kills the app over WiFi, and
+  only captures stdout/stderr (not `Logger`); `pymobiledevice3` is broken on iOS 26
+  (hardcoded RSD port + RSD v24 incompatibility); libimobiledevice is dead since
+  iOS 17. The supported path is the file sink: `CameraKitLog.enableFileLogging()`
+  (called from `eva_swift_stitchApp.init()`) writes to `<Documents>/camerakit.log`;
+  `scripts/device-log-live.sh` polls the device every 4s via `xcrun devicectl device
+  copy from` and mirrors to `${TMPDIR}/camerakit-live.log`. Whenever the user asks for
+  device logs (any phrasing — "get logs", "tail logs", "what does the device say",
+  "log X on device"), invoke the `ipad-logs` skill — never reach for `log collect`,
+  `pymobiledevice3`, `idevicesyslog`, or `start_device_log_cap`. Logger calls must
+  use `.notice` (or higher) and `privacy: .public` on interpolations to be visible.
+  The script's hardcoded devicectl UDID points to Shreeyak's iPad — when running on
+  the second iPad (iPad A16), update the script's `IPAD_UDID` constant to that
+  device's *devicectl* UDID first.
 - **Metal drawable: acquire → clear → conditional work → always present.**
   Never return between `view.currentDrawable` and `commandBuffer.present(drawable)`.
   Bailing out after acquiring a drawable without presenting it leaves the CAMetalLayer

@@ -53,7 +53,7 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     ) {
         if logNextFrame {
             logNextFrame = false
-            CameraKitLog.write("[capture] first-frame after suspend")
+            CameraKitLog.notice(.engine, "[capture] first-frame after suspend")
         }
         watchdogs?.gpu.refresh()
         watchdogs?.capture.refresh()

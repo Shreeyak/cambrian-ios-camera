@@ -128,10 +128,7 @@ public actor CameraEngine {
     /// - Throws: `EngineError.metal(_:)` if MetalPipeline fails to initialise.
     public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
         guard !isOpen else { throw EngineError.alreadyOpen }
-        if CameraKitLog.isEnabled {
-            CameraKitLog.engine.info("open: requesting camera permission")
-            CameraKitLog.write("[engine] open: requesting camera permission")
-        }
+        CameraKitLog.notice(.engine, "open: requesting camera permission")
 
         // 1. Camera permission (ADR-32: permission check uses AVFoundation directly —
         //    it's a process-level gate, not a device operation).
@@ -276,13 +273,11 @@ public actor CameraEngine {
         )
         let isoRange = await device.isoRange
         let exposureDurationRangeNs = await device.exposureDurationRangeNs
-        if CameraKitLog.isEnabled {
-            let poolPtr = consumers.nativePipelinePointer()
-            let msg =
-                "open: pipeline ready — \(captureSize.width)×\(captureSize.height) pool=0x\(String(poolPtr, radix: 16))"
-            CameraKitLog.engine.info("\(msg)")
-            CameraKitLog.write("[engine] \(msg)")
-        }
+        let poolPtr = consumers.nativePipelinePointer()
+        CameraKitLog.notice(
+            .engine,
+            "open: pipeline ready — \(captureSize.width)×\(captureSize.height) pool=0x\(String(poolPtr, radix: 16))"
+        )
         return SessionCapabilities(
             supportedSizes: supportedSizes,
             previewTextureId: 0,  // stub: texture IDs arrive Stage 05
@@ -308,10 +303,7 @@ public actor CameraEngine {
         watchdogs = nil
         recovery = nil
         guard isOpen else { return }
-        if CameraKitLog.isEnabled {
-            CameraKitLog.engine.info("close: tearing down pipeline")
-            CameraKitLog.write("[engine] close: tearing down pipeline")
-        }
+        CameraKitLog.notice(.engine, "close: tearing down pipeline")
         // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         if let session = cameraSession {
@@ -515,14 +507,14 @@ public actor CameraEngine {
     /// Step 1 (disarm watchdogs) is intentionally omitted: watchdogs must stay armed
     /// during background suspension so the capture stall is detected and recovery fires.
     public func backgroundSuspend() async {
-        CameraKitLog.write("[bgsuspend] enter gate=false stopRunning")
+        CameraKitLog.notice(.engine, "[bgsuspend] enter gate=false stopRunning")
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         await drainSubmittedFrame()
         if let session = cameraSession {
             captureDelegate?.logNextFrame = true
             await session.stopRunningAsync()
         }
-        CameraKitLog.write("[bgsuspend] stopRunning returned")
+        CameraKitLog.notice(.engine, "[bgsuspend] stopRunning returned")
     }
 
     /// Signals the app returned to foreground.
@@ -530,12 +522,16 @@ public actor CameraEngine {
     /// Re-opens the GPU submission gate and restarts the capture session that was
     /// stopped by `backgroundSuspend()`.
     public func backgroundResume() async {
-        CameraKitLog.write("[bgresume] enter gate=true sessionRunning=\(cameraSession?.avSession.isRunning == true)")
+        CameraKitLog.notice(
+            .engine,
+            "[bgresume] enter gate=true sessionRunning=\(cameraSession?.avSession.isRunning == true)")
         submissionGate.store(true, ordering: .sequentiallyConsistent)
-        CameraKitLog.write("[bgresume] gate opened")
+        CameraKitLog.notice(.engine, "[bgresume] gate opened")
         if let session = cameraSession {
             await session.startRunningAsync()
-            CameraKitLog.write("[bgresume] startRunning returned sessionRunning=\(session.avSession.isRunning)")
+            CameraKitLog.notice(
+                .engine,
+                "[bgresume] startRunning returned sessionRunning=\(session.avSession.isRunning)")
         }
     }
 
@@ -570,13 +566,11 @@ public actor CameraEngine {
     /// Returns nil when the engine is not open.
     public func getNativePipelineHandle() -> UInt64? {
         guard isOpen else {
-            if CameraKitLog.isEnabled {
-                CameraKitLog.engine.warning("getNativePipelineHandle: engine not open — returning nil")
-            }
+            CameraKitLog.warning(.engine, "getNativePipelineHandle: engine not open — returning nil")
             return nil
         }
         let ptr = consumers.nativePipelinePointer()
-        if CameraKitLog.isEnabled { CameraKitLog.engine.info("getNativePipelineHandle: 0x\(String(ptr, radix: 16))") }
+        CameraKitLog.info(.engine, "getNativePipelineHandle: 0x\(String(ptr, radix: 16))")
         return ptr
     }
 
