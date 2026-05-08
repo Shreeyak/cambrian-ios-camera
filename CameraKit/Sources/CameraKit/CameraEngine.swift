@@ -570,7 +570,6 @@ public actor CameraEngine {
             return nil
         }
         let ptr = consumers.nativePipelinePointer()
-        CameraKitLog.info(.engine, "getNativePipelineHandle: 0x\(String(ptr, radix: 16))")
         return ptr
     }
 

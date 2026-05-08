@@ -75,6 +75,10 @@ public final class Watchdog: @unchecked Sendable {
                 if now >= last + UInt64(kind.thresholdMs) {
                     let armed: UInt64? = self.state.withLock { $0.armedToken }
                     guard let token = armed else { return }
+                    CameraKitLog.warning(
+                        .engine,
+                        "[watchdog] \(kind.messagePrefix) stall thresholdMs=\(kind.thresholdMs) token=\(token)"
+                    )
                     onFire(WatchdogFire(kind: kind, armedSessionToken: token, thresholdMs: kind.thresholdMs))
                     self.state.withLock { $0.armedToken = nil }
                     return
