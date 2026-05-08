@@ -594,12 +594,28 @@ final class MetalPipeline: @unchecked Sendable {
         fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
     }
 
-    /// Stage 04: encodes the center-patch sampler over the latest processed texture and returns one RgbSample.
+    /// Returns the center-patch sample size in pixels, scaled with capture
+    /// resolution and clamped to a 16-pixel minimum.
     ///
-    /// Awaits completion, then computes per-channel trimmed mean from the readback buffers.
-    func dispatchCenterPatch() async throws -> RgbSample {
-        let patchSize = Constants.centerPatchSizePx
-        let tex = currentProcessedTex()
+    /// `Constants.centerPatchSizePx` (96) is the baseline at the default
+    /// 4160×3120 capture; below that, the patch shrinks proportionally with
+    /// the shorter texture dimension so we don't over-sample on a downsized
+    /// lane. Floor of 16 keeps a 16×16 threadgroup viable.
+    static func scaledCenterPatchSize(captureSize: Size) -> Int {
+        let baseShorter = min(
+            Constants.captureDefaultWidthPx,
+            Constants.captureDefaultHeightPx
+        )
+        let curShorter = min(captureSize.width, captureSize.height)
+        let scaled = Int(
+            (Double(Constants.centerPatchSizePx)
+                * Double(curShorter) / Double(baseShorter)).rounded())
+        return max(16, scaled)
+    }
+
+    /// Encodes the center-patch sampler over a caller-supplied texture and returns one RgbSample.
+    private func dispatchCenterPatch(on tex: MTLTexture) async throws -> RgbSample {
+        let patchSize = Self.scaledCenterPatchSize(captureSize: captureSize)
         let texW = tex.width
         let texH = tex.height
         guard texW >= patchSize, texH >= patchSize else {
@@ -654,6 +670,103 @@ final class MetalPipeline: @unchecked Sendable {
         let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
         let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
         return RgbSample(r: Double(r), g: Double(g), b: Double(b))
+    }
+
+    /// Public entry point — samples the latest **processed** texture (post Pass-2 grade).
+    ///
+    /// Used for diagnostic / metric paths. Calibration paths should prefer
+    /// `dispatchCenterPatchOnNatural()` so the sample isn't biased by the
+    /// previously-applied calibration state.
+    func dispatchCenterPatch() async throws -> RgbSample {
+        try await dispatchCenterPatch(on: currentProcessedTex())
+    }
+
+    /// WB calibration entry point — samples the latest **natural** texture (Pass-1 output).
+    ///
+    /// `naturalTex` is BT.601 full-range YCbCr→RGB conversion only — no GPU-side
+    /// brightness/contrast/saturation/gamma/black-balance applied. Used for WB
+    /// calibration because WB gains operate on the AVCaptureDevice's raw sensor
+    /// path, so the sample must be in the same color space (pre-grade).
+    func dispatchCenterPatchOnNatural() async throws -> RgbSample {
+        try await dispatchCenterPatch(on: currentTexture())
+    }
+
+    /// BB calibration entry point — samples a one-shot scratch render of
+    /// **current BCSG with BB zeroed**.
+    ///
+    /// Why this lane: BB is applied at the end of the GPU color pipeline (post
+    /// brightness/contrast/saturation/gamma) per `Shaders/ColorShaders.metal`.
+    /// For BB to correctly subtract a dark patch in the *graded* image, the
+    /// sample must be read from the same color space — i.e. with BCSG
+    /// applied — but without the previously-written BB pedestal feeding back
+    /// into the math.
+    ///
+    /// Implementation: snapshot the current `ColorUniform`, zero its BB
+    /// triple, dispatch a one-shot Pass-2 encode from `naturalTex` into a
+    /// scratch texture, then run the center-patch sampler on the scratch.
+    /// Visually invisible to the user — the live `processedTex` mailbox is
+    /// not touched.
+    func dispatchBBCalibrationSample() async throws -> RgbSample {
+        guard let naturalTex = latestNaturalTex else {
+            throw MetalError.unsupportedFormat
+        }
+
+        // Allocate scratch texture (released at function exit).
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float,
+            width: captureSize.width,
+            height: captureSize.height,
+            mipmapped: false
+        )
+        desc.usage = [.shaderWrite, .shaderRead]
+        desc.storageMode = .private
+        guard let scratchTex = commandQueue.device.makeTexture(descriptor: desc) else {
+            throw MetalError.commandBufferFailed(code: -10)
+        }
+
+        // Snapshot current BCSG uniforms; zero BB.
+        //
+        // Correctness: `uniforms.withLock { $0.color }` returns a *value copy*
+        // of the ColorUniform struct. Mutating `params.blackR/G/B` writes to
+        // the local copy only — the live Mutex is unmodified, so the regular
+        // encode loop continues to use the user's actual BB. The shader below
+        // reads from `&params` via setBytes (not from the Mutex), so it sees
+        // the zeroed BB. Integration test in Stage11Tests proves this.
+        var params = uniforms.withLock { $0.color }
+        params.blackR = 0
+        params.blackG = 0
+        params.blackB = 0
+
+        guard let cb = commandQueue.makeCommandBuffer(),
+            let encoder = cb.makeComputeCommandEncoder()
+        else {
+            throw MetalError.commandBufferFailed(code: -11)
+        }
+        encoder.setComputePipelineState(colorTransformPSO)
+        encoder.setTexture(naturalTex, index: 0)
+        encoder.setTexture(scratchTex, index: 1)
+        encoder.setBytes(&params, length: MemoryLayout<ColorUniform>.stride, index: 0)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (scratchTex.width + 15) / 16,
+            height: (scratchTex.height + 15) / 16,
+            depth: 1
+        )
+        encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+        encoder.endEncoding()
+
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            cb.addCompletedHandler { c in
+                if c.status == .error {
+                    cont.resume(throwing: MetalError.commandBufferFailed(code: -12))
+                } else {
+                    cont.resume()
+                }
+            }
+            cb.commit()
+        }
+
+        return try await dispatchCenterPatch(on: scratchTex)
     }
 
     private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {
@@ -742,6 +855,16 @@ final class MetalPipeline: @unchecked Sendable {
     func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
         latestProcessedBuffer = buffer
         latestProcessedTex = texture
+    }
+
+    /// Writes processing parameters directly into the pipeline's uniforms Mutex.
+    ///
+    /// Mirrors the production path in `CameraEngine.setProcessingParameters`.
+    /// Used by Stage11Tests to inject known BCSG+BB state without needing a full engine.
+    func setProcessingForTest(_ params: ProcessingParameters) {
+        uniforms.withLock { storage in
+            storage.color = ColorUniform(params)
+        }
     }
 
     // Test-only: dispatches Pass 2 (color transform) over the latest natural texture,

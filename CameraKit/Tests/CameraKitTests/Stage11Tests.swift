@@ -1,4 +1,6 @@
+import CoreVideo
 import Foundation
+import Metal
 import Testing
 
 @testable import CameraKit
@@ -336,4 +338,101 @@ actor ManagedAtomicSafe<T: Sendable> {
 
 extension ManagedAtomicSafe where T == Int {
     func increment() { value += 1 }
+}
+
+// MARK: - Stage 11 — BB calibration scratch encode
+
+@Suite("Stage 11 — BB calibration scratch encode")
+struct Stage11BBCalibrationScratchTests {
+
+    @Test("dispatchBBCalibrationSample ignores live BB pedestal (sample = BCSG-only)")
+    func bbScratchZeroesPedestal() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 256, height: 256)
+        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+
+        // Identity BCSG with a NON-zero BB pedestal in the live uniforms.
+        // If the scratch path failed to zero BB, the sample would read
+        // 0.5 - 0.2 = 0.3 per channel. With BB zeroed in the scratch, sample
+        // should be 0.5 (identity BCSG passes the input through).
+        pipeline.setProcessingForTest(
+            ProcessingParameters(
+                brightness: 0,
+                contrast: 1,
+                saturation: 0,
+                blackR: 0.2,
+                blackG: 0.2,
+                blackB: 0.2,
+                gamma: 1
+            ))
+
+        // Inject a uniform 0.5 into naturalTex.
+        let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
+        try fillBufferUniform(nBuf, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
+        pipeline.setLatestNaturalForTest(buffer: nBuf, texture: nTex)
+
+        let sample = try await pipeline.dispatchBBCalibrationSample()
+
+        // BB = 0 in the scratch → sample equals the BCSG-passthrough value.
+        #expect(abs(sample.r - 0.5) < 1e-2)
+        #expect(abs(sample.g - 0.5) < 1e-2)
+        #expect(abs(sample.b - 0.5) < 1e-2)
+    }
+
+    @Test("scaledCenterPatchSize: default → 96, fallback → ≥16, tiny → clamped to 16")
+    func scaledCenterPatchSize() {
+        // 4160×3120 default → exact 96 (no scaling).
+        #expect(
+            MetalPipeline.scaledCenterPatchSize(
+                captureSize: Size(width: 4160, height: 3120)) == 96)
+        // 1280×960 fallback → ~30 (96 × 960/3120 ≈ 29.5).
+        let s2 = MetalPipeline.scaledCenterPatchSize(
+            captureSize: Size(width: 1280, height: 960))
+        #expect(s2 >= 16 && s2 <= 32)
+        // Tiny 480×360 → would compute ~11; clamps to 16 minimum.
+        #expect(
+            MetalPipeline.scaledCenterPatchSize(
+                captureSize: Size(width: 480, height: 360)) == 16)
+    }
+
+    // MARK: - Helpers
+
+    /// Writes a uniform RGBA half-float fill into an IOSurface-backed CVPixelBuffer
+    /// of pixel format kCVPixelFormatType_64RGBAHalf.
+    private func fillBufferUniform(
+        _ buffer: CVPixelBuffer,
+        r: Float, g: Float, b: Float, a: Float
+    ) throws {
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else {
+            throw MetalError.unsupportedFormat
+        }
+        // Float16 packed: 4 channels × 2 bytes = 8 bytes per pixel.
+        let pixel = packHalfRGBA(r: r, g: g, b: b, a: a)
+        for y in 0..<height {
+            let row = base.advanced(by: y * bytesPerRow)
+                .assumingMemoryBound(to: UInt16.self)
+            for x in 0..<width {
+                row[x * 4 + 0] = pixel.r
+                row[x * 4 + 1] = pixel.g
+                row[x * 4 + 2] = pixel.b
+                row[x * 4 + 3] = pixel.a
+            }
+        }
+    }
+
+    private struct HalfPixel { let r, g, b, a: UInt16 }
+
+    private func packHalfRGBA(r: Float, g: Float, b: Float, a: Float) -> HalfPixel {
+        HalfPixel(
+            r: Float16(r).bitPattern,
+            g: Float16(g).bitPattern,
+            b: Float16(b).bitPattern,
+            a: Float16(a).bitPattern)
+    }
 }
