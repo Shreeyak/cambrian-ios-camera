@@ -10,34 +10,77 @@ import Testing
 @Suite("Stage 11 — calibration compute")
 struct Stage11CalibrationComputeTests {
 
-    @Test("gray-world gains are reciprocal of normalized channel averages")
-    func grayWorldGainsReciprocal() {
-        // mean = (0.5 + 1.0 + 0.8) / 3 = 0.7666...
-        // gain[c] = mean / channel[c]
-        let sample = RgbSample(r: 0.5, g: 1.0, b: 0.8)
-        let gains = CalibrationCompute.grayWorldGains(sample: sample)
-        let mean = (0.5 + 1.0 + 0.8) / 3.0
-        #expect(abs(Double(gains.red) - mean / 0.5) < 1e-5)
-        #expect(abs(Double(gains.green) - mean / 1.0) < 1e-5)
-        #expect(abs(Double(gains.blue) - mean / 0.8) < 1e-5)
+    // Identity gains — useful for tests that want the reciprocal-only behavior
+    // without the stacking multiplier.
+    private let unityGains = WhiteBalanceGains(red: 1.0, green: 1.0, blue: 1.0)
+    private let typicalMax: Float = 4.0
+
+    @Test("neutral linear sample with unity current gains returns unity (no-op)")
+    func grayWorldNeutralLinearSampleIsNoOp() {
+        // Linear value 0.5 maps via sRGB EOTF to ~0.214 — but for r==g==b the mean
+        // ratio is exactly 1, so newGain == current regardless of linearization.
+        let sample = RgbSample(r: 0.5, g: 0.5, b: 0.5)
+        let gains = CalibrationCompute.grayWorldGains(
+            sample: sample, current: unityGains, maxGain: typicalMax)
+        #expect(abs(gains.red   - 1.0) < 1e-5)
+        #expect(abs(gains.green - 1.0) < 1e-5)
+        #expect(abs(gains.blue  - 1.0) < 1e-5)
     }
 
-    @Test("WhiteBalanceGains.init(fromGrayWorld:) is equivalent to CalibrationCompute.grayWorldGains")
-    func whiteBalanceGainsFromGrayWorldConvenience() {
-        let sample = RgbSample(r: 0.42, g: 0.84, b: 0.63)
-        let direct = CalibrationCompute.grayWorldGains(sample: sample)
-        let viaInit = WhiteBalanceGains(fromGrayWorld: sample)
-        #expect(direct.red == viaInit.red)
-        #expect(direct.green == viaInit.green)
-        #expect(direct.blue == viaInit.blue)
+    @Test("bluish sample produces gains all ≥ 1.0 with B anchored (no pink-tint regression)")
+    func grayWorldBluishSampleAnchorsBlue() {
+        // B is the brightest channel — its corrected gain ends up at min after
+        // normalization → exactly 1.0. R/G are scaled up correspondingly.
+        let sample = RgbSample(r: 0.4, g: 0.5, b: 0.8)
+        let gains = CalibrationCompute.grayWorldGains(
+            sample: sample, current: unityGains, maxGain: typicalMax)
+        #expect(gains.red   >= 1.0)
+        #expect(gains.green >= 1.0)
+        #expect(abs(gains.blue - 1.0) < 1e-5)
+        #expect(gains.red > gains.green)
+        #expect(gains.green > gains.blue)
+    }
+
+    @Test("stacks reciprocal onto non-unity current gains (delta correction semantics)")
+    func grayWorldStacksOntoCurrentGains() {
+        // Same sample, two different current gains — the *ratio* between channels
+        // in the result must reflect the multiplied product (current × reciprocal).
+        let sample = RgbSample(r: 0.4, g: 0.5, b: 0.6)
+        let unityResult = CalibrationCompute.grayWorldGains(
+            sample: sample, current: unityGains, maxGain: typicalMax)
+        let scaledCurrent = WhiteBalanceGains(red: 2.0, green: 1.0, blue: 1.5)
+        let scaledResult = CalibrationCompute.grayWorldGains(
+            sample: sample, current: scaledCurrent, maxGain: typicalMax)
+
+        // The unity result has ratios r:g:b == reciprocal ratios.
+        // The scaled result has ratios r:g:b == (current × reciprocal) ratios.
+        // After min-normalization both are normalized — but their channel ratios
+        // diverge because the inputs do.
+        let unityRG = unityResult.red / unityResult.green
+        let scaledRG = scaledResult.red / scaledResult.green
+        #expect(unityRG != scaledRG, "stacking must change the per-channel ratio")
+    }
+
+    @Test("clamps each channel to [1.0, maxGain]")
+    func grayWorldClampsToMaxGain() {
+        // Severe correction case: very dim red channel + already-high red current
+        // gain → product blows past maxGain.
+        let sample = RgbSample(r: 0.05, g: 0.5, b: 0.5)
+        let aggressiveCurrent = WhiteBalanceGains(red: 3.5, green: 1.0, blue: 1.0)
+        let gains = CalibrationCompute.grayWorldGains(
+            sample: sample, current: aggressiveCurrent, maxGain: typicalMax)
+        #expect(gains.red   <= typicalMax)
+        #expect(gains.green >= 1.0)
+        #expect(gains.blue  >= 1.0)
     }
 
     @Test("near-zero channels are clamped to epsilon (no division by zero)")
     func grayWorldClampsZeroChannel() {
         let sample = RgbSample(r: 0.0, g: 0.5, b: 0.5)
-        let gains = CalibrationCompute.grayWorldGains(sample: sample)
+        let gains = CalibrationCompute.grayWorldGains(
+            sample: sample, current: unityGains, maxGain: typicalMax)
         #expect(gains.red.isFinite)
-        #expect(gains.red > 0)
+        #expect(gains.red >= 1.0)
     }
 
     @Test("black-balance offsets are per-channel sample values")
