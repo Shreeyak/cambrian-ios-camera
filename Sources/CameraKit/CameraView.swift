@@ -25,6 +25,7 @@ public struct CameraView: View {
         return ZStack {
             previewArea
             scanningOverlay(enablement: enablement)
+            calibrationReticleLayer()
             #if DEBUG
             debugSurface
             #endif
@@ -300,6 +301,42 @@ public struct CameraView: View {
         }
     }
 
+    // MARK: - Calibration reticle (Bug 8 — sample-point indicator)
+
+    /// Reticle pinned to the right (processed) preview lane's center while
+    /// the calibration sidebar is open.
+    ///
+    /// Indicates the sample area for **both**
+    /// WB Calibrate (samples naturalTex) and BB Calibrate (samples a scratch
+    /// render of current BCSG with BB zeroed).
+    ///
+    /// The actual sample patch is `MetalPipeline.scaledCenterPatchSize` square
+    /// — 96 px at the default 4160×3120 capture, scaling proportionally on
+    /// smaller lanes with a 16-px floor. Patch fraction ≈ 96/3120 ≈ 3% of
+    /// the shorter dimension at default; ratio-preserving on smaller lanes
+    /// because both numerator and denominator scale together. The 80×80pt
+    /// reticle is an approximate visual match — not pixel-perfect, but
+    /// gives the user a clear "sample is here" hint.
+    ///
+    /// After the Bug-6/9 fix (`sessionPreset = .inputPriority`) the texture
+    /// fills the lane proportionally, so center-of-lane ≈ center-of-texture.
+    @ViewBuilder
+    private func calibrationReticleLayer() -> some View {
+        if sidebarVisible {
+            HStack(spacing: 0) {
+                Color.clear
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.yellow, lineWidth: 1.5)
+                        .frame(width: 80, height: 80)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+        }
+    }
+
     // MARK: - Calibration sidebar
 
     @ViewBuilder
@@ -320,13 +357,33 @@ public struct CameraView: View {
         let processing = viewModel.processing.currentProcessing
         return VStack(alignment: .leading, spacing: 12) {
             Text("Color Calibration").foregroundStyle(.white).font(.headline)
-            HStack(spacing: 10) {
-                Button("WB Calibrate") { viewModel.calibration.calibrateWB() }
-                    .buttonStyle(.borderedProminent)
-                Button("BB Calibrate") { viewModel.calibration.calibrateBB() }
-                    .buttonStyle(.bordered)
+
+            // White balance row — three actions.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("White Balance").foregroundStyle(.white.opacity(0.7)).font(.caption)
+                HStack(spacing: 8) {
+                    Button("Calibrate") { viewModel.calibration.calibrateWB() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Lock") { viewModel.calibration.lockCurrentWB() }
+                        .buttonStyle(.bordered)
+                    Button("Auto") { viewModel.calibration.resetToAutoWB() }
+                        .buttonStyle(.bordered)
+                }
             }
+
+            // Black balance row — two actions.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Black Balance").foregroundStyle(.white.opacity(0.7)).font(.caption)
+                HStack(spacing: 8) {
+                    Button("Calibrate") { viewModel.calibration.calibrateBB() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Reset") { viewModel.calibration.resetBlackBalance() }
+                        .buttonStyle(.bordered)
+                }
+            }
+
             Divider().background(.white.opacity(0.5))
+
             sliderRow(
                 label: "Brightness",
                 current: processing.brightness,
@@ -362,7 +419,7 @@ public struct CameraView: View {
                 label: "Black B", current: processing.blackB, range: 0.0...0.5,
                 push: viewModel.processing.pushBlackB)
             Spacer()
-            Button("Reset") {
+            Button("Reset All Sliders") {
                 Task { await viewModel.processing.resetProcessing() }
             }
             .foregroundStyle(.white)
