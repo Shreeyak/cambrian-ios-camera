@@ -479,3 +479,56 @@ struct Stage11BBCalibrationScratchTests {
             a: Float16(a).bitPattern)
     }
 }
+
+// MARK: - Stage 11 — Settings persistence WB policy
+
+@Suite("Stage 11 — settings persistence WB policy")
+struct Stage11SettingsPersistenceWBTests {
+
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "CameraKitTests.SettingsPersistence.\(UUID().uuidString)"
+        return UserDefaults(suiteName: suiteName)!
+    }
+
+    @Test("manual WB + gains are stripped on load (per-session policy)")
+    func manualWBStrippedOnLoad() {
+        let defaults = makeIsolatedDefaults()
+        var s = CameraSettings()
+        s.iso = 800
+        s.wbMode = .manual
+        s.wbGainR = 1.5
+        s.wbGainG = 1.2
+        s.wbGainB = 1.0
+        SettingsPersistence.save(s, defaults: defaults)
+
+        let loaded = SettingsPersistence.load(defaults: defaults)
+        #expect(loaded != nil)
+        #expect(loaded?.iso == 800)
+        #expect(loaded?.wbMode == nil)
+        #expect(loaded?.wbGainR == nil)
+        #expect(loaded?.wbGainG == nil)
+        #expect(loaded?.wbGainB == nil)
+    }
+
+    @Test("auto WB round-trips (only .manual is stripped)")
+    func autoWBRoundTrips() {
+        let defaults = makeIsolatedDefaults()
+        var s = CameraSettings()
+        s.wbMode = .auto
+        SettingsPersistence.save(s, defaults: defaults)
+
+        let loaded = SettingsPersistence.load(defaults: defaults)
+        #expect(loaded?.wbMode == .auto)
+    }
+
+    @Test("locked WB round-trips (only .manual is stripped)")
+    func lockedWBRoundTrips() {
+        let defaults = makeIsolatedDefaults()
+        var s = CameraSettings()
+        s.wbMode = .locked
+        SettingsPersistence.save(s, defaults: defaults)
+
+        let loaded = SettingsPersistence.load(defaults: defaults)
+        #expect(loaded?.wbMode == .locked)
+    }
+}

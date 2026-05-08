@@ -12,9 +12,24 @@ enum SettingsPersistence {
         defaults.set(data, forKey: key)
     }
 
+    /// Load persisted CameraSettings, stripping `wbMode = .manual` plus the gain triple.
+    ///
+    /// Calibration is a per-session intent: each launch should start in continuous
+    /// AWB so a stale manual lock from a prior session doesn't sticky-tint the
+    /// preview. `.auto` and `.locked` round-trip unchanged because those are
+    /// explicit user choices.
     static func load(defaults: UserDefaults = .standard) -> CameraSettings? {
         guard let data = defaults.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(CameraSettings.self, from: data)
+        guard var settings = try? JSONDecoder().decode(CameraSettings.self, from: data) else {
+            return nil
+        }
+        if settings.wbMode == .manual {
+            settings.wbMode = nil
+            settings.wbGainR = nil
+            settings.wbGainG = nil
+            settings.wbGainB = nil
+        }
+        return settings
     }
 
     // MARK: - Stage 04 — ProcessingParameters persistence
