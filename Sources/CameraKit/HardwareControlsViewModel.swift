@@ -46,8 +46,8 @@ final class HardwareControlsViewModel {
                     self.currentSettings = delta.merging(onto: self.currentSettings)
                 }
             } catch {
-                CameraKitLog.engine.warning(
-                    "updateSettings failed: \(String(describing: error))")
+                CameraKitLog.warning(
+                    .engine, "updateSettings failed: \(String(describing: error))")
                 // ADR-22 errorStream is not yet wired for inline `updateSettings`
                 // throws. Routing user-facing toasts here is DEFERRED to a
                 // future engine pass; the warning lands in Console only.

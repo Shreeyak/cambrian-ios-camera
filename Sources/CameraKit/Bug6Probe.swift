@@ -32,12 +32,11 @@ enum Bug6Probe {
     /// Called once from `MetalPipeline.init` to record the configured destination size.
     static func noteConfigured(captureSize: Size, trackerSize: Size) {
         guard enabled else { return }
-        let line =
-            "[bug6][configured] dst=\(captureSize.width)x\(captureSize.height) "
-            + "tracker=\(trackerSize.width)x\(trackerSize.height)"
         lastConfiguredSize = (captureSize.width, captureSize.height)
-        CameraKitLog.write(line)
-        CameraKitLog.metal.info("\(line, privacy: .public)")
+        CameraKitLog.info(
+            .metal,
+            "[bug6][configured] dst=\(captureSize.width)x\(captureSize.height) "
+                + "tracker=\(trackerSize.width)x\(trackerSize.height)")
     }
 
     /// Called per-frame from `MetalPipeline.encode()`.
@@ -68,13 +67,12 @@ enum Bug6Probe {
         let mismatch = (cfgW != yW) || (cfgH != yH) || (cfgW != fullW) || (cfgH != fullH)
         if mismatch { mismatchCount += 1 }
         let tag = mismatch ? "[mismatch]" : "[ok]"
-        let line =
+        CameraKitLog.info(
+            .metal,
             "[bug6][incoming]\(tag) frame=\(frame) "
-            + "configured=\(cfgW)x\(cfgH) "
-            + "buffer=\(fullW)x\(fullH) y=\(yW)x\(yH) cbcr=\(cW)x\(cH) "
-            + "mismatchCount=\(mismatchCount)"
-        CameraKitLog.write(line)
-        CameraKitLog.metal.info("\(line, privacy: .public)")
+                + "configured=\(cfgW)x\(cfgH) "
+                + "buffer=\(fullW)x\(fullH) y=\(yW)x\(yH) cbcr=\(cW)x\(cH) "
+                + "mismatchCount=\(mismatchCount)")
     }
 
     /// Dumps every `AVCaptureDevice.Format` the device exposes.
@@ -85,11 +83,10 @@ enum Bug6Probe {
     /// videoFieldOfView. One header line + one row per format.
     static func dumpDeviceFormats(_ device: AVCaptureDevice) {
         guard enabled else { return }
-        let header =
+        CameraKitLog.info(
+            .metal,
             "[bug6][formats][begin] modelID=\(device.modelID) "
-            + "deviceType=\(device.deviceType.rawValue) count=\(device.formats.count)"
-        CameraKitLog.write(header)
-        CameraKitLog.metal.info("\(header, privacy: .public)")
+                + "deviceType=\(device.deviceType.rawValue) count=\(device.formats.count)")
         for (idx, f) in device.formats.enumerated() {
             let dims = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
             let sub = CMFormatDescriptionGetMediaSubType(f.formatDescription)
@@ -106,20 +103,17 @@ enum Bug6Probe {
             let fov = f.videoFieldOfView
             let stabStd = f.isVideoStabilizationModeSupported(.standard)
             let stabCine = f.isVideoStabilizationModeSupported(.cinematic)
-            let line =
+            CameraKitLog.info(
+                .metal,
                 "[bug6][format] idx=\(idx) "
-                + "dims=\(dims.width)x\(dims.height) sub=\(subStr) "
-                + "fpsRanges=[\(fpsRanges)] "
-                + "binned=\(binned) hqPhoto=\(hqPhoto) hPhoto=\(hPhoto) "
-                + "maxPhotoDims=[\(maxPhoto)] "
-                + "fov=\(String(format: "%.1f", fov)) "
-                + "stab(std=\(stabStd),cine=\(stabCine))"
-            CameraKitLog.write(line)
-            CameraKitLog.metal.info("\(line, privacy: .public)")
+                    + "dims=\(dims.width)x\(dims.height) sub=\(subStr) "
+                    + "fpsRanges=[\(fpsRanges)] "
+                    + "binned=\(binned) hqPhoto=\(hqPhoto) hPhoto=\(hPhoto) "
+                    + "maxPhotoDims=[\(maxPhoto)] "
+                    + "fov=\(String(format: "%.1f", fov)) "
+                    + "stab(std=\(stabStd),cine=\(stabCine))")
         }
-        let footer = "[bug6][formats][end]"
-        CameraKitLog.write(footer)
-        CameraKitLog.metal.info("\(footer, privacy: .public)")
+        CameraKitLog.info(.metal, "[bug6][formats][end]")
     }
 
     private static func fourCC(_ code: FourCharCode) -> String {
@@ -169,11 +163,10 @@ enum Bug6Probe {
         let dropY = drH - texH
         let underfill = dropX > 0 || dropY > 0
         let tag = underfill ? "[underfill]" : "[fits]"
-        let line =
+        CameraKitLog.info(
+            .metal,
             "[bug6][draw]\(tag) view=\(label) "
-            + "tex=\(texW)x\(texH) drawable=\(drW)x\(drH) "
-            + "viewBounds=\(vW)x\(vH) underfillPx=\(dropX)x\(dropY)"
-        CameraKitLog.write(line)
-        CameraKitLog.metal.info("\(line, privacy: .public)")
+                + "tex=\(texW)x\(texH) drawable=\(drW)x\(drH) "
+                + "viewBounds=\(vW)x\(vH) underfillPx=\(dropX)x\(dropY)")
     }
 }

@@ -1,7 +1,4 @@
-import OSLog
 import SwiftUI
-
-private let scenePhaseLog = Logger(subsystem: "com.cambrian.camerakit", category: "scenePhase")
 
 /// Top-level orchestrator for the SwiftUI camera UI.
 ///
@@ -215,17 +212,17 @@ final class ViewModel {
     func handleScenePhase(_ phase: ScenePhase) async {
         let prev = String(describing: self.previousPhase)
         let next = String(describing: phase)
-        scenePhaseLog.notice("scenePhase: \(prev, privacy: .public) → \(next, privacy: .public)")
+        CameraKitLog.notice(.scenePhase, "scenePhase: \(prev) → \(next)")
         switch phase {
         case .inactive:
             await engine.setGate(false)
             await engine.drainSubmittedFrame()
-            scenePhaseLog.notice("scenePhase inactive: gate closed, drain complete")
+            CameraKitLog.notice(.scenePhase, "scenePhase inactive: gate closed, drain complete")
 
         case .background:
             cameFromBackground = true
             await engine.backgroundSuspend()
-            scenePhaseLog.notice("scenePhase background: backgroundSuspend complete")
+            CameraKitLog.notice(.scenePhase, "scenePhase background: backgroundSuspend complete")
 
         case .active:
             if cameFromBackground {
@@ -233,8 +230,7 @@ final class ViewModel {
                 await engine.backgroundResume()
             }
             await engine.setGate(true)
-            let prevActive = String(describing: self.previousPhase)
-            scenePhaseLog.notice("scenePhase active: gate open (prevPhase=\(prevActive, privacy: .public))")
+            CameraKitLog.notice(.scenePhase, "scenePhase active: gate open (prevPhase=\(prev))")
 
         @unknown default:
             break
