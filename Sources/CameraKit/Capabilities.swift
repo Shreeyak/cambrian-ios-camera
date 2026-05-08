@@ -143,6 +143,12 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
     public var brightness: Double
     public var contrast: Double
     public var saturation: Double
+    /// Per-channel black-balance pedestal.
+    ///
+    /// The GPU pipeline subtracts these values from the graded image as the
+    /// **final** color step, after brightness, contrast, saturation, and
+    /// gamma. Range typically `[0, 0.5]`. See `Shaders/ColorShaders.metal`
+    /// for the exact order.
     public var blackR: Double
     public var blackG: Double
     public var blackB: Double
