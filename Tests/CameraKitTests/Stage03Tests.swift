@@ -209,6 +209,12 @@ final class FakeCaptureDeviceProviding: CaptureDeviceProviding, @unchecked Senda
     func setWhiteBalanceModeLocked(gains: WhiteBalanceGains) async throws {}
     func setContinuousAutoWhiteBalance() async throws {}
     func setWhiteBalanceLocked() async throws {}
+
+    var currentDeviceWBGains: WhiteBalanceGains {
+        WhiteBalanceGains(red: 1.0, green: 1.0, blue: 1.0)
+    }
+    func awaitWBSettled() async {}
+
     func setZoomFactor(_ factor: Double) async throws {}
     func setExposureCompensation(_ steps: Int) async throws {}
     func setVideoFrameDurationRange(minFrameDurationFps: Int, maxFrameDurationFps: Int) async throws {}

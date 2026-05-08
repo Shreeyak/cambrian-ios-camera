@@ -653,7 +653,7 @@ public actor CameraEngine {
     /// Used by `CalibrationViewModel.calibrateWB` to *stack* the gray-world
     /// reciprocal correction onto the active gains.
     public func currentDeviceWBGains() async throws -> WhiteBalanceGains {
-        guard let device = cameraSession?.device as? LiveCaptureDevice else {
+        guard let device = cameraSession?.device else {
             throw EngineError.notOpen
         }
         return await device.currentDeviceWBGains
@@ -673,7 +673,7 @@ public actor CameraEngine {
     /// Used by `CalibrationViewModel.calibrateWB` between writing `.auto` and
     /// reading `currentDeviceWBGains`.
     public func awaitWBSettled() async {
-        guard let device = cameraSession?.device as? LiveCaptureDevice else { return }
+        guard let device = cameraSession?.device else { return }
         await device.awaitWBSettled()
     }
 
