@@ -31,6 +31,11 @@ actor FakeCaptureDevice: CaptureDeviceProviding {
     func setContinuousAutoWhiteBalance() throws {}
     func setWhiteBalanceLocked() throws {}
 
+    var currentDeviceWBGains: WhiteBalanceGains {
+        WhiteBalanceGains(red: 1.0, green: 1.0, blue: 1.0)
+    }
+    func awaitWBSettled() async {}
+
     func setZoomFactor(_ factor: Double) throws {}
     func setExposureCompensation(_ steps: Int) throws {}
     func setVideoFrameDurationRange(minFrameDurationFps: Int, maxFrameDurationFps: Int) throws {}

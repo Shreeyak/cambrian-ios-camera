@@ -1,4 +1,5 @@
 import AVFoundation
+import Atomics
 import Foundation
 
 // MARK: - ADR-32 test seam
@@ -26,6 +27,12 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     func setWhiteBalanceModeLocked(gains: WhiteBalanceGains) async throws
     func setContinuousAutoWhiteBalance() async throws
     func setWhiteBalanceLocked() async throws
+
+    /// Current WB gains applied by the device (continuous AWB or a prior manual lock).
+    var currentDeviceWBGains: WhiteBalanceGains { get async }
+
+    /// Awaits AWB convergence. Returns immediately if already settled; times out after 2 s.
+    func awaitWBSettled() async
 
     func setZoomFactor(_ factor: Double) async throws
     func setExposureCompensation(_ steps: Int) async throws
@@ -227,52 +234,59 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
 
 /// Awaits `AVCaptureDevice.isAdjustingWhiteBalance == false` via KVO, with a 2s timeout.
 ///
-/// Extracted as a free function so the `sending`-closure constraint of
-/// Swift 6 `withTaskGroup` does not implicate actor isolation on
-/// `LiveCaptureDevice`. `avDevice` is safe to pass across isolation because
-/// `LiveCaptureDevice` declares it `nonisolated(unsafe) let`.
+/// Uses `ManagedAtomic<Bool>` CAS to guarantee exactly-once continuation resume
+/// across the KVO and deadline branches (ADR-30 / CLAUDE.md §8). `withTaskGroup`
+/// is explicitly NOT used: a child task suspended on an unresumed
+/// `withCheckedContinuation` cannot respond to cancellation, causing the group to
+/// hang indefinitely when AWB stalls.
 private func wbSettledWait(avDevice: AVCaptureDevice) async {
     if !avDevice.isAdjustingWhiteBalance { return }
+
     // `AVCaptureDevice` is not `Sendable`; capture via `nonisolated(unsafe) let`
-    // so the `@Sendable` task closure can close over it without a concurrency
-    // diagnostic. The underlying AVFoundation object is thread-safe for KVO
-    // observation; mutations always gate through `lockForConfiguration()` on
-    // sessionQueue (ADR-07).
+    // so the `@Sendable` closure can close over it without a concurrency diagnostic.
+    // Mutations always gate through `lockForConfiguration()` on sessionQueue (ADR-07).
     nonisolated(unsafe) let dev = avDevice
-    await withTaskGroup(of: Void.self) { group in
-        group.addTask {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                var done = false
-                let lock = NSLock()
-                var observation: NSKeyValueObservation?
-                observation = dev.observe(
-                    \.isAdjustingWhiteBalance, options: [.new]
-                ) { _, change in
-                    guard change.newValue == false else { return }
-                    lock.lock()
-                    defer { lock.unlock() }
-                    if done { return }
-                    done = true
-                    observation?.invalidate()
-                    cont.resume()
-                }
-                // Race: if already settled by the time the observer is wired up,
-                // resume immediately.
-                if !dev.isAdjustingWhiteBalance {
-                    lock.lock()
-                    defer { lock.unlock() }
-                    if !done {
-                        done = true
-                        observation?.invalidate()
-                        cont.resume()
-                    }
-                }
+
+    // `NSKeyValueObservation` is not `Sendable`; box it so both `@Sendable`
+    // branches can share a reference to the live token and invalidate it.
+    final class ObservationBox: @unchecked Sendable {
+        var observation: NSKeyValueObservation?
+    }
+
+    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+        let resumed = ManagedAtomic<Bool>(false)
+        let box = ObservationBox()
+
+        let resumeOnce: @Sendable () -> Void = {
+            let (won, _) = resumed.compareExchange(
+                expected: false, desired: true,
+                ordering: .sequentiallyConsistent
+            )
+            if won {
+                box.observation?.invalidate()
+                cont.resume()
             }
         }
-        group.addTask {
-            try? await Task.sleep(for: .seconds(2))
+
+        // KVO branch: resumes as soon as AWB settles.
+        box.observation = dev.observe(
+            \.isAdjustingWhiteBalance, options: [.new]
+        ) { _, change in
+            guard change.newValue == false else { return }
+            resumeOnce()
         }
-        await group.next()
-        group.cancelAll()
+
+        // Pre-check: if already settled by the time the observer is wired up,
+        // resume immediately rather than waiting for the next KVO firing.
+        if !dev.isAdjustingWhiteBalance {
+            resumeOnce()
+            return
+        }
+
+        // Deadline branch: resumes after 2 s if AWB hasn't settled yet.
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            resumeOnce()
+        }
     }
 }
