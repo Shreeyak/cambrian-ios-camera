@@ -23,8 +23,22 @@ enum Constants {
     // Stage 04 — color pipeline + sample-center-patch (architecture/constants.md).
     /// Square center-patch size in pixels for `sampleCenterPatch()` (constants.md line 35).
     static let centerPatchSizePx: Int = 96
-    /// Discard top/bottom % of intensity values for the trimmed mean (constants.md line 36).
-    static let centerPatchTrimPercent: Int = 10
+    /// Per-side trim ratio for the patch sampler's trimmed mean.
+    ///
+    /// 0.075 ≡ 7.5 % bottom + 7.5 % top discarded per channel. Chosen to reject
+    /// hot pixels and specular highlights without sacrificing too much sample
+    /// area on a 96² patch (~691 of 9216 px per side at 7.5 %).
+    static let centerPatchTrimRatio: Double = 0.075
+    /// Multiplier applied to BB pedestal sample so the per-pixel noise above
+    /// the trimmed mean is also driven to the clamp floor on iPad HITL.
+    static let blackBalanceOverscan: Double = 1.5
+    /// Per-step log2-space cap retained on `CalibrationCompute.grayWorldGains`
+    /// for unit-test stability. `calibrateWB` itself no longer iterates —
+    /// the helper is kept as a pure utility but isn't in the live path.
+    static let wbGrayWorldLogCap: Float = 0.25
+    /// How long the Calibrate-WB button shows the "Calibrated ✓" confirmation
+    /// before the sidebar button reverts to its idle label.
+    static let wbCompletedDisplayMs: Int = 1500
     /// Per-frame wall-clock budget at 30fps (constants.md line 15).
     static let frameLatencyBudgetMs: Int = 33
     /// IOSurface-backed working-texture pixel format — pairs with .rgba16Float MTLTexture views.

@@ -678,6 +678,45 @@ public actor CameraEngine {
         return await device.maxWhiteBalanceGain
     }
 
+    /// Apple's gray-world gains for the current scene.
+    ///
+    /// Reads `AVCaptureDevice.grayWorldDeviceWhiteBalanceGains`. Apple computes
+    /// these from the center 50% of the frame assuming a neutral subject (gray
+    /// card). Used by `CalibrationViewModel.calibrateWB` to apply scene-derived
+    /// neutralizing gains directly without GPU sampling or our own math.
+    public func grayWorldDeviceWBGains() async throws -> WhiteBalanceGains {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        return await device.grayWorldDeviceWBGains
+    }
+
+    /// Switches WB to continuous auto, awaits AWB convergence, then reads
+    /// Apple's gray-world gains for the now-settled scene.
+    ///
+    /// `calibrateWB`'s iter-0 seed. The AWB probe matters when WB is currently
+    /// `.locked` from a prior calibration: while Apple documents
+    /// `grayWorldDeviceWhiteBalanceGains` as continuously computed, an ongoing
+    /// lock from the last calibration pins the read to that scene's stats —
+    /// briefly returning to `.continuousAutoWhiteBalance` lets the hardware
+    /// statistics engine refresh against the current scene. Cost is one AWB
+    /// settle (~50–500 ms typical, 2 s timeout).
+    public func freshGrayWorldDeviceWBGains() async throws -> WhiteBalanceGains {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        try await device.lockForConfiguration()
+        do {
+            try await device.setContinuousAutoWhiteBalance()
+            await device.unlockForConfiguration()
+        } catch {
+            await device.unlockForConfiguration()
+            throw error
+        }
+        await device.awaitWBSettled()
+        return await device.grayWorldDeviceWBGains
+    }
+
     /// Awaits AE/AWB convergence after a mode switch (KVO-backed, 2s timeout).
     ///
     /// Used by `CalibrationViewModel.calibrateWB` between writing `.auto` and
@@ -685,6 +724,87 @@ public actor CameraEngine {
     public func awaitWBSettled() async {
         guard let device = cameraSession?.device else { return }
         await device.awaitWBSettled()
+    }
+
+    /// Locks WB to one of Apple's named presets via the one-shot AVF API.
+    ///
+    /// Awaits both (a) AVF's confirmation of the first buffer with new gains
+    /// (handler-bridged) and (b) the natural-pipeline encode catching up to
+    /// that buffer's PTS (`awaitNaturalAfter`). On return, sampling the natural
+    /// texture is guaranteed to read post-preset content.
+    ///
+    /// Bypasses the `wbGainR/G/B` settings path — gains are computed inside
+    /// AVFoundation from sensor-calibrated temperature/tint constants. Used as
+    /// the stable baseline for `calibrateWB` (`.daylight`). Locks/unlocks the
+    /// device for the call (ADR-07).
+    public func setWBPreset(_ preset: WhiteBalancePreset) async throws {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        try await device.lockForConfiguration()
+        let tApply: CMTime
+        do {
+            tApply = await device.setWhiteBalanceModeLockedToPresetAwaitingApply(preset)
+            await device.unlockForConfiguration()
+        } catch {
+            await device.unlockForConfiguration()
+            throw error
+        }
+        await awaitNaturalAfter(tApply)
+    }
+
+    /// Locks WB to explicit manual gains via AVF's `setWhiteBalanceModeLocked(with:completionHandler:)`.
+    ///
+    /// Awaits AVF's confirmation of the first buffer with new gains
+    /// (handler-bridged with 400 ms deadline), then awaits the natural pipeline
+    /// catching up to that buffer's PTS. On return, sampling the natural texture
+    /// is guaranteed to read post-gains content. Caller is responsible for
+    /// clamping inputs to `[1.0, maxWhiteBalanceGain]` — this does *not* go
+    /// through `CameraSession.applySettings` so no auto-clamp applies. Used by
+    /// `calibrateWB` to apply scene-derived gains and wait for the natural
+    /// texture before any subsequent sample.
+    public func applyManualGainsAndAwait(_ gains: WhiteBalanceGains) async throws {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        try await device.lockForConfiguration()
+        let tApply: CMTime
+        do {
+            tApply = await device.setWhiteBalanceModeLockedToGainsAwaitingApply(gains)
+            await device.unlockForConfiguration()
+        } catch {
+            await device.unlockForConfiguration()
+            throw error
+        }
+        await awaitNaturalAfter(tApply)
+    }
+
+    /// Polls until the natural-pipeline encode has produced a frame at or after the given buffer PTS.
+    ///
+    /// Returns immediately if `pts` is invalid (preset handler missed) or no
+    /// pipeline is active. Times out at 1 s (~30 frames at 30 fps); polling
+    /// tick is 8 ms.
+    public func awaitNaturalAfter(_ pts: CMTime) async {
+        guard pts.isValid, pts.isNumeric else { return }
+        guard let pipeline = metalPipeline else { return }
+        let targetNs = Int64(CMTimeGetSeconds(pts) * 1_000_000_000)
+        let deadline = ContinuousClock.now + .seconds(1)
+        while ContinuousClock.now < deadline {
+            if pipeline.latestNaturalPTSNs.load(ordering: .acquiring) >= targetNs {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+    }
+
+    /// Awaits `isAdjustingExposure == false` after a WB-preset apply.
+    ///
+    /// AE drift (often triggered by the user repointing the camera at the gray
+    /// card) can move the patch's overall brightness during the sample window;
+    /// gating on AE settle pins the sample to a stable exposure.
+    public func awaitAESettled() async {
+        guard let device = cameraSession?.device else { return }
+        await device.awaitAESettled()
     }
 
     /// Stage 04: returns the persisted ProcessingParameters without requiring

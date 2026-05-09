@@ -29,6 +29,12 @@ public struct CameraView: View {
             #if DEBUG
             debugSurface
             #endif
+        }
+        // Sidebar lives as an overlay (not a ZStack child) so its
+        // appearance can't nudge the body's content-layout pass — that
+        // was visibly shifting the bottom safeAreaInset by a few pixels
+        // when Calibrate toggled `sidebarVisible`.
+        .overlay(alignment: .trailing) {
             calibrationSidebarLayer(enablement: enablement)
         }
         .overlay(alignment: .top) {
@@ -49,8 +55,23 @@ public struct CameraView: View {
         } message: { err in
             Text("\(err.code.rawValue)\n\n\(err.message)")
         }
+        // Bottom-edge stack — three independent safeAreaInsets, applied
+        // innermost-first (top-to-bottom on screen): expandedBar (conditional)
+        // → bottomBar (always) → captureBanner (conditional). Splitting the
+        // expanded bar into its own inset stops it from pushing the
+        // bottomBar off-screen when the calibration sidebar is also open
+        // (CLAUDE.md §8 — bottom-bar idiom: independently-anchored insets).
+        .safeAreaInset(edge: .bottom, spacing: 8) {
+            if showExpandedBar {
+                expandedBar(enablement: enablement)
+                    .padding(.horizontal, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .safeAreaInset(edge: .bottom) {
-            bottomBarLayer(enablement: enablement)
+            bottomBar(enablement: enablement)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
         }
         .safeAreaInset(edge: .bottom) {
             if let result = viewModel.captureResult {
@@ -105,20 +126,7 @@ public struct CameraView: View {
         }
     }
 
-    // MARK: - Bottom bar (5 buttons + expanded bar above)
-
-    @ViewBuilder
-    private func bottomBarLayer(enablement: ControlEnablement) -> some View {
-        VStack(spacing: 8) {
-            if showExpandedBar {
-                expandedBar(enablement: enablement)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            bottomBar(enablement: enablement)
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-    }
+    // MARK: - Bottom bar (5 buttons; expanded bar lives in its own safeAreaInset)
 
     private func bottomBar(enablement: ControlEnablement) -> some View {
         HStack(spacing: 18) {
@@ -342,32 +350,79 @@ public struct CameraView: View {
     @ViewBuilder
     private func calibrationSidebarLayer(enablement: ControlEnablement) -> some View {
         if sidebarVisible {
-            HStack {
-                Spacer()
-                calibrationSidebar(enablement: enablement)
-                    .frame(width: 300)
-                    .padding(.trailing, 12)
-                    .padding(.vertical, 12)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            calibrationSidebar(enablement: enablement)
+                .frame(width: 300)
+                .padding(.trailing, 12)
+                .padding(.vertical, 12)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+    }
+
+    /// Calibrate-WB button with three states driven by `wbCalibrationStatus`:
+    /// idle = "Calibrate", calibrating = small spinner + "Calibrating…",
+    /// completed = checkmark + "Calibrated" (auto-reverts after
+    /// `wbCompletedDisplayMs`).
+    @ViewBuilder
+    private var wbCalibrateButton: some View {
+        let status = viewModel.calibration.wbCalibrationStatus
+        switch status {
+        case .idle:
+            Button("Calibrate") { viewModel.calibration.calibrateWB() }
+                .buttonStyle(.borderedProminent)
+        case .calibrating:
+            Button {
+            } label: {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).tint(.white)
+                    Text("Calibrating…")
+                }
             }
+            .buttonStyle(.borderedProminent)
+            .disabled(true)
+        case .completed:
+            Button {
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark")
+                    Text("Calibrated")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .disabled(true)
         }
     }
 
     private func calibrationSidebar(enablement: ControlEnablement) -> some View {
         let processing = viewModel.processing.currentProcessing
+        let wbMode = viewModel.calibration.wbMode
+        // Lock active when the WB is in locked mode OR manual mode (Calibrate
+        // writes `.manual` and the user perceives that as "locked"). Auto
+        // active only when AVF is in continuous-AWB mode. Mutually exclusive
+        // by construction of the wbMode enum.
+        let lockActive = (wbMode == .locked || wbMode == .manual)
+        let autoActive = (wbMode == .auto)
         return VStack(alignment: .leading, spacing: 12) {
             Text("Color Calibration").foregroundStyle(.white).font(.headline)
 
-            // White balance row — three actions.
             VStack(alignment: .leading, spacing: 6) {
                 Text("White Balance").foregroundStyle(.white.opacity(0.7)).font(.caption)
                 HStack(spacing: 8) {
-                    Button("Calibrate") { viewModel.calibration.calibrateWB() }
-                        .buttonStyle(.borderedProminent)
-                    Button("Lock") { viewModel.calibration.lockCurrentWB() }
-                        .buttonStyle(.bordered)
-                    Button("Auto") { viewModel.calibration.resetToAutoWB() }
-                        .buttonStyle(.bordered)
+                    wbCalibrateButton
+                    if lockActive {
+                        Button("Lock") { viewModel.calibration.lockCurrentWB() }
+                            .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Lock") { viewModel.calibration.lockCurrentWB() }
+                            .buttonStyle(.bordered)
+                    }
+                    if autoActive {
+                        Button("Auto") { viewModel.calibration.resetToAutoWB() }
+                            .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Auto") { viewModel.calibration.resetToAutoWB() }
+                            .buttonStyle(.bordered)
+                    }
                 }
             }
 

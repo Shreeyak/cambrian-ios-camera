@@ -1,3 +1,4 @@
+import CoreMedia
 import Testing
 
 @testable import CameraKit
@@ -30,8 +31,14 @@ actor FakeCaptureDevice: CaptureDeviceProviding {
     func setWhiteBalanceModeLocked(gains: WhiteBalanceGains) throws {}
     func setContinuousAutoWhiteBalance() throws {}
     func setWhiteBalanceLocked() throws {}
+    func setWhiteBalanceModeLockedToPresetAwaitingApply(_ preset: WhiteBalancePreset) async -> CMTime { .invalid }
+    func setWhiteBalanceModeLockedToGainsAwaitingApply(_ gains: WhiteBalanceGains) async -> CMTime { .invalid }
+    func awaitAESettled() async {}
 
     var currentDeviceWBGains: WhiteBalanceGains {
+        WhiteBalanceGains(red: 1.0, green: 1.0, blue: 1.0)
+    }
+    var grayWorldDeviceWBGains: WhiteBalanceGains {
         WhiteBalanceGains(red: 1.0, green: 1.0, blue: 1.0)
     }
     func awaitWBSettled() async {}

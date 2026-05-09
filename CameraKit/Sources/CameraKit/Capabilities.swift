@@ -89,6 +89,19 @@ public enum WhiteBalanceMode: String, Sendable, Hashable, Codable {
     case manual
 }
 
+/// Apple's named WB temperature/tint presets.
+///
+/// Each case maps 1:1 to `AVCaptureDevice.WhiteBalanceTemperatureAndTintValues`
+/// static properties (iOS 26.0+). Underlying Kelvin/tint values are
+/// sensor-calibrated and not published by Apple.
+public enum WhiteBalancePreset: String, Sendable, Hashable {
+    case daylight
+    case cloudy
+    case shadow
+    case tungsten
+    case fluorescent
+}
+
 /// Partial-update settings object.
 ///
 /// Per domain-revised/10-api-contract.md §CameraSettings.

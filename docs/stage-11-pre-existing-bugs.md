@@ -168,8 +168,12 @@ this fix.
 **Severity:** MEDIUM-to-HIGH (pre-existing pipeline issue; user-visible during
 Stage 11 regression on iPad).
 
-**Status:** **NOT YET FIXED.** Observed empirically; not yet root-caused.
-Punch-list item for Stage 12.
+**Status:** **FIXED 2026-04-30 / verified 2026-05-09 on iPad.** Root cause:
+the still-capture mailbox stranded the most recently produced processed
+buffer when the pool rotated. Fix: live mailbox forwarding in
+`CameraEngine` / `DisplayViewModel` (commit on 2026-04-30). HITL: right
+preview no longer freezes on long sessions; both natural and processed
+lanes update continuously.
 
 **Where it surfaced:** During the Stage 11 regression run, with the test host
 app launched on the iPad, the right-side preview (`processedTex` lane) froze
@@ -272,7 +276,7 @@ paths before committing to a fix.
 
 **Severity:** MEDIUM (cosmetic but loud; immediate visual regression).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 during the same HITL run.
+**Status:** **FIXED.** Root cause: `sessionPreset` was not set to `.inputPriority`; switching it forced AVFoundation to honour the physical sensor resolution, eliminating the un-cleared sub-region. Stabilization and low-light boost also disabled as part of the same fix. Commits `027b688` + `1303fbb`.
 
 **Where it surfaced:** Below the two side-by-side previews, the area down to
 the (greyed) bottom bar fills with a uniform bright-green band that spans the
@@ -308,15 +312,18 @@ all IOSurface targets — the §8 invariants spell out the discipline.
 
 **Severity:** BLOCKER (one-tap crash on a top-level user surface).
 
-**Status:** **FIX APPLIED 2026-04-30** (awaiting HITL re-verify). Root cause
-identified from crash log `eva-swift-stitch-2026-04-30-030647.ips`:
-`AVCaptureFigVideoDevice setWhiteBalanceModeLockedWithDeviceWhiteBalanceGains:`
-threw `NSInvalidArgumentException` because `grayWorldGains` (in
-`CalibrationCompute.swift`) returns gains derived as `mean / channel`, which
-for any non-gray sample easily exceeds `[1.0, maxWhiteBalanceGain]` —
-AVFoundation rejects the call. Fix: `applySettings` (`CameraSession.swift`)
-now clamps each manual WB gain to `[1.0, maxWhiteBalanceGain]` before the
-device write — single chokepoint protects every WB write path.
+**Status:** **FIXED 2026-04-30 / verified 2026-05-09 on iPad.** Two-layer
+defense in place: (1) `applySettings` (`CameraSession.swift`) clamps each
+manual WB gain to `[1.0, maxWhiteBalanceGain]` before the device write —
+single chokepoint protects every WB write path. (2) The Bug 13 rework
+replaced our own `grayWorldGains` math with Apple's
+`grayWorldDeviceWhiteBalanceGains` + a final `min/max` clamp in
+`CalibrationViewModel.calibrateWB`, so the original out-of-range source
+no longer feeds AVF in the first place. HITL: no crash on Calibrate
+across multiple presses and varied scenes. Crash log
+`eva-swift-stitch-2026-04-30-030647.ips` was the originating evidence
+(`AVCaptureFigVideoDevice setWhiteBalanceModeLockedWithDeviceWhiteBalanceGains:`
+→ `NSInvalidArgumentException`).
 
 **Where it surfaced:** Calibrate sidebar → tap **White Balance** → app
 terminates immediately. Black Balance from the same sidebar does not crash;
@@ -342,14 +349,15 @@ against the Calibrate WB handler.
 **Severity:** LOW (functional but undiscoverable; user can't verify which
 pixel is being sampled).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 HITL on iPad.
+**Status:** **FIXED — verified 2026-05-09 on iPad.** Stage 11 Task 11
+(reticle overlay) renders the sample reticle on the natural-preview lane;
+both WB and BB calibrate use the same center-patch coordinates so a single
+reticle covers both. HITL confirms the reticle is visible and aligned with
+the actual sample location.
 
 **Where it surfaced:** Calibrate → Black Balance — sliders affect output
 (green channel slider visibly drives the green-buffer artifact, see Bug 6)
 but no on-screen reticle / target indicates the sample point.
-
-**Fix shape:** Render a small reticle at the sampled pixel coordinate during
-black-balance mode; surface the sampled XY in the calibration sidebar.
 
 ---
 
@@ -357,7 +365,7 @@ black-balance mode; surface the sampled XY in the calibration sidebar.
 
 **Severity:** HIGH (capture output is unusable; ships green padding).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 HITL on iPad.
+**Status:** **FIXED.** Same root cause as Bug 6 — `sessionPreset = .inputPriority` resolved the sub-region write; still-capture path now encodes the full sensor frame. Commit `027b688`.
 
 **Where it surfaced:** Tap Capture — saved still is 4032×3024 but the
 actual photographic content occupies less than half the height and width in
@@ -433,12 +441,15 @@ Cross-check against `briefs/stage-11.md` § resolution control.
 
 **Severity:** HIGH (preview useless on cold launch).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 HITL on iPad after Bug
-7+10 fix install. Frame counter overlay shows frame numbers climbing —
-engine and pipeline are streaming — but both MTKView preview panels show
-black. Tapping **Capture** saves the still successfully and unfreezes the
-preview to a single frozen frame. Tapping **REC** starts continuous preview
-streaming. Stop REC keeps the preview running.
+**Status:** **FIXED — verified 2026-05-09 on iPad.** Cold-launch preview
+now comes up live in both lanes without requiring a Capture/REC tap to
+unstick the render loop. The fix has accumulated across several commits
+between the original 2026-04-30 surfacing and 2026-05-09 (live mailbox
+forwarding for Bug 4 reshaped the MTKView feed; the persisted-WB strip-on-
+load behavior — `SettingsPersistence.load` — removed the `.manual`
+`lockForConfiguration` window during `open()` that was hypothesis 1).
+Either of those plausibly resolved the stuck-render-loop symptom; HITL
+confirms the user-visible black-on-launch is gone.
 
 **Root-cause hypothesis (UNVERIFIED):** MTKView's render loop appears
 "paused" until a state-change kicks it. Two candidates:
@@ -464,22 +475,33 @@ successful blits over the first 10 seconds.
 
 **Severity:** MEDIUM (UX dead-end — once calibrated, user is stuck).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 HITL on iPad.
+**Status:** **FIXED — verified 2026-05-09 on iPad.** All three fix-shape
+items addressed:
 
-**Where it surfaced:** First WB Calibrate tap applies a tint (pink for a
-mostly-grey reference patch — gain math also questionable). Subsequent
-Calibrate taps are silent — no re-sample, no recompute. There is no
-"revert to auto WB" affordance, no "re-sample at new patch" path, and the
-calibrated state persists across app launches via `SettingsPersistence`.
+1. **Re-sample on every tap.** `CalibrationViewModel.calibrateWB` now
+   switches to `.continuousAutoWhiteBalance`, awaits AWB convergence,
+   reads `device.grayWorldDeviceWhiteBalanceGains` for the freshly-settled
+   scene, and applies. Each tap is a fresh read against the current scene.
+2. **Auto / Lock affordances.** Five-button calibration sidebar (Stage 11
+   Task 8): Calibrate, Lock, Auto for WB; Calibrate, Reset for BB. Auto
+   writes `wbMode = .auto`, clearing manual gains.
+3. **Math.** Replaced our `grayWorldGains` (which produced the pink tint
+   on grey patches — `mean/channel` ratios out of `[1, maxGain]`) with
+   Apple's hardware `grayWorldDeviceWhiteBalanceGains` (Bayer-domain,
+   pre-CCM, pre-gamma, scene-aware) — single-shot apply, no iteration.
+4. **Persistence.** `SettingsPersistence.load` strips manual on cold
+   launch (Stage 11 Task 5) — each session boots in AWB.
+5. **UI feedback.** `WBCalibrationStatus` enum (`.idle` / `.calibrating`
+   / `.completed`) drives the Calibrate button: spinner during apply,
+   green ✓ "Calibrated" for 1.5 s on success, then revert to idle.
 
-Combined with Bug 12, this means a single bad calibrate locks the user
-into a permanently-tinted preview that only resets on app uninstall.
-
-**Fix shape:** (1) Each Calibrate tap should re-sample and recompute; (2)
-Add an explicit "Auto WB" / "Reset" affordance that writes
-`wbMode = .auto` (clearing manual gains); (3) Cross-check `grayWorldGains`
-math against a known grey reference — pink tint suggests channel sample
-units / scaling are off. See `CalibrationCompute.swift`.
+History: earlier iterations of this fix attempted a patch-sampled
+gray-world iterative loop with various damping schemes (sqrt-step,
+log-cap k=0.5/0.25, dark-patch guard, divergence-restore). All
+ping-ponged on iPad HITL because AVF's bounded `[1, maxGain]` gain range
+doesn't fit the post-CCM patch-sample gray-world geometry. Apple's pre-
+CCM Bayer-stat reading is the authoritative answer; iterating on top of
+it added cycling-color UX without improving the result.
 
 ---
 
@@ -509,8 +531,7 @@ boundaries. Verify `assetWriterFactory` is invoked on the second start.
 
 **Severity:** LOW (DEBUG-only).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 HITL on iPad after Bug 4
-mailbox-forwarding fix install (HEAD post-Bug-4).
+**Status:** **FIXED.** Root cause: camera session failed to resume after app was sent to background; the `scenePhase` / session-restart fix unblocked the downstream `MainActor.run` writes that drive the overlay. Commit `9c03fd5`.
 
 **Where it surfaced:** `DisplayViewModel.startDebugOverlay()` subscribes via
 `engine.consumers.subscribe(.natural)` and writes `self.debugOverlay`
@@ -538,8 +559,9 @@ the subscriber's for-await loop has stalled.
 
 **Severity:** MEDIUM (HITL-blocking; user can't trust UI state).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 HITL on iPad after Bug
-4 fix install. `HardwareControlsViewModel.currentSettings` is the source
+**Status:** **FIXED.** Same root cause as Bug 15 — session-restart after backgrounding unblocked the `MainActor.run` path in `applyDelta`; slider readouts resume updating correctly. Commit `9c03fd5`.
+
+`HardwareControlsViewModel.currentSettings` is the source
 of truth for the slider readouts; it's updated optimistically after
 `engine.updateSettings(delta)` succeeds (`HardwareControlsViewModel
 .swift:43-47`):
@@ -580,21 +602,26 @@ post-stall. If yes → SwiftUI re-render path. If no → MainActor stall.
 | 1 | Recursive `os_unfair_lock` in `PixelSink.release/unregister` | BLOCKER | **FIXED** (Stage 11 Phase D-cleanup) | `PixelSink.swift` |
 | 2 | Stage 06 `frameNumber == 1` test asserts wrong value | HIGH | **FIXED** (2026-04-30; 4 sites updated to `== 0`) | `Stage06Tests.swift` |
 | 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | **FIXED** (2026-04-30; nonisolated Mutex box; all 4 cached streams) | `CameraEngine.swift` |
-| 4 | `processedTex` freezes on long sessions — capture-once mailbox stranded by pool rotation | MED-HIGH | **FIX APPLIED** (2026-04-30; live mailbox forwarding in `CameraEngine`/`DisplayViewModel`); HITL: right preview no longer freezes | `CameraEngine.swift` / `DisplayViewModel.swift` |
+| 4 | `processedTex` freezes on long sessions — capture-once mailbox stranded by pool rotation | MED-HIGH | **FIXED** (2026-04-30 fix; verified 2026-05-09 HITL — right preview keeps flowing on long sessions) | `CameraEngine.swift` / `DisplayViewModel.swift` |
 | 5 | Bottom bar permanently greyed (cached-stream lazy-install race) | HIGH | **FIXED** (2026-04-30 commit `a4f2607`; eager cached-stream construction in `CameraEngine.init`) | `CameraEngine.swift` |
-| 6 | Green rendering band below previews | MED | open (unverified; same family as Bug 9) | likely Metal preview layer / blit origin |
-| 7 | White-balance Calibrate crashes app — gains out of `[1.0, maxWB]` | BLOCKER | **FIX APPLIED** (2026-04-30; clamp in `applySettings`); awaiting HITL | `CameraSession.swift` |
-| 8 | Black-balance has no sample-point indicator | LOW | open | Calibrate sidebar / overlay |
-| 9 | Still-capture image content occupies only top-left fraction; rest green | HIGH | open (unverified; same family as Bug 6) | likely still-capture encode path |
+| 6 | Green rendering band below previews | MED | **FIXED** (`sessionPreset = .inputPriority` + disable stabilization/low-light boost; `027b688`, `1303fbb`) | `CameraSession.swift` |
+| 7 | White-balance Calibrate crashes app — gains out of `[1.0, maxWB]` | BLOCKER | **FIXED** (clamp in `applySettings` + Bug 13 rework dropped our own out-of-range gray-world math; verified 2026-05-09 HITL — no crash) | `CameraSession.swift` / `CalibrationViewModel.swift` |
+| 8 | Black-balance has no sample-point indicator | LOW | **FIXED** (Stage 11 Task 11 reticle overlay covers both WB + BB sample point; verified 2026-05-09 HITL) | `CameraView.swift` reticle overlay |
+| 9 | Still-capture image content occupies only top-left fraction; rest green | HIGH | **FIXED** (same `sessionPreset = .inputPriority` fix as Bug 6; `027b688`) | `CameraSession.swift` |
 | 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIX APPLIED** (2026-04-30; lock around setters); awaiting HITL | `CameraSession.swift` |
 | 11 | Resolution control is a static label, not a button | LOW-MED | open | `CameraView.swift` resolutionLabel |
-| 12 | Black preview on cold launch; capture/REC unfreezes it | HIGH | open (unverified) | `MTKViewRepresentable` / persisted-settings replay path |
-| 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | open | `CalibrationViewModel` / `CalibrationCompute` |
+| 12 | Black preview on cold launch; capture/REC unfreezes it | HIGH | **FIXED** (verified 2026-05-09 HITL — preview live on cold launch) | `MTKViewRepresentable` / persisted-settings replay path |
+| 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | **FIXED** (single-shot Apple `grayWorldDeviceWhiteBalanceGains`; Calibrate / Lock / Auto sidebar; UI status; verified 2026-05-09 HITL) | `CalibrationViewModel.swift` / `CameraView.swift` |
 | 14 | Second REC press silently fails to save video | HIGH | open (unverified) | `Recording.swift` lifecycle |
-| 15 | Debug overlay freezes ~frame 1000 (DEBUG-only) | LOW | open (unverified; possibly MainActor stall) | `DisplayViewModel.startDebugOverlay` |
-| 16 | ISO/Shutter slider readouts freeze despite device receiving values | MED | open (unverified; possibly MainActor stall — likely same as Bug 15) | `HardwareControlsViewModel` |
+| 15 | Debug overlay freezes ~frame 1000 (DEBUG-only) | LOW | **FIXED** (camera resume after backgrounding; `9c03fd5`) | `CameraEngine.swift` / scenePhase handling |
+| 16 | ISO/Shutter slider readouts freeze despite device receiving values | MED | **FIXED** (same root cause as Bug 15; `9c03fd5`) | `HardwareControlsViewModel` |
 
-**Stage 12 must clear bugs 6, 9, 11, 12, 13, 14, 15, and 16** (plus optionally 8) before retiring
+**Stage 12 must clear bugs 10, 11, and 14** before retiring
 `scaffolding:10:synchronous-drain-pause` and beginning `UIApplication.beginBackgroundTask`
 work. Otherwise the regression sweep won't be trustworthy and the next stage's
 pause/resume work will be tested against a partially-broken baseline.
+
+Bugs 4, 7, 8, 12, 13 cleared 2026-05-09 (HITL verified on iPad
+`00008027-000539EA0184402E`, iOS 26.4.x, scheme `eva-swift-stitch`).
+Bug 10 has a fix applied (2026-04-30 lock-around-fps-setters) but no HITL
+re-verify yet — treat as pending until exercised on device.
