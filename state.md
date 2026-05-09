@@ -1,30 +1,39 @@
 # state.md — Stage 11
 
 ## Current stage
-Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1-3 fixed. **Bug 4 + 3 HITL passes block Stage 12 — see flag below.**
+Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1–4, 6, 7, 8, 9, 12, 13, 15, 16 fixed. Three §11 HITL evidence items (UI / Liquid Glass / VoiceOver) verified 2026-05-09. **Bugs 10 (fix-applied awaiting HITL), 11, 14 block Stage 12 — see flag below.**
 
-## ⚠️ Blocking Stage 12 — bug 4 + HITL
+## ⚠️ Blocking Stage 12 — bugs 10 + 11 + 14
 
-Stage 11 regression surfaced **four** pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`:
+Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`. Stage 12 must clear the remaining open items before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work.
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
 | 1 | Recursive `os_unfair_lock` in `PixelSink.release/unregister` | BLOCKER | **FIXED** (Stage 11 Phase D-cleanup; drain continuations outside lock) |
 | 2 | Stage 06 `frameNumber == 1` test asserts wrong value | HIGH | **FIXED** (2026-04-30; 4 sites updated to `== 0`) |
 | 3 | Stage 09 `errorStream()` race — continuation set via `Task` | HIGH | **FIXED** (2026-04-30; nonisolated `Mutex<Continuation?>` boxes; all 4 cached streams in `CameraEngine`) |
-| 4 | `processedTex` freezes on long sessions (right preview stuck 2-3 min while natural+tracker keep flowing) | MED-HIGH | open, unverified — needs HITL on iPad |
+| 4 | `processedTex` freezes on long sessions (right preview stuck 2-3 min while natural+tracker keep flowing) | MED-HIGH | **FIXED** (2026-04-30 live mailbox forwarding; verified 2026-05-09 HITL) |
+| 7 | WB Calibrate crashes app — gains out of `[1.0, maxWB]` | BLOCKER | **FIXED** (clamp in `applySettings` + Bug 13 single-shot Apple gray-world; verified 2026-05-09 HITL) |
+| 12 | Black preview on cold launch; capture/REC unfreezes it | HIGH | **FIXED** (verified 2026-05-09 HITL) |
+| 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | **FIXED** (single-shot Apple `grayWorldDeviceWhiteBalanceGains`; Calibrate / Lock / Auto sidebar; UI status; verified 2026-05-09 HITL) |
+| 8 | Black-balance has no sample-point indicator | LOW | **FIXED** (Stage 11 Task 11 reticle overlay; verified 2026-05-09 HITL) |
+| 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIX APPLIED** (2026-04-30 lock around fps setters); awaiting HITL re-verify |
+| 11 | Resolution control is a static label, not a button | LOW-MED | **OPEN** — Stage 12 |
+| 14 | Second REC press silently fails to save video | HIGH | **OPEN** — Stage 12 |
+
+Bugs 5, 6, 9, 15, 16 status in `docs/stage-11-pre-existing-bugs.md` summary table.
 
 Full regression after fixes (2026-04-30, iPad iOS 26.4.1, scheme `eva-swift-stitch`, no `-skip-testing` flags): **71 passed, 0 failed, 1 skipped** (same DEBUG-gated skip as Stage 11 baseline).
 
-Three Stage 11 §11 HITL evidence items also still pending — must be captured into `measurements/stage-11/ui.md` before Stage 12 begins:
+Three Stage 11 §11 HITL evidence items — verified 2026-05-09 on iPad:
 
 | Slug | What to verify | Status |
 |------|----------------|--------|
-| `11:full-bar-and-sidebar-match-domain-09` | Bottom bar + expanded bar + calibration sidebar match `domain-revised/09-ui-behaviors.md` visually on iPad Pro M1 | DEFERRED |
-| `11:liquid-glass-and-landscape-lock` | Liquid Glass styling visible on bars/sidebar/toast; orientation stays landscape-right under physical rotation | DEFERRED |
-| `11:accessibility-voiceover-pass` | VoiceOver navigates the 5-button bar, expanded sliders, calibration sidebar, error toast/dialog correctly | DEFERRED |
+| `11:full-bar-and-sidebar-match-domain-09` | Bottom bar + expanded bar + calibration sidebar match `domain-revised/09-ui-behaviors.md` visually on iPad Pro M1 | **PASS** (2026-05-09 — also surfaced + fixed two layout bugs: expanded-bar pushed bottom-bar off-screen when calibration sidebar was open, and the Calibrate toggle was nudging the bottom safeAreaInset by a few px. Both fixed by splitting bottom-edge insets and moving the sidebar to `.overlay(alignment: .trailing)`.) |
+| `11:liquid-glass-and-landscape-lock` | Liquid Glass styling visible on bars/sidebar/toast; orientation stays landscape-right under physical rotation | **PASS** (2026-05-09 — Liquid Glass material confirmed visible on bottom bar, expanded bar, and calibration sidebar; orientation lock holds landscape-right) |
+| `11:accessibility-voiceover-pass` | VoiceOver navigates the 5-button bar, expanded sliders, calibration sidebar, error toast/dialog correctly | **PASS** (2026-05-09 — traversal works, labels read correctly. Known-acceptable: SwiftUI `Slider` reads its value plus `"adjustable"` without picking up the adjacent `Text` label as its accessibility label; VO users land on a slider hearing `"267. adjustable"` then must traverse left to hear the label. Apple HIG default; not blocking. Adding `.accessibilityLabel(...)` to each slider is a future polish item.) |
 
-**Stage 12 must clear bug 4 and complete the three HITL passes** before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work. Bugs 2 and 3 are now resolved and the regression runs clean without skip flags. Bug 4 was observed empirically on iPad iOS 26.4.1 during the long regression run; reproduction + root-cause needs an HITL session (5+ min iPad run with `processedTex` visible, plus temporary Pass 2 / pool-state logging in `MetalPipeline`). HITL items require human verification on a physical iPad — cannot be automated.
+HITL items require human verification on a physical iPad — cannot be automated.
 
 ## Scaffolding still live
 
@@ -107,9 +116,9 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
 
 | Slug | Evidence | Status |
 |------|----------|--------|
-| `11:full-bar-and-sidebar-match-domain-09` | visual sweep against `domain-revised/09-ui-behaviors.md` | DEFERRED — `measurements/stage-11/ui.md` |
-| `11:liquid-glass-and-landscape-lock` | rotation + Liquid Glass styling visible on iPad Pro M1 | DEFERRED — `measurements/stage-11/ui.md` |
-| `11:accessibility-voiceover-pass` | manual VoiceOver sweep | DEFERRED — `measurements/stage-11/ui.md` |
+| `11:full-bar-and-sidebar-match-domain-09` | visual sweep against `domain-revised/09-ui-behaviors.md` | **PASS** (2026-05-09 HITL) |
+| `11:liquid-glass-and-landscape-lock` | rotation + Liquid Glass styling visible on iPad Pro M1 | **PASS** (2026-05-09 HITL) |
+| `11:accessibility-voiceover-pass` | manual VoiceOver sweep | **PASS** (2026-05-09 HITL) — slider labels read as `"<value>. adjustable"` (HIG default; future polish: per-slider `.accessibilityLabel`) |
 
 ## Decisions taken that weren't in briefs
 

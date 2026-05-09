@@ -14,9 +14,35 @@ protocol CalibrationEngineProtocol: Sendable {
     func currentDeviceWBGains() async throws -> WhiteBalanceGains
     func maxWhiteBalanceGain() async throws -> Float
     func awaitWBSettled() async
+    /// Apple's `grayWorldDeviceWhiteBalanceGains` — neutralizing gains for the
+    /// center 50% of the frame, computed by AVF.
+    func grayWorldDeviceWBGains() async throws -> WhiteBalanceGains
+    /// Switches WB to continuous auto, awaits AWB convergence, then reads
+    /// `grayWorldDeviceWhiteBalanceGains` for the freshly-settled scene.
+    /// Used as `calibrateWB`'s iter-0 seed.
+    func freshGrayWorldDeviceWBGains() async throws -> WhiteBalanceGains
+    /// Locks WB to one of Apple's named presets, awaits AVF buffer-with-gains
+    /// confirmation, then awaits the natural pipeline catching up to that
+    /// buffer's PTS — natural texture is fresh on return.
+    func setWBPreset(_ preset: WhiteBalancePreset) async throws
+    /// Locks WB to explicit gains, awaits handler + natural-PTS catchup.
+    /// Used inside the calibrate-WB iterative loop.
+    func applyManualGainsAndAwait(_ gains: WhiteBalanceGains) async throws
+    /// Awaits `isAdjustingExposure == false` (KVO, 2 s timeout).
+    func awaitAESettled() async
 }
 
 extension CameraEngine: CalibrationEngineProtocol {}
+
+/// Live state of a `CalibrationViewModel.calibrateWB` invocation.
+///
+/// The sidebar button reads this to switch between the idle label, an
+/// in-progress indicator, and a brief completion confirmation.
+public enum WBCalibrationStatus: Sendable, Equatable {
+    case idle
+    case calibrating
+    case completed
+}
 
 /// White-balance + black-balance calibrate / reset / lock actions.
 ///
@@ -33,6 +59,20 @@ extension CameraEngine: CalibrationEngineProtocol {}
 @Observable @MainActor
 final class CalibrationViewModel {
 
+    /// Effective WB mode, mirrored locally for sidebar button styling.
+    ///
+    /// Updated after each WB action because `HardwareControlsViewModel`'s
+    /// `currentSettings` mirror is only refreshed by its own slider debouncers
+    /// (ISO/shutter/focus/zoom) — calibration writes bypass that path. Initial
+    /// value is `.auto` because `SettingsPersistence.load` strips manual on
+    /// load, leaving each session in continuous AWB.
+    var wbMode: WhiteBalanceMode = .auto
+
+    /// Live state of the WB calibrate action — drives the sidebar button's
+    /// in-progress / completed feedback. `.completed` auto-reverts to `.idle`
+    /// after `wbCompletedDisplayMs`.
+    var wbCalibrationStatus: WBCalibrationStatus = .idle
+
     private let engine: any CalibrationEngineProtocol
     private let processingVM: ProcessingViewModel
 
@@ -41,37 +81,52 @@ final class CalibrationViewModel {
         self.processingVM = processingVM
     }
 
-    /// Bug 13 (revised) — re-baseline + custom-patch gray-world calibration.
+    /// Single-shot WB calibration via Apple's `grayWorldDeviceWhiteBalanceGains`.
     ///
-    /// Steps:
-    ///   1. Switch device to `.auto` so the next sample is taken from a known baseline.
-    ///   2. Await `isAdjustingWhiteBalance == false` via KVO (2s timeout).
-    ///   3. Read `currentDeviceWBGains` — the gains AVF converged on.
-    ///   4. Sample 96-px patch from `naturalTex` (pre-tonemap, no GPU-side WB).
-    ///   5. Compute new manual gains via `CalibrationCompute.grayWorldGains`
-    ///      (linearize → stack onto current → normalize → clamp).
-    ///   6. Write `wbMode = .manual` with the computed gains.
+    /// Switches WB to continuous auto so AVF's hardware statistics engine
+    /// recomputes against the current scene, awaits convergence, reads the
+    /// hardware gray-world gains (Bayer-domain, pre-CCM, pre-gamma), clamps
+    /// to `[1.0, maxGain]`, locks the device to those gains. No iteration,
+    /// no patch sampling, no log-cap damping — Apple does the math; we apply
+    /// the result.
+    ///
+    /// Sets `wbCalibrationStatus` to `.calibrating` on entry and
+    /// `.completed` on success so the sidebar button can render in-progress
+    /// and confirmation feedback. The completed state auto-reverts to
+    /// `.idle` after `wbCompletedDisplayMs`.
     func calibrateWB() {
         let engine = self.engine
-        Task {
+        Task { @MainActor in
+            self.wbCalibrationStatus = .calibrating
             do {
-                var resetDelta = CameraSettings()
-                resetDelta.wbMode = .auto
-                try await engine.updateSettings(resetDelta)
-                await engine.awaitWBSettled()
-                let current = try await engine.currentDeviceWBGains()
                 let maxGain = try await engine.maxWhiteBalanceGain()
-                let sample = try await engine.sampleCenterPatchOnNatural()
-                let gains = CalibrationCompute.grayWorldGains(
-                    sample: sample, current: current, maxGain: maxGain)
+                let raw = try await engine.freshGrayWorldDeviceWBGains()
+                let gains = WhiteBalanceGains(
+                    red: min(maxGain, max(1.0, raw.red)),
+                    green: min(maxGain, max(1.0, raw.green)),
+                    blue: min(maxGain, max(1.0, raw.blue)))
+                CameraKitLog.notice(
+                    .engine,
+                    "[wb] start max-gain=\(fmtF(maxGain)) | apple-gray-world raw=\(fmtG(raw)) clamped=\(fmtG(gains))")
+                try await engine.applyManualGainsAndAwait(gains)
+                CameraKitLog.notice(.engine, "[wb] done gains=\(fmtG(gains))")
+
                 var manual = CameraSettings()
                 manual.wbMode = .manual
                 manual.wbGainR = Double(gains.red)
                 manual.wbGainG = Double(gains.green)
                 manual.wbGainB = Double(gains.blue)
                 try await engine.updateSettings(manual)
+
+                self.wbMode = .manual
+                self.wbCalibrationStatus = .completed
+                try? await Task.sleep(for: .milliseconds(Constants.wbCompletedDisplayMs))
+                if self.wbCalibrationStatus == .completed {
+                    self.wbCalibrationStatus = .idle
+                }
             } catch {
-                // Errors surface through errorStream → ErrorPresenterViewModel.
+                CameraKitLog.error(.engine, "[wb] calibrateWB threw: \(error)")
+                self.wbCalibrationStatus = .idle
             }
         }
     }
@@ -79,10 +134,11 @@ final class CalibrationViewModel {
     /// Returns to AVFoundation continuous auto white balance.
     func resetToAutoWB() {
         let engine = self.engine
-        Task {
+        Task { @MainActor in
             var delta = CameraSettings()
             delta.wbMode = .auto
             try? await engine.updateSettings(delta)
+            self.wbMode = .auto
         }
     }
 
@@ -90,10 +146,11 @@ final class CalibrationViewModel {
     /// "stop the colors from shifting" without sample-and-compute calibration.
     func lockCurrentWB() {
         let engine = self.engine
-        Task {
+        Task { @MainActor in
             var delta = CameraSettings()
             delta.wbMode = .locked
             try? await engine.updateSettings(delta)
+            self.wbMode = .locked
         }
     }
 
@@ -127,4 +184,21 @@ final class CalibrationViewModel {
             await processingVM.applyBlackBalance(sample: RgbSample(r: 0, g: 0, b: 0))
         }
     }
+}
+
+// MARK: - Calibrate-WB log formatters
+//
+// File-private helpers so the per-iteration log line stays readable without
+// inline `String(format:)` clutter. All width-fixed (3 dp for sample/gains,
+// 4 dp for residuals) so columns align in Console.
+
+private func fmt3(_ d: Double) -> String { String(format: "%.3f", d) }
+private func fmtF(_ f: Float) -> String { String(format: "%.3f", Double(f)) }
+private func fmtD4(_ d: Double) -> String { String(format: "%.4f", d) }
+private func fmtD4Signed(_ d: Double) -> String { String(format: "%+.4f", d) }
+private func fmtS(_ s: RgbSample) -> String {
+    "(\(fmt3(s.r)), \(fmt3(s.g)), \(fmt3(s.b)))"
+}
+private func fmtG(_ g: WhiteBalanceGains) -> String {
+    "(\(fmt3(Double(g.red))), \(fmt3(Double(g.green))), \(fmt3(Double(g.blue))))"
 }

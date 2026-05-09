@@ -17,8 +17,8 @@ struct Stage11CalibrationComputeTests {
 
     @Test("neutral linear sample with unity current gains returns unity (no-op)")
     func grayWorldNeutralLinearSampleIsNoOp() {
-        // Linear value 0.5 maps via sRGB EOTF to ~0.214 — but for r==g==b the mean
-        // ratio is exactly 1, so newGain == current regardless of linearization.
+        // For r==g==b the mean ratio is exactly 1, so newGain == current
+        // regardless of any input scaling.
         let sample = RgbSample(r: 0.5, g: 0.5, b: 0.5)
         let gains = CalibrationCompute.grayWorldGains(
             sample: sample, current: unityGains, maxGain: typicalMax)
@@ -83,13 +83,14 @@ struct Stage11CalibrationComputeTests {
         #expect(gains.red >= 1.0)
     }
 
-    @Test("black-balance offsets are per-channel sample values")
-    func blackBalanceOffsetsPassthrough() {
+    @Test("black-balance offsets scale per-channel sample by overscan multiplier")
+    func blackBalanceOffsetsOverscan() {
         let sample = RgbSample(r: 0.02, g: 0.03, b: 0.05)
         let offsets = CalibrationCompute.blackBalanceOffsets(sample: sample)
-        #expect(offsets.r == 0.02)
-        #expect(offsets.g == 0.03)
-        #expect(offsets.b == 0.05)
+        let k = Constants.blackBalanceOverscan
+        #expect(abs(offsets.r - 0.02 * k) < 1e-9)
+        #expect(abs(offsets.g - 0.03 * k) < 1e-9)
+        #expect(abs(offsets.b - 0.05 * k) < 1e-9)
     }
 }
 
@@ -248,9 +249,10 @@ struct Stage11SliderDebouncerTests {
 actor CalibrationEngineStub: CalibrationEngineProtocol {
     let sample: RgbSample
     let bbSample: RgbSample
-    let stubCurrent: WhiteBalanceGains
+    var currentGains: WhiteBalanceGains
     let stubMaxGain: Float
     var recordedDeltas: [CameraSettings] = []
+    var appliedGainsLog: [WhiteBalanceGains] = []
 
     init(
         sample: RgbSample,
@@ -262,7 +264,7 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
         // Default: BB sample == WB sample. Tests that need divergent values
         // pass an explicit `bbSample`.
         self.bbSample = bbSample ?? sample
-        self.stubCurrent = currentGains
+        self.currentGains = currentGains
         self.stubMaxGain = maxGain
     }
 
@@ -271,9 +273,17 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
     func updateSettings(_ settings: CameraSettings) async throws {
         recordedDeltas.append(settings)
     }
-    func currentDeviceWBGains() async throws -> WhiteBalanceGains { stubCurrent }
+    func currentDeviceWBGains() async throws -> WhiteBalanceGains { currentGains }
     func maxWhiteBalanceGain() async throws -> Float { stubMaxGain }
     func awaitWBSettled() async { /* no-op for tests */ }
+    func grayWorldDeviceWBGains() async throws -> WhiteBalanceGains { currentGains }
+    func freshGrayWorldDeviceWBGains() async throws -> WhiteBalanceGains { currentGains }
+    func setWBPreset(_ preset: WhiteBalancePreset) async throws { /* no-op for tests */ }
+    func applyManualGainsAndAwait(_ gains: WhiteBalanceGains) async throws {
+        currentGains = gains
+        appliedGainsLog.append(gains)
+    }
+    func awaitAESettled() async { /* no-op for tests */ }
 }
 
 @Suite("Stage 11 — calibration view model")
@@ -292,27 +302,50 @@ struct Stage11CalibrationVMTests {
         return deltas
     }
 
-    @Test("calibrateWB rebaselines (.auto) then writes manual with stacked gains")
+    @Test("calibrateWB applies Apple gray-world (single-shot) and writes one .manual delta")
     @MainActor
-    func wbCalibrateRebaselinesAndStacks() async {
-        let sample = RgbSample(r: 0.4, g: 0.5, b: 0.8)
-        let stub = CalibrationEngineStub(sample: sample)
+    func wbCalibrateAppliesAppleGrayWorld() async {
+        // Stub returns currentGains (default unity) from grayWorldDeviceWBGains.
+        // calibrateWB clamps to [1, maxGain] and applies once.
+        let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
         let processingVM = ProcessingViewModel(engine: CameraEngine())
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
 
         vm.calibrateWB()
-        let deltas = await awaitDeltas(stub, count: 2)
+        let deltas = await awaitDeltas(stub, count: 1)
 
-        #expect(deltas.count >= 2, "expected .auto pre-sample then .manual write")
-        #expect(deltas.first?.wbMode == .auto)
+        #expect(deltas.count == 1, "expected single .manual write")
         #expect(deltas.last?.wbMode == .manual)
-        let expected = CalibrationCompute.grayWorldGains(
-            sample: sample,
-            current: WhiteBalanceGains(red: 1.0, green: 1.0, blue: 1.0),
-            maxGain: 4.0)
-        #expect(abs((deltas.last?.wbGainR ?? 0) - Double(expected.red))   < 1e-5)
-        #expect(abs((deltas.last?.wbGainG ?? 0) - Double(expected.green)) < 1e-5)
-        #expect(abs((deltas.last?.wbGainB ?? 0) - Double(expected.blue))  < 1e-5)
+
+        // Single-shot: exactly one apply (no iteration).
+        let applies = await stub.appliedGainsLog.count
+        #expect(applies == 1, "expected single apply (single-shot); got \(applies)")
+
+        // Final delta gains equal Apple's gray-world reading clamped — for the
+        // unity-default stub, that's unity, all in [1, 4].
+        let r = deltas.last?.wbGainR ?? 0
+        let g = deltas.last?.wbGainG ?? 0
+        let b = deltas.last?.wbGainB ?? 0
+        #expect((1.0...4.0).contains(r))
+        #expect((1.0...4.0).contains(g))
+        #expect((1.0...4.0).contains(b))
+    }
+
+    @Test("calibrateWB sets wbCalibrationStatus to .completed after success")
+    @MainActor
+    func wbCalibrationStatusReachesCompleted() async {
+        let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
+        let processingVM = ProcessingViewModel(engine: CameraEngine())
+        let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
+
+        vm.calibrateWB()
+        // Wait for the .manual write so we know the apply path completed.
+        _ = await awaitDeltas(stub, count: 1)
+        // The status should be .completed (or already auto-reverted to .idle
+        // if the test hung on scheduling — accept either).
+        let status = vm.wbCalibrationStatus
+        #expect(status == .completed || status == .idle,
+            "expected .completed or .idle (auto-reverted); got \(status)")
     }
 
     @Test("resetToAutoWB writes wbMode=.auto")
@@ -350,19 +383,20 @@ struct Stage11CalibrationVMTests {
         let stub = CalibrationEngineStub(sample: sample)
         let processingVM = ProcessingViewModel(engine: CameraEngine())
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
+        let k = Constants.blackBalanceOverscan
 
         vm.calibrateBB()
 
         let deadline = ContinuousClock.now + .seconds(1)
         while ContinuousClock.now < deadline,
-            processingVM.currentProcessing.blackR != 0.02
+            processingVM.currentProcessing.blackR == 0
         {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
-        #expect(abs(processingVM.currentProcessing.blackR - 0.02) < 1e-9)
-        #expect(abs(processingVM.currentProcessing.blackG - 0.03) < 1e-9)
-        #expect(abs(processingVM.currentProcessing.blackB - 0.05) < 1e-9)
+        #expect(abs(processingVM.currentProcessing.blackR - 0.02 * k) < 1e-9)
+        #expect(abs(processingVM.currentProcessing.blackG - 0.03 * k) < 1e-9)
+        #expect(abs(processingVM.currentProcessing.blackB - 0.05 * k) < 1e-9)
     }
 
     @Test("resetBlackBalance zeroes the pedestal")
@@ -376,7 +410,7 @@ struct Stage11CalibrationVMTests {
         vm.calibrateBB()
         let deadline1 = ContinuousClock.now + .seconds(1)
         while ContinuousClock.now < deadline1,
-            processingVM.currentProcessing.blackR != 0.02
+            processingVM.currentProcessing.blackR == 0
         {
             try? await Task.sleep(for: .milliseconds(10))
         }

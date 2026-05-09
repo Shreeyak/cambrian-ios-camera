@@ -92,6 +92,15 @@ final class MetalPipeline: @unchecked Sendable {
     nonisolated(unsafe) private var latestProcessedBuffer: CVPixelBuffer?
     nonisolated(unsafe) private var latestTrackerBuffer: CVPixelBuffer?
 
+    /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex`.
+    ///
+    /// Read by `CameraEngine.awaitNaturalAfter` to confirm the natural texture
+    /// has been refreshed past a target buffer timestamp (e.g. the `t_apply`
+    /// from `setWhiteBalanceModeLocked(...handler:)`). Stored as Int64 ns to
+    /// allow lock-free CAS reads. Single writer: completion handler on the
+    /// delivery queue.
+    let latestNaturalPTSNs: ManagedAtomic<Int64> = ManagedAtomic(0)
+
     // Still capture (Stage 07) — one slot, CPU-readable pool.
     private var stillCapturePool: CVPixelBufferPool?
     // Armed by StillCapture.armCapture(); cleared by completion handler after delivery.
@@ -538,6 +547,19 @@ final class MetalPipeline: @unchecked Sendable {
             // Update preview mailboxes for MTKView draw pass.
             self.latestNaturalBuffer = naturalBuf
             self.latestNaturalTex = naturalTexI
+            // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` can
+            // confirm naturalTex has been refreshed past a given timestamp. CAS
+            // loop ensures we only advance the published PTS — out-of-order
+            // command-buffer completion (rare but possible across Metal queues)
+            // must not regress the timeline.
+            let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+            var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
+            while captureNs > cur {
+                let (ok, actual) = self.latestNaturalPTSNs.compareExchange(
+                    expected: cur, desired: captureNs, ordering: .releasing)
+                if ok { break }
+                cur = actual
+            }
             self.latestProcessedBuffer = processedBuf
             self.latestProcessedTex = processedTexI
             if let tBuf = trackerBuf, let tTex = trackerTex {
@@ -665,7 +687,7 @@ final class MetalPipeline: @unchecked Sendable {
         }
 
         let count = patchSize * patchSize
-        let trimCount = (count * Constants.centerPatchTrimPercent) / 100
+        let trimCount = Int(Double(count) * Constants.centerPatchTrimRatio)
         let r = trimmedMean(buffer: bufR, count: count, trim: trimCount)
         let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
         let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
@@ -683,10 +705,15 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// WB calibration entry point — samples the latest **natural** texture (Pass-1 output).
     ///
-    /// `naturalTex` is BT.601 full-range YCbCr→RGB conversion only — no GPU-side
-    /// brightness/contrast/saturation/gamma/black-balance applied. Used for WB
-    /// calibration because WB gains operate on the AVCaptureDevice's raw sensor
-    /// path, so the sample must be in the same color space (pre-grade).
+    /// `naturalTex` carries the deterministic BT.601 full-range YCbCr→RGB
+    /// matrix conversion of the AVF sample buffer — and **nothing else**. No
+    /// shader-applied processing: no BCSG, no gamma curve, no saturation, no
+    /// black-balance, no calibration-derived gains beyond what AVF already
+    /// applied at the sensor. This is the most pre-grade signal accessible on
+    /// the GPU; the only step further upstream is CPU readback of the NV12
+    /// pixel buffer with manual YUV→RGB on CPU, which produces identical
+    /// values. WB calibration must sample here so the gains computed don't
+    /// feed back the previously-applied calibration state.
     func dispatchCenterPatchOnNatural() async throws -> RgbSample {
         try await dispatchCenterPatch(on: currentTexture())
     }

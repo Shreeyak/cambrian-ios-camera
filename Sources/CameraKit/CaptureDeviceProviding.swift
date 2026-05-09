@@ -28,8 +28,37 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     func setContinuousAutoWhiteBalance() async throws
     func setWhiteBalanceLocked() async throws
 
+    /// Locks WB to one of Apple's named temperature/tint presets and awaits
+    /// the first delivered buffer that has the new gains applied.
+    ///
+    /// Wraps `AVCaptureDevice.setWhiteBalanceModeLocked(whiteBalanceTemperatureAndTintValues:handler:)`
+    /// (iOS 26.0+) and bridges its `handler` to async/await with a 400 ms
+    /// deadline. AVF fires the handler within 1–3 frames in steady state; a
+    /// longer deadline blocks the calibration flow unnecessarily on a genuine
+    /// miss. Returns the buffer timestamp AVF reports as the first frame
+    /// carrying the preset gains (`CMTime.invalid` if the deadline fired —
+    /// logged at error level). Caller must hold `lockForConfiguration()`.
+    func setWhiteBalanceModeLockedToPresetAwaitingApply(_ preset: WhiteBalancePreset) async -> CMTime
+
+    /// Locks WB to explicit gains and awaits buffer-with-gains, same shape as
+    /// the preset variant. Used inside `calibrateWB`'s iterative loop where
+    /// each iteration writes computed gains and waits for the natural texture
+    /// to reflect them before resampling.
+    func setWhiteBalanceModeLockedToGainsAwaitingApply(_ gains: WhiteBalanceGains) async -> CMTime
+
+    /// Awaits `isAdjustingExposure == false` via KVO. Returns immediately if
+    /// already settled; times out after 2 s. Mirrors `awaitWBSettled`.
+    func awaitAESettled() async
+
     /// Current WB gains applied by the device (continuous AWB or a prior manual lock).
     var currentDeviceWBGains: WhiteBalanceGains { get async }
+
+    /// Apple's built-in gray-world gains for the current scene.
+    ///
+    /// `AVCaptureDevice.grayWorldDeviceWhiteBalanceGains` — assumes a neutral
+    /// subject (gray card) fills the center 50% of the frame. Available
+    /// regardless of WB mode. Apply via `setWhiteBalanceModeLocked(gains:)`.
+    var grayWorldDeviceWBGains: WhiteBalanceGains { get async }
 
     /// Awaits AWB convergence. Returns immediately if already settled; times out after 2 s.
     func awaitWBSettled() async
@@ -165,6 +194,28 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
         avDevice.whiteBalanceMode = .locked
     }
 
+    func setWhiteBalanceModeLockedToPresetAwaitingApply(_ preset: WhiteBalancePreset) async -> CMTime {
+        let avPreset: AVCaptureDevice.WhiteBalanceTemperatureAndTintValues
+        switch preset {
+        case .daylight: avPreset = .daylight
+        case .cloudy: avPreset = .cloudy
+        case .shadow: avPreset = .shadow
+        case .tungsten: avPreset = .tungsten
+        case .fluorescent: avPreset = .fluorescent
+        }
+        return await wbApplyAwait(avDevice: avDevice, kind: .preset(avPreset, label: preset.rawValue))
+    }
+
+    func setWhiteBalanceModeLockedToGainsAwaitingApply(_ gains: WhiteBalanceGains) async -> CMTime {
+        let avGains = AVCaptureDevice.WhiteBalanceGains(
+            redGain: gains.red, greenGain: gains.green, blueGain: gains.blue)
+        return await wbApplyAwait(avDevice: avDevice, kind: .gains(avGains))
+    }
+
+    func awaitAESettled() async {
+        await aeSettledWait(avDevice: avDevice)
+    }
+
     func setZoomFactor(_ factor: Double) throws {
         avDevice.videoZoomFactor = CGFloat(factor)
     }
@@ -220,6 +271,16 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
         return WhiteBalanceGains(red: g.redGain, green: g.greenGain, blue: g.blueGain)
     }
 
+    /// Apple's built-in gray-world gains for the current scene.
+    ///
+    /// Reads `avDevice.grayWorldDeviceWhiteBalanceGains`. Apple computes these
+    /// from the center 50% of the frame assuming a neutral subject; readable
+    /// regardless of WB mode. Apply via `setWhiteBalanceModeLocked(gains:)`.
+    var grayWorldDeviceWBGains: WhiteBalanceGains {
+        let g = avDevice.grayWorldDeviceWhiteBalanceGains
+        return WhiteBalanceGains(red: g.redGain, green: g.greenGain, blue: g.blueGain)
+    }
+
     /// Awaits `isAdjustingWhiteBalance == false` via KVO.
     ///
     /// Returns immediately if already settled. Times out after 2 s (defensive — a
@@ -239,6 +300,113 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
 /// is explicitly NOT used: a child task suspended on an unresumed
 /// `withCheckedContinuation` cannot respond to cancellation, causing the group to
 /// hang indefinitely when AWB stalls.
+/// Discriminator for `wbApplyAwait` — same handler-bridging shape, two AVF
+/// entry points (preset vs gains). The preset case carries a string label
+/// that's surfaced in the deadline-miss error log so field traces identify
+/// which apply call missed.
+private enum WBApplyKind {
+    case preset(AVCaptureDevice.WhiteBalanceTemperatureAndTintValues, label: String)
+    case gains(AVCaptureDevice.WhiteBalanceGains)
+}
+
+/// Locks WB via the requested AVF API and resumes when AVF reports the first
+/// buffer carrying the new gains.
+///
+/// Returns the AVF-supplied buffer timestamp, or `CMTime.invalid` if the 400 ms
+/// deadline fired (logged at error level so field traces surface the miss
+/// frequency). CAS-races the handler against the deadline so a missed callback
+/// can't hang calibration. Mirrors the `wbSettledWait` pattern (ADR-30 /
+/// CLAUDE.md §8 — `withTaskGroup` over an unresumed continuation is forbidden).
+private func wbApplyAwait(
+    avDevice: AVCaptureDevice,
+    kind: WBApplyKind
+) async -> CMTime {
+    nonisolated(unsafe) let dev = avDevice
+
+    return await withCheckedContinuation { (cont: CheckedContinuation<CMTime, Never>) in
+        let resumed = ManagedAtomic<Bool>(false)
+        let resumeOnce: @Sendable (CMTime) -> Bool = { t in
+            let (won, _) = resumed.compareExchange(
+                expected: false, desired: true,
+                ordering: .sequentiallyConsistent
+            )
+            if won { cont.resume(returning: t) }
+            return won
+        }
+
+        switch kind {
+        case .preset(let avPreset, _):
+            dev.setWhiteBalanceModeLocked(
+                whiteBalanceTemperatureAndTintValues: avPreset,
+                handler: { t in _ = resumeOnce(t) })
+        case .gains(let avGains):
+            dev.setWhiteBalanceModeLocked(
+                with: avGains,
+                completionHandler: { t in _ = resumeOnce(t) })
+        }
+
+        let kindLabel: String =
+            switch kind {
+            case .preset(_, let label): "preset=\(label)"
+            case .gains(let g): "gains=(\(g.redGain), \(g.greenGain), \(g.blueGain))"
+            }
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if resumeOnce(.invalid) {
+                CameraKitLog.error(
+                    .engine,
+                    "wb-apply handler missed 400ms deadline (\(kindLabel))")
+            }
+        }
+    }
+}
+
+/// Awaits `AVCaptureDevice.isAdjustingExposure == false` via KVO, with a 2 s timeout.
+///
+/// Mirrors `wbSettledWait` exactly — same CAS+deadline structure.
+private func aeSettledWait(avDevice: AVCaptureDevice) async {
+    if !avDevice.isAdjustingExposure { return }
+
+    nonisolated(unsafe) let dev = avDevice
+
+    final class ObservationBox: @unchecked Sendable {
+        var observation: NSKeyValueObservation?
+    }
+
+    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+        let resumed = ManagedAtomic<Bool>(false)
+        let box = ObservationBox()
+
+        let resumeOnce: @Sendable () -> Void = {
+            let (won, _) = resumed.compareExchange(
+                expected: false, desired: true,
+                ordering: .sequentiallyConsistent
+            )
+            if won {
+                box.observation?.invalidate()
+                cont.resume()
+            }
+        }
+
+        box.observation = dev.observe(
+            \.isAdjustingExposure, options: [.new]
+        ) { _, change in
+            guard change.newValue == false else { return }
+            resumeOnce()
+        }
+
+        if !dev.isAdjustingExposure {
+            resumeOnce()
+            return
+        }
+
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            resumeOnce()
+        }
+    }
+}
+
 private func wbSettledWait(avDevice: AVCaptureDevice) async {
     if !avDevice.isAdjustingWhiteBalance { return }
 
