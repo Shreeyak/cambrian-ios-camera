@@ -58,13 +58,23 @@ final class RecordingViewModel {
     func toggleRecording() {
         Task { [weak self] in
             guard let self else { return }
-            switch self.recordingState {
+            let snapshot = self.recordingState
+            CameraKitLog.notice(.engine, "[recording] toggle invoked, state=\(snapshot)")
+            switch snapshot {
             case .idle:
-                _ = try? await self.engine.startRecording(options: RecordingOptions())
+                do {
+                    _ = try await self.engine.startRecording(options: RecordingOptions())
+                } catch {
+                    CameraKitLog.error(.engine, "[recording] startRecording threw: \(error)")
+                }
             case .recording:
-                _ = try? await self.engine.stopRecording()
+                do {
+                    _ = try await self.engine.stopRecording()
+                } catch {
+                    CameraKitLog.error(.engine, "[recording] stopRecording threw: \(error)")
+                }
             default:
-                break
+                CameraKitLog.notice(.engine, "[recording] toggle no-op (state=\(snapshot))")
             }
         }
     }

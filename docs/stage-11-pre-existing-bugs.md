@@ -394,28 +394,22 @@ Metal validation layer; verify texture size vs encoded region.
 
 **Severity:** BLOCKER (recording is a primary surface; one-tap crash).
 
-**Status:** **FIX APPLIED 2026-04-30** (awaiting HITL re-verify). Root cause
-identified from crash log `eva-swift-stitch-2026-04-30-030858.ips`:
+**Status:** **FIXED** (2026-04-30 lock-around-fps-setters in commit `39b9ffe`;
+verified 2026-05-12 HITL on iPad `00008027-000539EA0184402E`). REC tap →
+recording starts, stop → file saves, no `NSException` / no
+`lockForConfiguration` markers in `camerakit.log`.
+
+**Root cause** (confirmed from crash log
+`eva-swift-stitch-2026-04-30-030858.ips`):
 `AVCaptureFigVideoDevice setActiveVideoMaxFrameDuration:` threw
 `NSInvalidArgumentException` because `CameraSession.setRecordingFrameRateRange()`
 called the AVFoundation setters **without** wrapping them in
 `lockForConfiguration` / `unlockForConfiguration` — required by AVFoundation
-for any device-config mutation. Fix: both `setPreviewFrameRateRange` and
-`setRecordingFrameRateRange` now acquire the device lock around the
+for any device-config mutation.
+
+**Fix:** both `setPreviewFrameRateRange` and `setRecordingFrameRateRange` in
+`CameraSession.swift:368-401` now acquire the device lock around the
 `setVideoFrameDurationRange` call (matches the pattern in `applySettings`).
-
-**Where it surfaced:** Tap REC — app terminates immediately.
-
-**Root-cause hypothesis (UNVERIFIED):** Stage-10 recording path. Candidates:
-an `AVAssetWriter.startWriting()` precondition violation; a Metal/CVPixelBuffer
-type mismatch when the recording lane attaches to the encoder; or a
-`recordingStateStream()` interaction with the new `nonisolated(unsafe)`
-cached-stream pattern from Bug 5 fix (race or aliasing introduced by the
-fix? — eager construction shouldn't change recording semantics, but rule it
-out). Crash log will discriminate.
-
-**Investigation steps:** Pull crash log + `camerakit.log`; grep for `[rec]`
-/ `[recording]` lines and the last state before crash.
 
 ---
 
@@ -509,21 +503,62 @@ it added cycling-color UX without improving the result.
 
 **Severity:** HIGH (data loss on a primary surface).
 
-**Status:** **NOT YET FIXED.** Surfaced 2026-04-30 HITL on iPad.
+**Status:** **FIXED** (2026-05-12 — CAS-race finalize in `Recording.stop`;
+verified 2026-05-12 HITL on iPad `00008027-000539EA0184402E`).
 
-**Where it surfaced:** First REC → recording starts, stop → file saved.
+**Symptom (original report):** First REC → recording starts, stop → file saved.
 Second REC tap → no crash, no save (no banner, no file produced).
 
-**Root-cause hypothesis (UNVERIFIED):** Second-call recording state
-machine in `Recording.swift` (or the `assetWriter` lifecycle) doesn't
-reset after first-stop, leaving a stale writer / completion handler that
-the new `start(...)` invocation conflicts with. Could also be `pipeline
-.isRecording` atomic stuck true when it shouldn't be, blocking encoded
-buffers from reaching the new writer.
+**Root cause (decomposed during 2026-05-12 investigation):**
 
-**Investigation steps:** Pull `<Documents>/camerakit.log` after a
-two-press REC sequence; inspect `[recording]` markers around start/stop
-boundaries. Verify `assetWriterFactory` is invoked on the second start.
+The user-observable "second tap fails" was two issues braided together:
+
+1. **`Recording.stop()` always blocked for the full 5 s finalize deadline.**
+   The pre-fix code used `withTaskGroup` with a work child (`writer.finishWriting`)
+   and a deadline child (`clock.sleep(deadlineMs)` then conditional `cancelWriting`).
+   `withTaskGroup` does **not** auto-cancel siblings when one finishes, and the
+   deadline child had no early-out, so `group.waitForAll()` always waited the
+   full `Constants.recordingFinishTimeoutSeconds` (5.0 s). Post-fix HITL: stop
+   `durationMs` was **39–99 ms** vs **5032–5102 ms** pre-fix.
+
+2. **`RecordingViewModel.toggleRecording` swallowed taps during `.finalizing`.**
+   The state-machine `default` branch correctly no-ops in `.finalizing` /
+   `.paused`, but that window was 5 s instead of milliseconds, so the user's
+   second REC tap (and any rapid follow-ups) silently fell through. Once #1
+   was fixed, the `.finalizing` window collapsed to ~50 ms and the tap landed
+   normally.
+
+The "no file produced" half of the original symptom was a misdiagnosis: files
+were always being written to `<Documents>/<timestamp>.mp4`, but the
+container is private (no `UIFileSharingEnabled`, no Photos save) so they were
+invisible to the Files app and Photos app. See "Out of scope" below.
+
+**Fix:** `Recording.swift:127-176` rewritten to use the canonical ADR-30
+`AsyncWithTimeout.runOnQueue` pattern — `withCheckedContinuation` + a
+`ManagedAtomic<Bool>` CAS race between the work branch and the deadline branch.
+Whichever wins resumes the continuation; the loser no-ops. This is the same
+pattern documented in CLAUDE.md §8 for the `withThrowingTaskGroup` family of
+bug, applied to the non-throwing variant.
+
+Additional in-place observability (kept post-fix):
+- `RecordingViewModel.toggleRecording` — entry log of state; default-branch
+  no-op log; `try?` replaced with `do/catch` + `CameraKitLog.error` so engine
+  throws surface.
+- `CameraEngine.startRecording`/`stopRecording` — entry/exit logs including
+  `pipeline.isRecording`, `recording==nil`, and `durationMs`.
+- `Recording.stop` — entry/exit logs with writer status and `didCancel`.
+
+**Regression test:** `CameraKit/Tests/CameraKitTests/Stage10Tests.swift` —
+new `Stage10StopPromptnessTests` suite asserts that `stop()` returns within
+1 s when `finishWriting` takes ~50 ms (pre-fix: ~5 s). A second test runs
+two consecutive `start → submit → stop` cycles and asserts both produce a
+`.completed` writer. Compile-verified; execution blocked on this machine by
+the pre-existing host-app-wiring gap in CLAUDE.md §8 (CameraKitTests is
+tool-hosted and cannot run on iPad device destinations).
+
+**Out of scope for this fix (separate workstream):** the Documents-container
+visibility gap — no `UIFileSharingEnabled` and no `PHPhotoLibrary` save path
+for recorded video. Plan doc to follow.
 
 ---
 
@@ -608,20 +643,20 @@ post-stall. If yes → SwiftUI re-render path. If no → MainActor stall.
 | 7 | White-balance Calibrate crashes app — gains out of `[1.0, maxWB]` | BLOCKER | **FIXED** (clamp in `applySettings` + Bug 13 rework dropped our own out-of-range gray-world math; verified 2026-05-09 HITL — no crash) | `CameraSession.swift` / `CalibrationViewModel.swift` |
 | 8 | Black-balance has no sample-point indicator | LOW | **FIXED** (Stage 11 Task 11 reticle overlay covers both WB + BB sample point; verified 2026-05-09 HITL) | `CameraView.swift` reticle overlay |
 | 9 | Still-capture image content occupies only top-left fraction; rest green | HIGH | **FIXED** (same `sessionPreset = .inputPriority` fix as Bug 6; `027b688`) | `CameraSession.swift` |
-| 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIX APPLIED** (2026-04-30; lock around setters); awaiting HITL | `CameraSession.swift` |
+| 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIXED** (2026-04-30 lock around setters in `39b9ffe`; verified 2026-05-12 HITL — no crash, no `lockForConfiguration` markers) | `CameraSession.swift` |
 | 11 | Resolution control is a static label, not a button | LOW-MED | open | `CameraView.swift` resolutionLabel |
 | 12 | Black preview on cold launch; capture/REC unfreezes it | HIGH | **FIXED** (verified 2026-05-09 HITL — preview live on cold launch) | `MTKViewRepresentable` / persisted-settings replay path |
 | 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | **FIXED** (single-shot Apple `grayWorldDeviceWhiteBalanceGains`; Calibrate / Lock / Auto sidebar; UI status; verified 2026-05-09 HITL) | `CalibrationViewModel.swift` / `CameraView.swift` |
-| 14 | Second REC press silently fails to save video | HIGH | open (unverified) | `Recording.swift` lifecycle |
+| 14 | Second REC press silently fails to save video | HIGH | **FIXED** (2026-05-12 — `Recording.stop` now uses ADR-30 CAS-race finalize; verified 2026-05-12 HITL — stop `durationMs` 39-99 vs 5032-5102 pre-fix, zero silent `.finalizing` no-ops) | `Recording.swift` |
 | 15 | Debug overlay freezes ~frame 1000 (DEBUG-only) | LOW | **FIXED** (camera resume after backgrounding; `9c03fd5`) | `CameraEngine.swift` / scenePhase handling |
 | 16 | ISO/Shutter slider readouts freeze despite device receiving values | MED | **FIXED** (same root cause as Bug 15; `9c03fd5`) | `HardwareControlsViewModel` |
 
-**Stage 12 must clear bugs 10, 11, and 14** before retiring
+**Stage 12 must clear bug 11** before retiring
 `scaffolding:10:synchronous-drain-pause` and beginning `UIApplication.beginBackgroundTask`
-work. Otherwise the regression sweep won't be trustworthy and the next stage's
-pause/resume work will be tested against a partially-broken baseline.
+work. Bug 11 is the last open Stage-12 blocker on this punch-list.
 
 Bugs 4, 7, 8, 12, 13 cleared 2026-05-09 (HITL verified on iPad
 `00008027-000539EA0184402E`, iOS 26.4.x, scheme `eva-swift-stitch`).
-Bug 10 has a fix applied (2026-04-30 lock-around-fps-setters) but no HITL
-re-verify yet — treat as pending until exercised on device.
+Bugs 10 and 14 cleared 2026-05-12 (HITL verified on the same iPad — Bug 10
+fix in commit `39b9ffe` re-verified, Bug 14 fix in the same session as the
+ADR-30 CAS-race finalize change to `Recording.swift`).

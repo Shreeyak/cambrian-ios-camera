@@ -356,3 +356,69 @@ struct Stage10FatalFinalizeTests {
         #expect(errors.snapshot.contains { $0.code == .recordingFailed && $0.isFatal })
     }
 }
+
+// MARK: - Suite 9: stop returns promptly on happy path (Bug 14 regression)
+
+/// Bug 14 — `Recording.stop()` previously used `withTaskGroup` with a deadline
+/// child that lacked an early-out, so `group.waitForAll()` always blocked for
+/// `Constants.recordingFinishTimeoutSeconds` (5 s) regardless of how fast
+/// `finishWriting` actually completed. That kept `recordingState` in `.finalizing`
+/// for the full 5 s window and silently swallowed REC taps in `RecordingViewModel`.
+/// The fix mirrors `AsyncWithTimeout.runOnQueue`: a `ManagedAtomic<Bool>` CAS race
+/// between the work and deadline branches with `withCheckedContinuation`.
+@Suite("Stage 10 — stop returns promptly on happy path (Bug 14)")
+struct Stage10StopPromptnessTests {
+    @Test("stop() returns shortly after finishWriting completes (must not block on deadline)")
+    func stopReturnsPromptlyAfterFinishWriting() async throws {
+        let writer = FakeAssetWriter()
+        let adaptor = FakeAdaptor()
+        // finishWriting takes a measurable but small time; deadline is the real 5 s.
+        await writer.setFinishHang(until: .now.advanced(by: .milliseconds(50)))
+        let rec = Recording(
+            clock: SystemClock(),
+            hooks: Recording.Hooks(publishState: { _ in }, emitError: { _ in }),
+            writerFactory: makeFakeFactory(writer: writer, adaptor: adaptor)
+        )
+        _ = try await rec.start(
+            options: RecordingOptions(),
+            captureSize: Size(width: 256, height: 256)
+        )
+        let t0 = ContinuousClock.now
+        let uri = await rec.stop(reason: .user)
+        let elapsed = ContinuousClock.now - t0
+        #expect(
+            elapsed < .milliseconds(1000),
+            "stop() took \(elapsed); pre-fix this blocked for the full 5 s deadline"
+        )
+        let wasCancelled = await writer.cancelled
+        #expect(wasCancelled == false, "happy path must not cancel writer")
+        #expect(uri.hasSuffix(".mp4"))
+    }
+
+    @Test("two consecutive Recording cycles each produce a completed writer")
+    func twoConsecutiveCyclesEachComplete() async throws {
+        for cycle in 0..<2 {
+            let writer = FakeAssetWriter()
+            let adaptor = FakeAdaptor()
+            await writer.setFinishHang(until: .now.advanced(by: .milliseconds(20)))
+            let rec = Recording(
+                clock: SystemClock(),
+                hooks: Recording.Hooks(publishState: { _ in }, emitError: { _ in }),
+                writerFactory: makeFakeFactory(writer: writer, adaptor: adaptor)
+            )
+            _ = try await rec.start(
+                options: RecordingOptions(),
+                captureSize: Size(width: 256, height: 256)
+            )
+            _ = await rec.submitEncodedBuffer(
+                makeDummyPixelBuffer(),
+                pts: CMTimeMake(value: 0, timescale: 30)
+            )
+            _ = await rec.stop(reason: .user)
+            let status = await writer._status
+            #expect(status == .completed, "cycle \(cycle): writer status \(status), expected .completed")
+            let appended = await adaptor.appended.count
+            #expect(appended == 1, "cycle \(cycle): appended \(appended) frames, expected 1")
+        }
+    }
+}
