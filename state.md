@@ -1,11 +1,11 @@
 # state.md — Stage 11
 
 ## Current stage
-Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1–4, 6, 7, 8, 9, 12, 13, 15, 16 fixed. Three §11 HITL evidence items (UI / Liquid Glass / VoiceOver) verified 2026-05-09. **Bugs 10 (fix-applied awaiting HITL), 11, 14 block Stage 12 — see flag below.**
+Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1–4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16 fixed. Three §11 HITL evidence items (UI / Liquid Glass / VoiceOver) verified 2026-05-09. **Bug 11 (resolution control) is the last open Stage-12 entry blocker.**
 
-## ⚠️ Blocking Stage 12 — bugs 10 + 11 + 14
+## ⚠️ Blocking Stage 12 — bug 11
 
-Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`. Stage 12 must clear the remaining open items before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work.
+Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`. Stage 12 must clear bug 11 before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work.
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
@@ -17,9 +17,9 @@ Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (no
 | 12 | Black preview on cold launch; capture/REC unfreezes it | HIGH | **FIXED** (verified 2026-05-09 HITL) |
 | 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | **FIXED** (single-shot Apple `grayWorldDeviceWhiteBalanceGains`; Calibrate / Lock / Auto sidebar; UI status; verified 2026-05-09 HITL) |
 | 8 | Black-balance has no sample-point indicator | LOW | **FIXED** (Stage 11 Task 11 reticle overlay; verified 2026-05-09 HITL) |
-| 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIX APPLIED** (2026-04-30 lock around fps setters); awaiting HITL re-verify |
+| 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIXED** (2026-04-30 lock around fps setters in `39b9ffe`; verified 2026-05-12 HITL) |
 | 11 | Resolution control is a static label, not a button | LOW-MED | **OPEN** — Stage 12 |
-| 14 | Second REC press silently fails to save video | HIGH | **OPEN** — Stage 12 |
+| 14 | Second REC press silently fails to save video | HIGH | **FIXED** (2026-05-12 — `Recording.stop` rewritten to ADR-30 CAS-race finalize; verified 2026-05-12 HITL — stop `durationMs` 39-99 vs 5032-5102 pre-fix; zero silent `.finalizing` no-ops) |
 
 Bugs 5, 6, 9, 15, 16 status in `docs/stage-11-pre-existing-bugs.md` summary table.
 

@@ -126,9 +126,18 @@ public actor Recording {
     /// Stop the recording and finalize (or cancel on deadline).
     public func stop(reason: StopReason = .user) async -> String {
         guard case .recording = state, let writer else {
+            CameraKitLog.notice(
+                .engine,
+                "[recording] Recording.stop early exit (state=\(state))"
+            )
             if case .idle(let last) = state { return last ?? "" }
             return outputURL?.absoluteString ?? ""
         }
+        let stopEntryMs = clock.nowMs()
+        CameraKitLog.notice(
+            .engine,
+            "[recording] Recording.stop entry: state=\(state) droppedNotReady=\(droppedNotReady)"
+        )
         state = .finalizing
         hooks.publishState(state)
 
@@ -137,17 +146,46 @@ public actor Recording {
         let deadlineMs = Int(Constants.recordingFinishTimeoutSeconds * 1000)
         let clock = self.clock
         let didCancel = ManagedAtomic<Bool>(false)
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await writer.finishWriting() }
-            group.addTask {
+        // ADR-30 pattern (see AsyncWithTimeout.swift): CAS race between the work
+        // branch and the deadline branch with a `ManagedAtomic<Bool>` resume-once
+        // gate. `withTaskGroup` is NOT used here because `group.waitForAll()`
+        // waits for every child task to terminate, and the deadline child has no
+        // early-out — that made every stop block for `recordingFinishTimeoutSeconds`
+        // regardless of how fast `finishWriting` actually completed, which then
+        // silently swallowed taps in the `.finalizing` window.
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            let resumed = ManagedAtomic<Bool>(false)
+            let resumeOnce: @Sendable () -> Void = {
+                let (won, _) = resumed.compareExchange(
+                    expected: false, desired: true,
+                    ordering: .sequentiallyConsistent
+                )
+                if won { cont.resume() }
+            }
+
+            // Deadline branch
+            Task {
                 try? await clock.sleep(milliseconds: deadlineMs)
+                if resumed.load(ordering: .acquiring) { return }
                 if await writer.status != .completed {
                     didCancel.store(true, ordering: .sequentiallyConsistent)
                     await writer.cancelWriting()
                 }
+                resumeOnce()
             }
-            await group.waitForAll()
+
+            // Work branch
+            Task {
+                await writer.finishWriting()
+                resumeOnce()
+            }
         }
+        let stopGroupDoneMs = self.clock.nowMs()
+        let stopWriterStatus = await writer.status.rawValue
+        CameraKitLog.notice(
+            .engine,
+            "[recording] Recording.stop group done: durationMs=\(stopGroupDoneMs - stopEntryMs) writerStatus=\(stopWriterStatus) didCancel=\(didCancel.load(ordering: .acquiring))"
+        )
 
         let url = outputURL?.absoluteString ?? ""
         if didCancel.load(ordering: .acquiring) {

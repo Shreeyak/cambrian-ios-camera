@@ -894,6 +894,10 @@ public actor CameraEngine {
         guard isOpen, let session = cameraSession, let pipeline = metalPipeline else {
             throw EngineError.notOpen
         }
+        CameraKitLog.notice(
+            .engine,
+            "[recording] startRecording entry: pipeline.isRecording=\(pipeline.isRecording.load(ordering: .acquiring)) recording==nil:\(self.recording == nil)"
+        )
         try await session.setRecordingFrameRateRange()
         pipeline.onEncodedBufferReady = { [weak self] buf, pts in
             Task { [weak self] in
@@ -923,11 +927,21 @@ public actor CameraEngine {
             let pipeline = metalPipeline,
             let session = cameraSession
         else { throw EngineError.notOpen }
+        let stopStartMs = clock.nowMs()
+        CameraKitLog.notice(
+            .engine,
+            "[recording] stopRecording entry: pipeline.isRecording=\(pipeline.isRecording.load(ordering: .acquiring))"
+        )
         pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
         let uri = await rec.stop(reason: .user)
         try? await session.setPreviewFrameRateRange()
         self.recording = nil
         pipeline.onEncodedBufferReady = nil
+        let stopDurationMs = clock.nowMs() - stopStartMs
+        CameraKitLog.notice(
+            .engine,
+            "[recording] stopRecording exit: durationMs=\(stopDurationMs)"
+        )
         return uri
     }
 
