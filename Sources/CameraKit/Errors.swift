@@ -53,6 +53,12 @@ public enum EngineError: Error, Sendable {
     case recording(RecordingError)
     case capture(StillCaptureError)
     case fatal(CameraError)
+    /// Caller passed an `outputURL` that resolves outside the app sandbox.
+    ///
+    /// iOS apps are kernel-sandboxed; only paths under `NSHomeDirectory()` are writable.
+    ///
+    /// See `PhotosLibraryClient.resolve` for the valid-locations list.
+    case invalidOutputPath(URL)
 }
 
 public enum MetalError: Error, Sendable {

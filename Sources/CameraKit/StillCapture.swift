@@ -4,7 +4,6 @@ import CoreVideo
 import Foundation
 import ImageIO
 import Metal
-import Photos
 import UniformTypeIdentifiers
 
 /// Orchestrates one-shot still image capture per architecture §D-05 and §D-09.
@@ -14,14 +13,13 @@ final class StillCapture: @unchecked Sendable {
     // C++ std::atomic<bool> per ADR-13 / Invariant 7 (CaptureAtomic.hpp, Stage 08).
     private let captureInFlight: CppCaptureAtomic = CppCaptureAtomic()
 
-    /// Injected authorization provider; override in tests to avoid PHPhotoLibrary calls.
-    var authorizationProvider: @Sendable () async -> PHAuthorizationStatus = {
-        await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-    }
-
     init() {}
 
     /// Captures the next GPU-processed frame as an 8-bit TIFF.
+    ///
+    /// Caller (CameraEngine) is responsible for dispatching the resulting file
+    /// through `PhotosLibraryClient.publish` per the requested
+    /// `PhotosDestination`; this method only writes the file to disk.
     ///
     /// - Parameters:
     ///   - pipeline: The live MetalPipeline to arm for Pass 6.
@@ -29,7 +27,7 @@ final class StillCapture: @unchecked Sendable {
     ///   - deviceSnapshot: Current DeviceStateSnapshot for EXIF metadata (ISO, exposure, WB, focus).
     ///   - focalLengthMm: Focal length in mm from the active AVCaptureDevice format.
     ///   - apertureValue: APEX aperture value from the active format.
-    ///   - outputURL: If non-nil, write here directly; skip Photos library entirely.
+    ///   - outputURL: Resolved per `PhotosLibraryClient.resolve` (default ext `tif`).
     func captureImage(
         pipeline: MetalPipeline,
         captureSize: Size,
@@ -46,22 +44,25 @@ final class StillCapture: @unchecked Sendable {
         }
         defer { captureInFlight.release() }
 
-        // 2. Arm pipeline continuation — the next encode() will perform Pass 6.
+        // 2. Resolve the on-disk write URL up-front; throws on sandbox escape.
+        let writeURL = try PhotosLibraryClient.resolve(outputURL: outputURL, defaultExt: "tif")
+
+        // 3. Arm pipeline continuation — the next encode() will perform Pass 6.
         let readbackBuffer: CVPixelBuffer = try await withCheckedThrowingContinuation { continuation in
             pipeline.armCapture(continuation: continuation)
         }
 
-        // 3. Convert RGBA16F → RGBA8 via vImage.
+        // 4. Convert RGBA16F → RGBA8 via vImage.
         let rgbaBytes = try convertRGBA16FtoRGBA8(
             buffer: readbackBuffer,
             width: captureSize.width,
             height: captureSize.height
         )
 
-        // 4. Build CGImage.
+        // 5. Build CGImage.
         let cgImage = try makeCGImage(rgbaBytes: rgbaBytes, width: captureSize.width, height: captureSize.height)
 
-        // 5. Build EXIF metadata.
+        // 6. Build EXIF metadata.
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let camPluginJson = buildCamPluginV1Json(deviceSnapshot: deviceSnapshot)
         let metadata = buildImageProperties(
@@ -74,43 +75,11 @@ final class StillCapture: @unchecked Sendable {
             camPluginJson: camPluginJson
         )
 
-        // 6. Determine write URL — direct path or Photos/documents fallback.
-        let writeURL: URL
-        if let url = outputURL {
-            writeURL = url
-        } else {
-            let tmpURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("tif")
-            writeURL = tmpURL
-        }
-
         // 7. Write TIFF.
         try writeTIFF(cgImage: cgImage, metadata: metadata, to: writeURL)
 
-        // 8. Persist to Photos or documents.
-        let finalPath: String
-        if outputURL != nil {
-            finalPath = writeURL.path
-        } else {
-            let status = await authorizationProvider()
-            if status == .authorized || status == .limited {
-                try await saveToPhotoLibrary(url: writeURL)
-                finalPath = writeURL.path
-            } else {
-                let docsURL = try FileManager.default.url(
-                    for: .documentDirectory,
-                    in: .userDomainMask,
-                    appropriateFor: nil,
-                    create: true
-                ).appendingPathComponent(writeURL.lastPathComponent)
-                try FileManager.default.moveItem(at: writeURL, to: docsURL)
-                finalPath = docsURL.path
-            }
-        }
-
-        CameraKitLog.notice(.engine, "[still] capture complete path=\(finalPath)")
-        return StillCaptureOutput(filePath: finalPath)
+        CameraKitLog.notice(.engine, "[still] capture complete path=\(writeURL.path)")
+        return StillCaptureOutput(filePath: writeURL.path)
     }
 
     // MARK: - Private helpers
@@ -274,12 +243,6 @@ final class StillCapture: @unchecked Sendable {
         CGImageDestinationAddImage(dest, cgImage, metadata as CFDictionary)
         guard CGImageDestinationFinalize(dest) else {
             throw StillCaptureError.fileWriteFailed("CGImageDestinationFinalize failed: \(url.path)")
-        }
-    }
-
-    private func saveToPhotoLibrary(url: URL) async throws {
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: url)
         }
     }
 

@@ -3,6 +3,7 @@ import Atomics
 import CoreMedia
 import CoreVideo
 import Metal
+import Photos
 import Synchronization
 
 /// The public actor that orchestrates the entire camera pipeline.
@@ -134,6 +135,13 @@ public actor CameraEngine {
         //    it's a process-level gate, not a device operation).
         let granted = await AVCaptureDevice.requestAccess(for: .video)
         guard granted else { throw EngineError.cameraDenied }
+
+        // 1b. Eager Photos auth — request alongside camera so the user sees both
+        //     prompts at first launch, not mid-capture. Photos is optional;
+        //     denial does not fail open() (RecordingOptions.photosDestination
+        //     default is .none).
+        let photosStatus = await PhotosLibraryClient.authorizationProvider()
+        CameraKitLog.notice(.engine, "open: photos auth status=\(photosStatus.rawValue)")
 
         // 2. Set up queues and delegates.
         let session = CameraSession()
@@ -817,12 +825,21 @@ public actor CameraEngine {
 
     /// Stage 07: captures the current processed frame as a still image.
     ///
-    /// - Parameter outputPath: If non-nil, write the TIFF to this path directly.
-    ///   If nil, saves to the Photos library (or Documents as fallback).
-    /// - Returns: A `StillCaptureOutput` with the final file path.
+    /// - Parameters:
+    ///   - outputURL: Resolved per `PhotosLibraryClient.resolve` (default ext
+    ///     `tif`). `nil` → `<Documents>/<timestamp>.tif`.
+    ///   - photosDestination: See `PhotosDestination`. Independent of
+    ///     `outputURL`; defaults to `.none` (no Photos interaction).
+    /// - Returns: A `StillCaptureOutput` with the on-disk file path. With
+    ///   `.move`, that file no longer exists after a successful Photos publish.
     /// - Throws: `EngineError.notOpen` if the engine is not open or not running.
+    /// - Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves
+    ///   outside the app sandbox.
     /// - Throws: `EngineError.capture(_:)` wrapping any `StillCaptureError`.
-    public func captureImage(outputPath: String? = nil) async throws -> StillCaptureOutput {
+    public func captureImage(
+        outputURL: URL? = nil,
+        photosDestination: PhotosDestination = .none
+    ) async throws -> StillCaptureOutput {
         guard isOpen, let pipeline = metalPipeline, let capture = stillCapture else {
             throw EngineError.notOpen
         }
@@ -839,10 +856,9 @@ public actor CameraEngine {
             apertureValue = 0
         }
 
-        let outputURL = outputPath.map { URL(fileURLWithPath: $0) }
-
+        let output: StillCaptureOutput
         do {
-            return try await capture.captureImage(
+            output = try await capture.captureImage(
                 pipeline: pipeline,
                 captureSize: pipeline.captureSize,
                 deviceSnapshot: snap,
@@ -853,6 +869,36 @@ public actor CameraEngine {
         } catch let e as StillCaptureError {
             throw EngineError.capture(e)
         }
+
+        // Optional Photos publish — non-fatal; file at output.filePath is
+        // preserved. Failures emit on `errorStream()` so callers can react.
+        if photosDestination != .none {
+            let url = URL(fileURLWithPath: output.filePath)
+            do {
+                try await PhotosLibraryClient.publish(
+                    url: url, kind: .photo, destination: photosDestination
+                )
+                CameraKitLog.notice(
+                    .engine,
+                    "[still] published-to-photos path=\(output.filePath) destination=\(photosDestination.rawValue)"
+                )
+            } catch {
+                let detail = PhotosLibraryClient.describe(error)
+                CameraKitLog.error(
+                    .engine,
+                    "[still] photos publish failed (destination=\(photosDestination.rawValue)): \(detail)"
+                )
+                publishError(
+                    CameraError(
+                        code: .unknownError,
+                        message: "photos publish failed (destination=\(photosDestination.rawValue)): \(detail)",
+                        isFatal: false
+                    )
+                )
+            }
+        }
+
+        return output
     }
 
     // MARK: - Stage 10: Recording
@@ -935,8 +981,42 @@ public actor CameraEngine {
         pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
         let uri = await rec.stop(reason: .user)
         try? await session.setPreviewFrameRateRange()
+        let destination = await rec.photosDestination
         self.recording = nil
         pipeline.onEncodedBufferReady = nil
+
+        // Optional Photos publish — runs after Recording.stop so it does not
+        // pin the recording state machine. Bug-14 stop-promptness is preserved
+        // for `destination == .none` (the default); for `.copy`/`.move` this
+        // adds the PHPhotoLibrary roundtrip latency to stopRecording's wall
+        // time, which is acceptable because the caller opted into Photos.
+        if destination != .none, let url = URL(string: uri) {
+            do {
+                try await PhotosLibraryClient.publish(
+                    url: url, kind: .video, destination: destination
+                )
+                CameraKitLog.notice(
+                    .engine,
+                    "[recording] published-to-photos uri=\(uri) destination=\(destination.rawValue)"
+                )
+            } catch {
+                // Non-fatal: file is safe at outputURL. Log richly + surface
+                // to the public errorStream so the caller can react.
+                let detail = PhotosLibraryClient.describe(error)
+                CameraKitLog.error(
+                    .engine,
+                    "[recording] photos publish failed (destination=\(destination.rawValue)): \(detail)"
+                )
+                publishError(
+                    CameraError(
+                        code: .unknownError,
+                        message: "photos publish failed (destination=\(destination.rawValue)): \(detail)",
+                        isFatal: false
+                    )
+                )
+            }
+        }
+
         let stopDurationMs = clock.nowMs() - stopStartMs
         CameraKitLog.notice(
             .engine,

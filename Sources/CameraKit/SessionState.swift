@@ -36,25 +36,30 @@ public struct RecordingOptions: Sendable, Hashable {
     ///
     /// Nil → `Constants.frameRateTargetFPS`.
     public var fps: Int?
-    /// Destination directory.
+    /// Output URL resolved per `PhotosLibraryClient.resolve`.
     ///
-    /// Nil → app Documents directory.
-    public var outputDirectory: URL?
-    /// Filename excluding extension.
+    /// `nil` → `<Documents>/<ISO8601-timestamp>.mp4`. Filename-only URLs land
+    /// in `<Documents>`; absolute paths inside `NSHomeDirectory()` are used
+    /// as-is. Paths outside the app sandbox throw
+    /// `EngineError.invalidOutputPath` from `startRecording`.
+    public var outputURL: URL?
+    /// Whether and how to publish the finished `.mp4` to the Photos library.
     ///
-    /// Nil → ISO-8601 timestamp.
-    public var fileName: String?
+    /// Defaults to `.none`; the recording lives only at `outputURL`.
+    ///
+    /// See `PhotosDestination` for per-case semantics.
+    public var photosDestination: PhotosDestination
 
     public init(
         bitrateBps: Int? = nil,
         fps: Int? = nil,
-        outputDirectory: URL? = nil,
-        fileName: String? = nil
+        outputURL: URL? = nil,
+        photosDestination: PhotosDestination = .none
     ) {
         self.bitrateBps = bitrateBps
         self.fps = fps
-        self.outputDirectory = outputDirectory
-        self.fileName = fileName
+        self.outputURL = outputURL
+        self.photosDestination = photosDestination
     }
 }
 

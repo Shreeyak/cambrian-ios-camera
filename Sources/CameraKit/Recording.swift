@@ -35,6 +35,9 @@ public actor Recording {
     private var adaptor: (any AssetWriterPixelBufferAdapting)?
     private var state: RecordingState = .idle(lastUri: nil)
     private var outputURL: URL?
+    /// Captured at `start` so the engine can read it back post-`stop` and
+    /// dispatch to `PhotosLibraryClient.publish` without re-passing options.
+    var photosDestination: PhotosDestination = .none
     private var startPTS: CMTime?
     private var droppedNotReady: Int = 0
 
@@ -70,18 +73,7 @@ public actor Recording {
         guard case .idle = state else {
             throw RecordingError.writerStartFailed(status: -1)
         }
-        let dir =
-            try options.outputDirectory
-            ?? FileManager.default.url(
-                for: .documentDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )
-        let name =
-            options.fileName
-            ?? ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let url = dir.appendingPathComponent("\(name).mp4")
+        let url = try PhotosLibraryClient.resolve(outputURL: options.outputURL, defaultExt: "mp4")
         let bitrate = options.bitrateBps ?? Constants.recordingTargetBitrateBpsDefault
         let fps = options.fps ?? Constants.frameRateTargetFPS
 
@@ -89,6 +81,7 @@ public actor Recording {
         writer = w
         adaptor = a
         outputURL = url
+        photosDestination = options.photosDestination
 
         let ok = await w.startWriting()
         if !ok {
@@ -99,7 +92,7 @@ public actor Recording {
         }
         state = .recording
         hooks.publishState(state)
-        return RecordingStart(uri: url.absoluteString, displayName: "\(name).mp4")
+        return RecordingStart(uri: url.absoluteString, displayName: url.lastPathComponent)
     }
 
     /// Submit an encoded NV12 buffer.
