@@ -825,13 +825,19 @@ public actor CameraEngine {
 
     /// Stage 07: captures the current processed frame as a still image.
     ///
+    /// If `photosDestination` is `.copy` or `.move`, the file is also
+    /// published to Photos before this method returns; failures emit on
+    /// `errorStream()` and the file at `output.filePath` is always preserved
+    /// (even when `.move` was requested and failed). See `PhotosLibraryClient`
+    /// for the full contract and known error codes.
+    ///
     /// - Parameters:
     ///   - outputURL: Resolved per `PhotosLibraryClient.resolve` (default ext
     ///     `tif`). `nil` → `<Documents>/<timestamp>.tif`.
     ///   - photosDestination: See `PhotosDestination`. Independent of
     ///     `outputURL`; defaults to `.none` (no Photos interaction).
     /// - Returns: A `StillCaptureOutput` with the on-disk file path. With
-    ///   `.move`, that file no longer exists after a successful Photos publish.
+    ///   `.move` and a successful Photos publish, that file no longer exists.
     /// - Throws: `EngineError.notOpen` if the engine is not open or not running.
     /// - Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves
     ///   outside the app sandbox.
@@ -967,6 +973,17 @@ public actor CameraEngine {
 
     /// Stops the active recording session and returns the output file URI.
     ///
+    /// If `RecordingOptions.photosDestination` was `.copy` or `.move`, the
+    /// resulting `.mp4` is also published to the Photos library before this
+    /// method returns. The Photos round-trip adds a few hundred ms to wall
+    /// time. Failures are non-fatal: the file at `uri` is always preserved
+    /// (even when `.move` was requested), and a non-fatal `CameraError` is
+    /// emitted on `errorStream()`. See `PhotosLibraryClient` for the full
+    /// contract and known error codes.
+    ///
+    /// - Returns: The on-disk URI of the recorded file. With `.move` and a
+    ///   successful Photos publish, the file at this URI no longer exists —
+    ///   Photos owns the bytes.
     /// - Throws: `EngineError.notOpen` if no recording is active or the engine is not open.
     public func stopRecording() async throws -> String {
         guard let rec = recording,

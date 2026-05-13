@@ -1,6 +1,86 @@
 import Foundation
 import Photos
 
+// MARK: - CameraKit ↔ Photos contract
+//
+// CameraKit always writes captures (stills + video) to a caller-chosen on-disk
+// location first; Photos publication is a *separate*, opt-in step that runs
+// after the file is durable. This file owns both halves of that contract.
+//
+// ## Authorisation
+//
+// `engine.open()` requests Photos add-only authorisation eagerly, right after
+// camera permission. The user sees both prompts back-to-back at first launch;
+// neither failure aborts `open()` (Photos is optional). The seam used is
+// `PhotosLibraryClient.authorizationProvider`, swappable in tests.
+//
+// ## Output URL resolution
+//
+// Every capture call (`engine.captureImage(outputURL:)`,
+// `engine.startRecording(options:)` via `RecordingOptions.outputURL`) routes
+// the caller's URL through `PhotosLibraryClient.resolve(outputURL:defaultExt:)`:
+//
+// - `nil`                                → `<Documents>/<ISO-8601-timestamp>.<ext>`
+// - `URL(string: "video.mp4")`           → `<Documents>/video.mp4`
+// - `URL.documentsDirectory.appendingPathComponent("trial-A/v1.mp4")`
+//                                        → as-is; intermediate dirs auto-created
+// - any path **outside** `NSHomeDirectory()`
+//                                        → throws `EngineError.invalidOutputPath(URL)`
+//
+// `<Documents>` is user-visible via Files.app (`UIFileSharingEnabled = YES`
+// in the app target). `<Library/Caches>`, `<Library/Application Support>`,
+// and `<tmp>` are valid sandbox locations but hidden from Files.app.
+//
+// ## Photos publication (`PhotosDestination`)
+//
+// | case   | behaviour on success                                          | behaviour on failure                                |
+// |--------|---------------------------------------------------------------|-----------------------------------------------------|
+// | `.none`| Photos untouched. File at on-disk URL.                        | n/a — no Photos call made.                          |
+// | `.copy`| File at on-disk URL **and** a Photos copy.                    | File at on-disk URL only. Photos error reported.    |
+// | `.move`| File **only** in Photos; on-disk source removed by Photos.    | File at on-disk URL (degrades to `.copy`'s failure).|
+//
+// For `.copy` / `.move`, CameraKit calls
+// `PHPhotoLibrary.shared().performChanges` with a `PHAssetCreationRequest`
+// and `PHAssetResourceCreationOptions(shouldMoveFile: destination == .move)`.
+// Resource kind is `.video` for recordings, `.photo` for stills.
+//
+// ## Failure surface
+//
+// Photos publish failures are **non-fatal**: the on-disk file is always
+// preserved when Photos can't accept it. Failures are reported on two
+// channels:
+//
+// 1. **`engine.errorStream()`** — emits a `CameraError(.unknownError,
+//    isFatal: false)` whose `message` is the `describe(_:)` output for the
+//    underlying `NSError`.
+// 2. **Device log** (`CameraKitLog.error`) — same message, prefixed with
+//    `[recording]` or `[still]` so it's greppable.
+//
+// Common error codes (all `PHPhotosError.errorDomain`):
+// - `.accessUserDenied` (3311) — user revoked Photos in Settings.
+// - `.accessRestricted` (3300) — Screen Time / MDM / parental controls.
+// - `.invalidResource` (3303) — file unreadable or unsupported format.
+// - `.networkAccessRequired` / `.networkError` — iCloud Photos sync issue.
+//
+// `PhotosLibraryClient.describe(_:)` translates each known code to a typed
+// name + suggested user action; unknown codes fall through to bare NSError
+// fields. UI consumers should subscribe to `errorStream()` and surface
+// `describe`'s output (which is already inside the `CameraError.message`)
+// to the user when severity warrants — no re-mapping needed.
+//
+// ## What CameraKit does *not* do
+//
+// - No retry. A failed publish is reported once and not retried; the file
+//   sits at `outputURL` for the caller to dispose of.
+// - No deduplication. Calling `engine.captureImage(photosDestination: .copy)`
+//   twice with the same `outputURL` adds two assets to Photos.
+// - No `PhotosKit` fancy types — assets are added as raw resources via
+//   `PHAssetCreationRequest`. Album placement, geotagging, Live Photos,
+//   bursts, and edits are out of scope.
+// - No background publication. `.copy` / `.move` block their caller (engine
+//   wrapper) until `performChanges` returns; expect a few hundred ms of
+//   added latency on `engine.stopRecording` / `engine.captureImage`.
+
 /// Decides whether and how to publish a captured file to the Photos library.
 ///
 /// - `.none`: Photos library is not touched. File lives only at the on-disk URL.
