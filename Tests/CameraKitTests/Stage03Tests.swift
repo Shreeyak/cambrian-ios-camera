@@ -110,37 +110,57 @@ struct Stage03Tests {
 
     // MARK: Test 5 — 03:kvo-asyncstream-adapter-emits-on-change
 
-    /// KVO change → AsyncStream yields one snapshot. Task cancellation releases the Tokens box.
+    /// KVO change → AsyncStream yields one snapshot. After consumer cancel +
+    /// all local strong references release, the observer must deinit (proving
+    /// the Tokens box → KVO observations chain unwinds deterministically per
+    /// the lifetime contract in `KVOAsyncStream.swift`).
+    ///
+    /// The SourceKit `weak-mutability` advisory on `weakObserver` is a known
+    /// false positive: `weak let` doesn't compile because the runtime zeros
+    /// the slot when the referent dies — that *is* a mutation, even though
+    /// no user code writes to it. `weak var` is required.
     @Test func kvoAsyncStreamAdapterEmitsOnChange() async throws {
         let fake = FakeKVODevice()
-        let (stream, observer) = DeviceKVOObserver.makeStream(source: fake)
-        weak var weakObserver: DeviceKVOObserver? = observer
+        weak var weakObserver: DeviceKVOObserver?
+        var capturedISO: Float = 0
 
-        let receivedOne = Task<Float, Error> {
-            for await snap in stream {
-                return snap.iso
+        // Scope all strong references — observer, stream, the consumer task —
+        // inside a `do` block so they release at the closing brace. Outside
+        // the block, the only path to `observer` is the weak slot, which lets
+        // us assert that nothing else retained it.
+        do {
+            let (stream, observer) = DeviceKVOObserver.makeStream(source: fake)
+            weakObserver = observer
+
+            let receivedOne = Task<Float, Error> {
+                for await snap in stream {
+                    return snap.iso
+                }
+                throw CancellationError()
             }
-            throw CancellationError()
+
+            // Mutate → expect one emission.
+            try await Task.sleep(for: .milliseconds(50))
+            fake.iso = 800
+            capturedISO = try await receivedOne.value
+
+            // Cancel the consumer; AsyncStream's `onTermination` releases its
+            // strong ref to Tokens. ARC then drops observer when this
+            // do-block exits.
+            receivedOne.cancel()
         }
 
-        // Mutate → expect one emission.
-        try await Task.sleep(for: .milliseconds(50))
-        fake.iso = 800
+        #expect(capturedISO == 800)
 
-        let iso = try await receivedOne.value
-        #expect(iso == 800)
-
-        // Release and cancel — Tokens box must deinit.
-        receivedOne.cancel()
-        _ = observer  // keep alive through assertions
-        var released: Bool = false
+        // All local strong refs are gone. Poll the weak slot. 500 ms is
+        // generous — ARC + onTermination teardown typically completes within
+        // a few ms; the window guards against scheduler jitter.
+        var released = false
         for _ in 0..<20 {
             if weakObserver == nil { released = true; break }
             try await Task.sleep(for: .milliseconds(25))
         }
-        // Note: `observer` is the last strong ref held by this test — drop it after the weak check.
-        _ = observer
-        #expect(released == false || released == true)  // existence check; tight lifetime asserted below
+        #expect(released == true)
     }
 
     // MARK: Test 6 — 03:focus-distance-identity
@@ -195,7 +215,12 @@ final class FakeCaptureDeviceProviding: CaptureDeviceProviding, @unchecked Senda
     var isoRange: ClosedRange<Float> { 30...3200 }
     var exposureDurationRangeNs: ClosedRange<Int64> { 1_000_000...33_333_333 }
     var maxWhiteBalanceGain: Float { 4.0 }
+    var lensAperture: Float { 0 }
     var lastSnapshot: DeviceStateSnapshot? { stubbedSnapshot }
+
+    func installKVOIngest() async {}
+    func cancelKVO() async {}
+    func dumpAllFormats() async -> [String] { [] }
 
     func snapshotStream() -> AsyncStream<DeviceStateSnapshot> {
         AsyncStream { $0.finish() }

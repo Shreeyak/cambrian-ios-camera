@@ -506,7 +506,7 @@ struct Stage11BBCalibrationScratchTests {
         // If the scratch path failed to zero BB, the sample would read
         // 0.5 - 0.2 = 0.3 per channel. With BB zeroed in the scratch, sample
         // should be 0.5 (identity BCSG passes the input through).
-        pipeline.setProcessingForTest(
+        pipeline.setColorUniformsForTest(
             ProcessingParameters(
                 brightness: 0,
                 contrast: 1,
@@ -537,54 +537,100 @@ struct Stage11BBCalibrationScratchTests {
         #expect(
             MetalPipeline.scaledCenterPatchSize(
                 captureSize: Size(width: 4160, height: 3120)) == 96)
-        // 1280×960 fallback → ~30 (96 × 960/3120 ≈ 29.5).
+        // 1280×960 fallback: 96 × 960/3120 = 29.538 → round → 30 (above the 16 floor).
         let s2 = MetalPipeline.scaledCenterPatchSize(
             captureSize: Size(width: 1280, height: 960))
-        #expect(s2 >= 16 && s2 <= 32)
+        #expect(s2 == 30)
         // Tiny 480×360 → would compute ~11; clamps to 16 minimum.
         #expect(
             MetalPipeline.scaledCenterPatchSize(
                 captureSize: Size(width: 480, height: 360)) == 16)
     }
 
-    // MARK: - Helpers
+    // Pixel helpers (`fillBufferUniform`, `packHalfRGBA`, `HalfPixel`) live in
+    // `TestPixelHelpers.swift` and are shared with `Stage04Tests`.
+}
 
-    /// Writes a uniform RGBA half-float fill into an IOSurface-backed CVPixelBuffer
-    /// of pixel format kCVPixelFormatType_64RGBAHalf.
-    private func fillBufferUniform(
-        _ buffer: CVPixelBuffer,
-        r: Float, g: Float, b: Float, a: Float
-    ) throws {
-        CVPixelBufferLockBaseAddress(buffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else {
-            throw MetalError.unsupportedFormat
-        }
-        // Float16 packed: 4 channels × 2 bytes = 8 bytes per pixel.
-        let pixel = packHalfRGBA(r: r, g: g, b: b, a: a)
-        for y in 0..<height {
-            let row = base.advanced(by: y * bytesPerRow)
-                .assumingMemoryBound(to: UInt16.self)
-            for x in 0..<width {
-                row[x * 4 + 0] = pixel.r
-                row[x * 4 + 1] = pixel.g
-                row[x * 4 + 2] = pixel.b
-                row[x * 4 + 3] = pixel.a
-            }
+// MARK: - Stage 11 — Family B follow-ups (calibration "no frame yet" semantics)
+//
+// Covers the post-Family-B rework where both calibration sampling paths refuse
+// to sample a blank pool buffer and instead throw `MetalError.noFrameAvailable`.
+// Pre-rework, `dispatchCenterPatchOnNatural` would silently sample a (0,0,0)
+// pool fallback, biasing WB-calibrate on cold engines.
+
+@Suite("Stage 11 — Family B follow-ups: calibration no-frame semantics")
+struct Stage11FamilyBFollowupCalibrationTests {
+
+    /// `dispatchCenterPatchOnNatural` must refuse to sample when no frame has
+    /// arrived — otherwise WB-calibrate on a cold engine would sample a blank
+    /// pool buffer and produce (0,0,0).
+    @Test("dispatchCenterPatchOnNatural throws .noFrameAvailable before any frame")
+    func centerPatchOnNaturalThrowsBeforeFirstFrame() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let pipeline = try MetalPipeline(
+            device: device,
+            captureSize: Size(width: 256, height: 256),
+            gateOpen: true
+        )
+
+        await #expect(throws: MetalError.noFrameAvailable) {
+            _ = try await pipeline.dispatchCenterPatchOnNatural()
         }
     }
 
-    private struct HalfPixel { let r, g, b, a: UInt16 }
+    /// `dispatchBBCalibrationSample` must refuse to sample when no frame has
+    /// arrived. (Pre-rework this threw `.unsupportedFormat`, which collapsed two
+    /// distinct failure modes into one case.)
+    @Test("dispatchBBCalibrationSample throws .noFrameAvailable before any frame")
+    func bbCalibrationSampleThrowsBeforeFirstFrame() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let pipeline = try MetalPipeline(
+            device: device,
+            captureSize: Size(width: 256, height: 256),
+            gateOpen: true
+        )
 
-    private func packHalfRGBA(r: Float, g: Float, b: Float, a: Float) -> HalfPixel {
-        HalfPixel(
-            r: Float16(r).bitPattern,
-            g: Float16(g).bitPattern,
-            b: Float16(b).bitPattern,
-            a: Float16(a).bitPattern)
+        await #expect(throws: MetalError.noFrameAvailable) {
+            _ = try await pipeline.dispatchBBCalibrationSample()
+        }
+    }
+
+    /// Once a natural texture is installed, `dispatchCenterPatchOnNatural`
+    /// succeeds and reads back the installed pixel values. Confirms the new
+    /// guard doesn't regress the happy path.
+    @Test("dispatchCenterPatchOnNatural samples installed natural texture")
+    func centerPatchOnNaturalSamplesInstalledTexture() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 256, height: 256)
+        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+
+        let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
+        try fillBufferUniform(nBuf, r: 0.4, g: 0.6, b: 0.2, a: 1.0)
+        pipeline.setLatestNaturalForTest(buffer: nBuf, texture: nTex)
+
+        let sample = try await pipeline.dispatchCenterPatchOnNatural()
+        #expect(abs(sample.r - 0.4) < 1e-2)
+        #expect(abs(sample.g - 0.6) < 1e-2)
+        #expect(abs(sample.b - 0.2) < 1e-2)
+    }
+
+    /// `MetalError.textureAllocationFailed` and `.noFrameAvailable` are distinct
+    /// cases that can each be caught by name. Guards against accidental
+    /// rename/merge in a future cleanup pass.
+    @Test("new MetalError cases are distinguishable")
+    func newMetalErrorCasesDistinguishable() {
+        let alloc: MetalError = .textureAllocationFailed
+        let noFrame: MetalError = .noFrameAvailable
+
+        switch alloc {
+        case .textureAllocationFailed: break
+        default: Issue.record("textureAllocationFailed did not match its own case")
+        }
+        switch noFrame {
+        case .noFrameAvailable: break
+        default: Issue.record("noFrameAvailable did not match its own case")
+        }
     }
 }
 

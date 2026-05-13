@@ -61,12 +61,16 @@ public enum EngineError: Error, Sendable {
     case invalidOutputPath(URL)
 }
 
-public enum MetalError: Error, Sendable {
+public enum MetalError: Error, Sendable, Equatable {
     case commandBufferFailed(code: Int)
     case textureCacheCreateFailed(code: Int32)
     case textureWrapFailed(code: Int32)
+    case textureAllocationFailed
     case pipelineStateCompilation(String)
     case unsupportedFormat
+    /// Calibration / sampling path required the latest natural texture but the
+    /// mailbox is still empty (no frame delivered yet, or post-pause/close).
+    case noFrameAvailable
 }
 
 public enum InteropError: Error, Sendable {

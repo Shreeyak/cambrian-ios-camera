@@ -715,7 +715,15 @@ final class MetalPipeline: @unchecked Sendable {
     /// values. WB calibration must sample here so the gains computed don't
     /// feed back the previously-applied calibration state.
     func dispatchCenterPatchOnNatural() async throws -> RgbSample {
-        try await dispatchCenterPatch(on: currentTexture())
+        // Read the live mailbox directly: do NOT route through `currentTexture()`,
+        // which falls back to a blank pool buffer for the preview path. A
+        // calibration sample of a blank texture is silently (0,0,0) — worse than
+        // a thrown error. Single-writer invariant (delivery queue) + Metal's
+        // command-buffer retention through encode make this read race-free.
+        guard let naturalTex = latestNaturalTex else {
+            throw MetalError.noFrameAvailable
+        }
+        return try await dispatchCenterPatch(on: naturalTex)
     }
 
     /// BB calibration entry point — samples a one-shot scratch render of
@@ -734,8 +742,10 @@ final class MetalPipeline: @unchecked Sendable {
     /// Visually invisible to the user — the live `processedTex` mailbox is
     /// not touched.
     func dispatchBBCalibrationSample() async throws -> RgbSample {
+        // Single-writer invariant (delivery queue) + Metal command-buffer
+        // retention through encode make this nonisolated(unsafe) read race-free.
         guard let naturalTex = latestNaturalTex else {
-            throw MetalError.unsupportedFormat
+            throw MetalError.noFrameAvailable
         }
 
         // Allocate scratch texture (released at function exit).
@@ -748,7 +758,7 @@ final class MetalPipeline: @unchecked Sendable {
         desc.usage = [.shaderWrite, .shaderRead]
         desc.storageMode = .private
         guard let scratchTex = commandQueue.device.makeTexture(descriptor: desc) else {
-            throw MetalError.commandBufferFailed(code: -10)
+            throw MetalError.textureAllocationFailed
         }
 
         // Snapshot current BCSG uniforms; zero BB.
@@ -884,11 +894,13 @@ final class MetalPipeline: @unchecked Sendable {
         latestProcessedTex = texture
     }
 
-    /// Writes processing parameters directly into the pipeline's uniforms Mutex.
+    /// Writes color uniforms directly into the pipeline's uniforms Mutex.
     ///
-    /// Mirrors the production path in `CameraEngine.setProcessingParameters`.
-    /// Used by Stage11Tests to inject known BCSG+BB state without needing a full engine.
-    func setProcessingForTest(_ params: ProcessingParameters) {
+    /// Mirrors the `uniforms.color` slice of the production path
+    /// `CameraEngine.setProcessingParameters` (which also routes through the
+    /// session queue and KVO ingest). Used by Stage11Tests to inject known
+    /// BCSG+BB state without needing a full engine. Crop uniforms are untouched.
+    func setColorUniformsForTest(_ params: ProcessingParameters) {
         uniforms.withLock { storage in
             storage.color = ColorUniform(params)
         }

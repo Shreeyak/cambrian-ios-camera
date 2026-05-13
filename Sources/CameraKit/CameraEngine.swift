@@ -201,9 +201,7 @@ public actor CameraEngine {
         self.deliveryQueue = delivery
 
         // Install KVO ingest so `lastSnapshot` is populated for Rule 3.
-        if let live = device as? LiveCaptureDevice {
-            await live.installKVOIngest()
-        }
+        await device.installKVOIngest()
 
         self.isOpen = true
 
@@ -321,8 +319,8 @@ public actor CameraEngine {
         if let session = cameraSession {
             session.sessionQueue.sync { session.stopRunning() }
         }
-        if let live = cameraSession?.device as? LiveCaptureDevice {
-            await live.cancelKVO()
+        if let device = cameraSession?.device {
+            await device.cancelKVO()
         }
         frameResultContinuationBox.withLock {
             $0?.finish()
@@ -558,8 +556,8 @@ public actor CameraEngine {
     /// fake provider in tests). Used by `ViewModel.dumpCapabilities` to
     /// snapshot the format table to `Documents/capabilities.txt`.
     func dumpDeviceFormats() async -> [String] {
-        guard let live = cameraSession?.device as? LiveCaptureDevice else { return [] }
-        return await live.dumpAllFormats()
+        guard let device = cameraSession?.device else { return [] }
+        return await device.dumpAllFormats()
     }
 
     /// Exposes the live natural-tex mailbox for the MTKView draw pass.
@@ -875,8 +873,8 @@ public actor CameraEngine {
         let snap = await cameraSession?.device?.lastSnapshot
 
         let apertureValue: Double
-        if let live = cameraSession?.device as? LiveCaptureDevice {
-            apertureValue = Double(live.avDevice.lensAperture)
+        if let device = cameraSession?.device {
+            apertureValue = Double(await device.lensAperture)
         } else {
             apertureValue = 0
         }
