@@ -146,7 +146,7 @@ public struct CameraView: View {
                 startEnabled: enablement.isRecordEnabled,
                 stopEnabled: enablement.isStopEnabled
             )
-            resolutionLabel(enabled: enablement.isResolutionEnabled)
+            resolutionButton(enabled: enablement.isResolutionEnabled)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -221,17 +221,14 @@ public struct CameraView: View {
     }
 
     @ViewBuilder
-    private func resolutionLabel(enabled: Bool) -> some View {
-        Text(resolutionText)
-            .font(.caption.monospaced())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .opacity(enabled ? 1.0 : 0.4)
-    }
-
-    private var resolutionText: String {
-        guard let caps = viewModel.capabilities else { return "—" }
-        return "\(caps.activeCaptureResolution.width)×\(caps.activeCaptureResolution.height)"
+    private func resolutionButton(enabled: Bool) -> some View {
+        ResolutionPickerButton(
+            supportedSizes: viewModel.supportedSizesCache,
+            active: viewModel.capabilities?.activeCaptureResolution,
+            enabled: enabled,
+            onPick: { viewModel.setResolution($0) }
+        )
+        .equatable()
     }
 
     private var isRecordingActive: Bool {
@@ -724,5 +721,65 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
 
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+}
+
+// MARK: - Resolution picker
+
+/// Standalone bottom-bar button for the resolution picker.
+///
+/// Inputs are plain value types (no `@Observable` references), so SwiftUI only
+/// re-evaluates this view when one of its props changes — not on every
+/// `CameraView.body` re-render driven by 30 Hz `lastFrameResult` updates.
+/// Stable identity keeps the Menu's gesture recognition responsive.
+///
+/// `Equatable` conformance compares only the equatable inputs (sizes, active,
+/// enabled) — the `onPick` closure is intentionally ignored. Without this,
+/// SwiftUI treats every parent re-render as "props changed" because closures
+/// have no value equality, defeating the view-extraction isolation.
+private struct ResolutionPickerButton: View, Equatable {
+    let supportedSizes: [Size]
+    let active: Size?
+    let enabled: Bool
+    let onPick: (Size) -> Void
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.supportedSizes == rhs.supportedSizes
+            && lhs.active == rhs.active
+            && lhs.enabled == rhs.enabled
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(supportedSizes, id: \.self) { size in
+                Button {
+                    onPick(size)
+                } label: {
+                    if size == active {
+                        Label("\(size.width)×\(size.height)", systemImage: "checkmark")
+                    } else {
+                        Text("\(size.width)×\(size.height)")
+                    }
+                }
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "aspectratio").font(.title3)
+                Text(label).font(.caption2.monospaced())
+            }
+            .frame(minWidth: 60)
+            .foregroundStyle(.white)
+            .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .disabled(!enabled)
+        .opacity(enabled ? 1.0 : 0.4)
+        .accessibilityLabel("Resolution")
+        .accessibilityHint("Choose capture resolution")
+    }
+
+    private var label: String {
+        guard let active else { return "—" }
+        return "\(active.width)×\(active.height)"
     }
 }

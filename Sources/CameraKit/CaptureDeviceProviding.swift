@@ -131,16 +131,73 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     }
 
     var supportedSizes: [Size] {
-        avDevice.formats.compactMap { format in
-            // Filter to 8-bit biplanar YUV (CAPTURE_PIXEL_FORMAT per constants.md)
+        // `avDevice.formats` returns one entry per (dimensions, FPS range,
+        // binned/full readout, pixel-range) combination — so each resolution
+        // typically appears 4–8 times. Callers (and the public picker) want
+        // a *unique* list of selectable resolutions, sorted by area.
+        //
+        // Filter: FullRange ('420f') only; VideoRange ('420v') is rejected
+        // per user directive 2026-05-13. Minimum 640×480 ("480p floor") —
+        // smaller formats (352×288, 480×360) are not user-meaningful for
+        // this app. Contradicts G-17 / architecture/03-camera-session.md
+        // §Enumeration which accepts VideoRange.
+        var seen: Set<Size> = []
+        var unique: [Size] = []
+        for format in avDevice.formats {
             let desc = format.formatDescription
             let pixelFormat = CMFormatDescriptionGetMediaSubType(desc)
-            guard
-                pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-                    || pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-            else { return nil }
+            guard pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else { continue }
             let dims = CMVideoFormatDescriptionGetDimensions(desc)
-            return Size(width: Int(dims.width), height: Int(dims.height))
+            let w = Int(dims.width)
+            let h = Int(dims.height)
+            guard w >= 640 && h >= 480 else { continue }
+            let size = Size(width: w, height: h)
+            if seen.insert(size).inserted {
+                unique.append(size)
+            }
+        }
+        return unique.sorted { ($0.width * $0.height) > ($1.width * $1.height) }
+    }
+
+    /// Internal debug helper — enumerates every `AVCaptureDevice.Format`.
+    ///
+    /// Each entry: FourCC, dimensions, FPS ranges, and bit-depth/range tag.
+    /// Called from `ViewModel.dumpCapabilities` to write a one-shot
+    /// snapshot to `Documents/capabilities.txt`. No filtering — includes
+    /// formats we explicitly reject (VideoRange, 10-bit, sub-480p) so we
+    /// can see what the device actually surfaces.
+    func dumpAllFormats() -> [String] {
+        avDevice.formats.map { format in
+            let desc = format.formatDescription
+            let dims = CMVideoFormatDescriptionGetDimensions(desc)
+            let pixelFormat = CMFormatDescriptionGetMediaSubType(desc)
+            let four = fourCC(pixelFormat)
+            let tag = bitDepthRangeTag(pixelFormat)
+            let fps = format.videoSupportedFrameRateRanges
+                .map { r -> String in
+                    let mn = Int(r.minFrameRate.rounded())
+                    let mx = Int(r.maxFrameRate.rounded())
+                    return mn == mx ? "\(mn)" : "\(mn)-\(mx)"
+                }
+                .joined(separator: ",")
+            let binned = format.isVideoBinned ? "binned" : "full"
+            let hdr = format.isVideoHDRSupported ? " hdr" : ""
+            let fov = String(format: "%.0f°", format.videoFieldOfView)
+            let zoom = String(format: "%.1fx", format.videoMaxZoomFactor)
+            let colorSpaces = format.supportedColorSpaces
+                .map { space -> String in
+                    switch space {
+                    case .sRGB: return "sRGB"
+                    case .P3_D65: return "P3"
+                    case .HLG_BT2020: return "HLG"
+                    case .appleLog: return "AppleLog"
+                    @unknown default: return "cs?"
+                    }
+                }
+                .joined(separator: "+")
+            return
+                "'\(four)' \(dims.width)×\(dims.height) fps=\(fps) \(tag) "
+                + "[\(binned)\(hdr) fov=\(fov) zoom≤\(zoom) cs=\(colorSpaces)]"
         }
     }
 
@@ -456,5 +513,31 @@ private func wbSettledWait(avDevice: AVCaptureDevice) async {
             try? await Task.sleep(for: .seconds(2))
             resumeOnce()
         }
+    }
+}
+
+// MARK: - Format-dump helpers (file-private, used by LiveCaptureDevice.dumpAllFormats)
+
+private func fourCC(_ code: FourCharCode) -> String {
+    let bytes: [UInt8] = [
+        UInt8((code >> 24) & 0xFF),
+        UInt8((code >> 16) & 0xFF),
+        UInt8((code >> 8) & 0xFF),
+        UInt8(code & 0xFF),
+    ]
+    return String(bytes: bytes, encoding: .ascii) ?? "????"
+}
+
+private func bitDepthRangeTag(_ pixelFormat: FourCharCode) -> String {
+    switch pixelFormat {
+    case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange: return "8-bit 4:2:0 FullRange"
+    case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange: return "8-bit 4:2:0 VideoRange"
+    case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange: return "10-bit 4:2:0 FullRange"
+    case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange: return "10-bit 4:2:0 VideoRange"
+    case kCVPixelFormatType_422YpCbCr8: return "8-bit 4:2:2"
+    case kCVPixelFormatType_422YpCbCr8_yuvs: return "8-bit 4:2:2 (yuvs)"
+    case kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange: return "10-bit 4:2:2 VideoRange"
+    case kCVPixelFormatType_32BGRA: return "8-bit BGRA"
+    default: return "unknown"
     }
 }
