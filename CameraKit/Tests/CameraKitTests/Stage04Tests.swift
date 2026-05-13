@@ -151,34 +151,6 @@ struct Stage04Tests {
 
     // MARK: - Helpers
 
-    /// Writes a uniform RGBA half-float fill into an IOSurface-backed CVPixelBuffer
-    /// of pixel format kCVPixelFormatType_64RGBAHalf.
-    private func fillBufferUniform(
-        _ buffer: CVPixelBuffer,
-        r: Float, g: Float, b: Float, a: Float
-    ) throws {
-        CVPixelBufferLockBaseAddress(buffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else {
-            throw MetalError.unsupportedFormat
-        }
-        // Float16 packed: 4 channels × 2 bytes = 8 bytes per pixel.
-        let pixel = packHalfRGBA(r: r, g: g, b: b, a: a)
-        for y in 0..<height {
-            let row = base.advanced(by: y * bytesPerRow)
-                .assumingMemoryBound(to: UInt16.self)
-            for x in 0..<width {
-                row[x * 4 + 0] = pixel.r
-                row[x * 4 + 1] = pixel.g
-                row[x * 4 + 2] = pixel.b
-                row[x * 4 + 3] = pixel.a
-            }
-        }
-    }
-
     /// Writes a uniform `base` fill, then overwrites a fraction of pixels
     /// with `outlier` value (used to verify trimmed-mean discard).
     private func fillBufferWithOutliers(
@@ -235,16 +207,6 @@ struct Stage04Tests {
     }
 
     // MARK: - Float16 packing helpers
-
-    private struct HalfPixel { let r, g, b, a: UInt16 }
-
-    private func packHalfRGBA(r: Float, g: Float, b: Float, a: Float) -> HalfPixel {
-        HalfPixel(
-            r: Float16(r).bitPattern,
-            g: Float16(g).bitPattern,
-            b: Float16(b).bitPattern,
-            a: Float16(a).bitPattern)
-    }
 
     private func unpackHalf(_ bits: UInt16) -> Float {
         Float(Float16(bitPattern: bits))

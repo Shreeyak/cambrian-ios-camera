@@ -263,7 +263,10 @@ struct Stage09FPSTests {
     func fpsDegradedRequiresStreak() async throws {
         // Verifies constants and error code accessibility.
         // Full integration test requires driving engine.noteFrameDelivered() with a TestClock.
-        #expect(Constants.fpsDegradedThresholdFps == 15.0)
+        // `fpsDegradedThresholdFps` (absolute fps) was renamed to
+        // `fpsDegradedFraction` (fraction of expected fps) — engine now derives
+        // the threshold dynamically as `expectedFps * Constants.fpsDegradedFraction`.
+        #expect(Constants.fpsDegradedFraction == 0.8)
         #expect(Constants.fpsDegradedStreakCount == 3)
         #expect(Constants.fpsMeasurementWindowFrames == 30)
         let err = CameraError(code: .fpsDegraded, message: "10.0 fps over 30-frame window", isFatal: false)

@@ -22,6 +22,7 @@
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
 		CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47509CEAA74698DC7E545FE /* Stage11Tests.swift */; };
 		E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */; };
+		E3DA5760A785849A4323F68B /* TestPixelHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */; };
 		F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45007E7AF3327300AB0630E3 /* Stage02Tests.swift */; };
 		F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */; };
 		FEB5776E21A1294A5CA6ED39 /* Stage06Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40574632638223EEF0762DC /* Stage06Tests.swift */; };
@@ -62,6 +63,7 @@
 		AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage10Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage10Tests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
+		DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TestPixelHelpers.swift; path = CameraKit/Tests/CameraKitTests/TestPixelHelpers.swift; sourceTree = "<group>"; };
 		DE72B917051A958CCDA6299B /* Stage09Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage09Tests.swift; sourceTree = "<group>"; };
 		E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage07Tests.swift; sourceTree = "<group>"; };
 		E47509CEAA74698DC7E545FE /* Stage11Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage11Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage11Tests.swift; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 			children = (
 				AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */,
 				E47509CEAA74698DC7E545FE /* Stage11Tests.swift */,
+				DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */,
 			);
 			name = CameraKitTests;
 			sourceTree = "<group>";
@@ -351,6 +354,7 @@
 				1597FE0511AFD9C0406D7498 /* Stage09Tests.swift in Sources */,
 				E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */,
 				CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */,
+				E3DA5760A785849A4323F68B /* TestPixelHelpers.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

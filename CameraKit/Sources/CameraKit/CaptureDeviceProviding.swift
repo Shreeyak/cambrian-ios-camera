@@ -1,6 +1,7 @@
 import AVFoundation
 import Atomics
 import Foundation
+import Synchronization
 
 // MARK: - ADR-32 test seam
 
@@ -75,6 +76,27 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     // ISO/exposure coupling reads `lastSnapshot`.
     func snapshotStream() -> AsyncStream<DeviceStateSnapshot>
     var lastSnapshot: DeviceStateSnapshot? { get async }
+
+    /// Begins ingesting KVO snapshots into `lastSnapshot`. No-op if already running.
+    ///
+    /// Called by `CameraEngine.open()` after the session is built so that Rule 3
+    /// of the ISO/exposure coupling has a populated `lastSnapshot` to read.
+    func installKVOIngest() async
+
+    /// Cancels the KVO ingest task and drops the observer. No-op if not running.
+    func cancelKVO() async
+
+    /// Returns a per-format dump of every `AVCaptureDevice.Format`
+    /// (FourCC, dimensions, FPS ranges, bit-depth tag, FOV, zoom, color spaces).
+    ///
+    /// Used by `ViewModel.dumpCapabilities` to snapshot the format table to
+    /// `Documents/capabilities.txt`. Returns `[]` on fakes that don't surface
+    /// real AVFoundation formats.
+    func dumpAllFormats() async -> [String]
+
+    /// Current lens aperture (f-number) reported by the device — written into
+    /// still-capture EXIF. Returns `0` on fakes that don't model optics.
+    var lensAperture: Float { get async }
 }
 
 // MARK: - DeviceStateSnapshot (ADR-14; KVO stream wired Stage 03)
@@ -212,6 +234,8 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     }
 
     var maxWhiteBalanceGain: Float { avDevice.maxWhiteBalanceGain }
+
+    var lensAperture: Float { avDevice.lensAperture }
 
     func lockForConfiguration() throws { try avDevice.lockForConfiguration() }
     func unlockForConfiguration() { avDevice.unlockForConfiguration() }
@@ -426,30 +450,34 @@ private func aeSettledWait(avDevice: AVCaptureDevice) async {
 
     nonisolated(unsafe) let dev = avDevice
 
-    final class ObservationBox: @unchecked Sendable {
-        var observation: NSKeyValueObservation?
-    }
+    // `NSKeyValueObservation` is non-Sendable; share it across the @Sendable KVO
+    // closure and deadline Task via `Mutex<…>`, which is unconditionally Sendable.
+    // CAS still owns the resume-once invariant; Mutex only serializes token I/O.
+    let tokenSlot = Mutex<NSKeyValueObservation?>(nil)
 
     await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
         let resumed = ManagedAtomic<Bool>(false)
-        let box = ObservationBox()
 
         let resumeOnce: @Sendable () -> Void = {
             let (won, _) = resumed.compareExchange(
                 expected: false, desired: true,
                 ordering: .sequentiallyConsistent
             )
-            if won {
-                box.observation?.invalidate()
-                cont.resume()
+            guard won else { return }
+            tokenSlot.withLock { token in
+                token?.invalidate()
+                token = nil
             }
+            cont.resume()
         }
 
-        box.observation = dev.observe(
-            \.isAdjustingExposure, options: [.new]
-        ) { _, change in
-            guard change.newValue == false else { return }
-            resumeOnce()
+        tokenSlot.withLock { token in
+            token = dev.observe(
+                \.isAdjustingExposure, options: [.new]
+            ) { _, change in
+                guard change.newValue == false else { return }
+                resumeOnce()
+            }
         }
 
         if !dev.isAdjustingExposure {
@@ -472,33 +500,35 @@ private func wbSettledWait(avDevice: AVCaptureDevice) async {
     // Mutations always gate through `lockForConfiguration()` on sessionQueue (ADR-07).
     nonisolated(unsafe) let dev = avDevice
 
-    // `NSKeyValueObservation` is not `Sendable`; box it so both `@Sendable`
-    // branches can share a reference to the live token and invalidate it.
-    final class ObservationBox: @unchecked Sendable {
-        var observation: NSKeyValueObservation?
-    }
+    // `NSKeyValueObservation` is non-Sendable; share it across the @Sendable KVO
+    // closure and deadline Task via `Mutex<…>`, which is unconditionally Sendable.
+    // CAS still owns the resume-once invariant; Mutex only serializes token I/O.
+    let tokenSlot = Mutex<NSKeyValueObservation?>(nil)
 
     await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
         let resumed = ManagedAtomic<Bool>(false)
-        let box = ObservationBox()
 
         let resumeOnce: @Sendable () -> Void = {
             let (won, _) = resumed.compareExchange(
                 expected: false, desired: true,
                 ordering: .sequentiallyConsistent
             )
-            if won {
-                box.observation?.invalidate()
-                cont.resume()
+            guard won else { return }
+            tokenSlot.withLock { token in
+                token?.invalidate()
+                token = nil
             }
+            cont.resume()
         }
 
         // KVO branch: resumes as soon as AWB settles.
-        box.observation = dev.observe(
-            \.isAdjustingWhiteBalance, options: [.new]
-        ) { _, change in
-            guard change.newValue == false else { return }
-            resumeOnce()
+        tokenSlot.withLock { token in
+            token = dev.observe(
+                \.isAdjustingWhiteBalance, options: [.new]
+            ) { _, change in
+                guard change.newValue == false else { return }
+                resumeOnce()
+            }
         }
 
         // Pre-check: if already settled by the time the observer is wired up,

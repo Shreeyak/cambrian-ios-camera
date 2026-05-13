@@ -47,6 +47,66 @@ grep -rn '10:synchronous-drain-pause' CameraKit/Sources/
 ```
 Must return ≥1 hit before any Stage 12 edit.
 
+## Pending runtime test verification (Family B follow-ups, 2026-05-13)
+
+The Family B reviewer follow-ups landed today as a single commit cluster —
+**10 of 10 items actioned**, zero deferred. The source punch-list plan was
+deleted on close; the resolution narrative for each item lives in the
+"Code changes this pass" section below and in the commit body. Library +
+**full test bundle** both **build-verify** clean on physical iPad after a
+clean rebuild (`build_device` + `build-for-testing` from a purged
+`Objects-normal/`, errors 0 / warnings 0, `** TEST BUILD SUCCEEDED **`).
+
+**Pre-existing test rot discovered + fixed (out of Family B scope):**
+`Stage09Tests.swift:266` was asserting against `Constants.fpsDegradedThresholdFps`,
+a constant that was renamed to `Constants.fpsDegradedFraction: Double = 0.8`
+when the FPS-degradation threshold became fraction-of-expected rather than
+absolute fps. Incremental builds had been keeping the old `Stage09Tests.o`
+on disk and skipping recompilation, masking the breakage. Surfaced today when
+verifying Family B tests required a clean test-bundle build. Assertion updated
+to `Constants.fpsDegradedFraction == 0.8` with a comment naming the rename.
+Not Family B work — pre-existing — but required to clear the verification path.
+
+**Tests written but not yet executed** — host-app wiring blocker
+(`docs/superpowers/plans/2026-05-13-camerakit-tests-host-app-wiring.md`)
+must land first. When it does, run the punch list in
+`docs/superpowers/plans/2026-05-13-family-b-followups-test-verification.md`:
+
+- `Stage11Tests.swift` → suite `Stage 11 — Family B follow-ups: calibration no-frame semantics` (4 cases)
+- `Stage01Tests.swift` → `captureDeviceProviderSeamFamilyBSurface` + `engineDumpDeviceFormatsReturnsEmptyWhenClosed`
+
+Plus the regression set (Stage 11 BB calibration, Stage 11 patch sizing,
+Stage 04 color pipeline + center patch, Stage 03 KVO adapter) — all touch
+helpers/symbols renamed or extracted in this pass.
+
+**Code changes this pass** (all build-verified, runtime-pending):
+- `MetalError`: + `.textureAllocationFailed`, + `.noFrameAvailable`,
+  + `Equatable` conformance. `commandBufferFailed(-10)` site migrated;
+  both calibration paths now throw `.noFrameAvailable` on cold-engine sampling
+  instead of silently returning `(0,0,0)` (centerPatch) or `.unsupportedFormat`
+  (BB).
+- `MetalPipeline.dispatchCenterPatchOnNatural()` rewritten to read
+  `latestNaturalTex` directly (no pool fallback) + TOCTOU invariant comment.
+- `MetalPipeline.setProcessingForTest` → `setColorUniformsForTest`.
+- `CaptureDeviceProviding` gains `installKVOIngest()`, `cancelKVO()`,
+  `dumpAllFormats() -> [String]`, `lensAperture: Float`. Removed all four
+  `as? LiveCaptureDevice` casts in `CameraEngine.swift`.
+- `aeSettledWait` / `wbSettledWait`: hand-rolled `ObservationBox: @unchecked Sendable`
+  replaced with `Mutex<NSKeyValueObservation?>`. `Mutex<…>` is unconditionally
+  `Sendable`, so the escape hatch is gone. CAS resume-once invariant unchanged.
+  Reviewer's "wait for Apple to ship Sendable KVO" framing was wrong; the
+  standard-library Mutex was sufficient.
+- `TestPixelHelpers.swift` extracted (`fillBufferUniform`, `packHalfRGBA`,
+  `HalfPixel`) — eliminated 3-way verbatim duplication between Stage04/Stage11.
+- `Stage11Tests` `s2 >= 16 && s2 <= 32` → `s2 == 30` (deterministic).
+- `Stage03Tests` `kvoAsyncStreamAdapterEmitsOnChange` rewritten — the
+  pre-existing test pinned a strong observer reference through the polling
+  loop and asserted a tautology (`released == false || released == true`).
+  Strong refs (observer / stream / consumer task) now scoped into a `do` block
+  so they release at brace exit; assertion tightened to `#expect(released == true)`.
+  `weak var` retained with a comment documenting the SourceKit
+  `weak-mutability` false positive — `weak let` does not compile in Swift.
+
 ## What's built — Stage 11 (permanent)
 
 UI control plane decomposed from a single 398-line `ViewModel` into a parent + six `@Observable @MainActor` child VMs, plus four pure helpers. No new module-level public API beyond `OrientationLock` and a `WhiteBalanceGains.init(fromGrayWorld:)` convenience. Engine surface unchanged.

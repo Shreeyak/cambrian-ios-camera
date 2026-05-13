@@ -18,6 +18,11 @@ actor FakeCaptureDevice: CaptureDeviceProviding {
     var isoRange: ClosedRange<Float> { 20.0...800.0 }
     var exposureDurationRangeNs: ClosedRange<Int64> { 1_000...500_000_000 }
     var maxWhiteBalanceGain: Float { 4.0 }
+    var lensAperture: Float { 0 }
+
+    func installKVOIngest() {}
+    func cancelKVO() {}
+    func dumpAllFormats() -> [String] { [] }
 
     func lockForConfiguration() throws {}
     func unlockForConfiguration() {}
@@ -101,6 +106,39 @@ struct Stage01Tests {
 
         let maxGain = await fake.maxWhiteBalanceGain
         #expect(maxGain == 4.0)
+    }
+
+    // MARK: Test 1b — protocol surface added by Family B follow-ups
+
+    /// `CaptureDeviceProviding` now owns four members that previously required
+    /// an `as? LiveCaptureDevice` cast in `CameraEngine` (`installKVOIngest`,
+    /// `cancelKVO`, `dumpAllFormats`, `lensAperture`). The fake must implement
+    /// all four — this test pins the seam contract for future fakes.
+    @Test func captureDeviceProviderSeamFamilyBSurface() async throws {
+        let fake = FakeCaptureDevice()
+
+        let aperture = await fake.lensAperture
+        #expect(aperture == 0)
+
+        let formats = await fake.dumpAllFormats()
+        #expect(formats.isEmpty)
+
+        // Both lifecycle methods must complete without throwing on a fake that
+        // doesn't model KVO — they're no-ops by construction.
+        await fake.installKVOIngest()
+        await fake.cancelKVO()
+    }
+
+    // MARK: Test 1c — engine routes through the protocol, not the concrete type
+
+    /// `CameraEngine.dumpDeviceFormats()` on a closed engine returns `[]`
+    /// without crashing. Pre-Family-B follow-up this routed through an
+    /// `as? LiveCaptureDevice` cast that silently returned `[]` on fakes; now
+    /// it forwards to the protocol's `dumpAllFormats()`.
+    @Test func engineDumpDeviceFormatsReturnsEmptyWhenClosed() async {
+        let engine = CameraEngine()
+        let formats = await engine.dumpDeviceFormats()
+        #expect(formats.isEmpty)
     }
 
     // MARK: Test 2 — 01:largest-4x3-format-selected
