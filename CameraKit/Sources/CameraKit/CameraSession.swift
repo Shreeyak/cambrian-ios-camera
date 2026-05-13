@@ -83,27 +83,17 @@ final class CameraSession: @unchecked Sendable {
             throw EngineError.noBackCamera
         }
 
-        // ── 2. Format selection (G-17) ──────────────────────────────────────────────
-        // Filter: 8-bit biplanar YUV (FullRange preferred, VideoRange accepted per G-17
-        // and architecture/03-camera-session.md §Enumeration step 1).
+        // ── 2. Format selection (G-17, partial override 2026-05-13) ────────────────
+        // Filter: 8-bit biplanar YUV FullRange only. VideoRange is rejected per
+        // user directive — see state.md Decision §63. Contradicts G-17 and
+        // architecture/03-camera-session.md §Enumeration step 1.
         let yuvFormats: [AVCaptureDevice.Format] = avDevice.formats.filter { format in
-            let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
-            return subType == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-                || subType == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            CMFormatDescriptionGetMediaSubType(format.formatDescription)
+                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         }
 
-        // Among YUV formats, prefer FullRange, then VideoRange.
-        // Sort FullRange first so the first 4:3 hit is FullRange when available.
+        // Sort by pixel count descending (largest first).
         let sortedByPreference: [AVCaptureDevice.Format] = yuvFormats.sorted { lhs, rhs in
-            let lhsFull =
-                CMFormatDescriptionGetMediaSubType(lhs.formatDescription)
-                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-            let rhsFull =
-                CMFormatDescriptionGetMediaSubType(rhs.formatDescription)
-                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-            if lhsFull != rhsFull { return lhsFull }  // FullRange first
-
-            // Within same range type, sort by pixel count descending (largest first).
             let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
             let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
             return Int(lDims.width) * Int(lDims.height) > Int(rDims.width) * Int(rDims.height)
@@ -316,7 +306,14 @@ final class CameraSession: @unchecked Sendable {
                     cont.resume(throwing: EngineError.noBackCamera)
                     return
                 }
+                // Match on (FullRange pixel format, exact dimensions). FullRange-only
+                // mirrors the initial open() filter (state.md Decision §63) so resolution
+                // changes can't accidentally land on a VideoRange format.
                 let match = dev.formats.first { fmt in
+                    let subType = CMFormatDescriptionGetMediaSubType(fmt.formatDescription)
+                    guard subType == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else {
+                        return false
+                    }
                     let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
                     return Int(d.width) == size.width && Int(d.height) == size.height
                 }

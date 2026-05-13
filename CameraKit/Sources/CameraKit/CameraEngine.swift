@@ -180,8 +180,12 @@ public actor CameraEngine {
 
         // 5. Wire sample buffer → Metal encode.
         //    Closure runs on delivery queue (ADR-02); pipeline is @unchecked Sendable.
-        delegate.onSampleBuffer = { [weak pipeline] sampleBuffer in
-            try? pipeline?.encode(sampleBuffer: sampleBuffer)
+        //    Capture `self` and dispatch through `_metalPipeline` — that slot is
+        //    rewritten by `setResolution()` when the pipeline is rebuilt, so the
+        //    closure must read it live each frame rather than capture the original
+        //    `pipeline` reference (which goes nil at the first `setResolution`).
+        delegate.onSampleBuffer = { [weak self] sampleBuffer in
+            try? self?._metalPipeline?.encode(sampleBuffer: sampleBuffer)
         }
         delegate.engine = self
 
@@ -503,8 +507,12 @@ public actor CameraEngine {
         metalPipeline = pipeline
         _metalPipeline = pipeline
 
+        captureDelegate?.logNextFrame = true
         submissionGate.store(true, ordering: .sequentiallyConsistent)
         await session.startRunningAsync()
+        CameraKitLog.notice(
+            .engine,
+            "[resolution] startRunning returned sessionRunning=\(session.avSession.isRunning)")
     }
 
     /// Signals the app entered background.
@@ -541,6 +549,17 @@ public actor CameraEngine {
                 .engine,
                 "[bgresume] startRunning returned sessionRunning=\(session.avSession.isRunning)")
         }
+    }
+
+    /// Debug: dump every `AVCaptureDevice.Format` the active device exposes.
+    ///
+    /// Includes FourCC + dimensions + FPS ranges + bit-depth/range tag.
+    /// Returns `[]` when no live device is bound (e.g., closed engine or
+    /// fake provider in tests). Used by `ViewModel.dumpCapabilities` to
+    /// snapshot the format table to `Documents/capabilities.txt`.
+    func dumpDeviceFormats() async -> [String] {
+        guard let live = cameraSession?.device as? LiveCaptureDevice else { return [] }
+        return await live.dumpAllFormats()
     }
 
     /// Exposes the live natural-tex mailbox for the MTKView draw pass.

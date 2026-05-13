@@ -53,7 +53,25 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     ) {
         if logNextFrame {
             logNextFrame = false
-            CameraKitLog.notice(.engine, "[capture] first-frame after suspend")
+            if let pb = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                let w = CVPixelBufferGetWidth(pb)
+                let h = CVPixelBufferGetHeight(pb)
+                let pf = CVPixelBufferGetPixelFormatType(pb)
+                let four =
+                    String(
+                        bytes: [
+                            UInt8((pf >> 24) & 0xFF),
+                            UInt8((pf >> 16) & 0xFF),
+                            UInt8((pf >> 8) & 0xFF),
+                            UInt8(pf & 0xFF),
+                        ],
+                        encoding: .ascii) ?? "????"
+                CameraKitLog.notice(
+                    .engine,
+                    "[capture] first-frame after restart actual=\(w)x\(h) pf='\(four)'")
+            } else {
+                CameraKitLog.notice(.engine, "[capture] first-frame after restart (no image buffer)")
+            }
         }
         watchdogs?.gpu.refresh()
         watchdogs?.capture.refresh()

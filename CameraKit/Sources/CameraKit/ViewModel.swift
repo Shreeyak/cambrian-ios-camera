@@ -24,6 +24,17 @@ final class ViewModel {
     var captureResult: Result<StillCaptureOutput, Error>?
     var error: EngineError?
 
+    /// Cached supported capture resolutions, populated once at `engine.open()`.
+    ///
+    /// The set of supported sizes is a property of the active `AVCaptureDevice`
+    /// and does not change during a session, so the resolution picker reads
+    /// from this stable slot instead of `capabilities?.supportedSizes` —
+    /// `capabilities` is rebuilt by `setResolution` to update
+    /// `activeCaptureResolution`, and SwiftUI would otherwise rebuild the
+    /// Menu's `ForEach` content tree on every resolution change.
+    /// `@ObservationIgnored` because the value never changes after open.
+    @ObservationIgnored var supportedSizesCache: [Size] = []
+
     // MARK: - Engine + child VMs
 
     let engine: CameraEngine
@@ -86,13 +97,14 @@ final class ViewModel {
     func start() async {
         do {
             let caps = try await engine.open()
+            supportedSizesCache = caps.supportedSizes
             capabilities = caps
             await display.attachAfterOpen()
             await hardware.start()
             await processing.start()
             await recording.start()
             await errors.start()
-            dumpCapabilities(caps)
+            await dumpCapabilities(caps)
         } catch let e as EngineError {
             error = e
             sessionState = .error
@@ -164,6 +176,7 @@ final class ViewModel {
         await engine.close()
         do {
             let caps = try await engine.open()
+            supportedSizesCache = caps.supportedSizes
             capabilities = caps
             await display.attachAfterOpen()
             frameResultTask = Task { [weak self] in
@@ -197,6 +210,46 @@ final class ViewModel {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled else { return }
                 await MainActor.run { self?.captureResult = nil }
+            }
+        }
+    }
+
+    // MARK: - Resolution change (parent-owned because it mutates session capabilities)
+
+    /// Switch active capture resolution to one of `capabilities.supportedSizes`.
+    ///
+    /// Fires-and-forgets the engine call; on success refreshes the local
+    /// `capabilities` mirror so the bottom-bar label reflects the new
+    /// `activeCaptureResolution`. `CameraSession.reconfigureSize` matches
+    /// exactly on width+height, so the user-tapped value is authoritative.
+    func setResolution(_ size: Size) {
+        Task { [weak self] in
+            guard let self else { return }
+            if let current = self.capabilities?.activeCaptureResolution, current == size {
+                CameraKitLog.notice(.engine, "[resolution] tap \(size.width)x\(size.height) is current — no-op")
+                return
+            }
+            CameraKitLog.notice(.engine, "[resolution] applying \(size.width)x\(size.height)")
+            do {
+                try await self.engine.setResolution(size: size)
+                if let caps = self.capabilities {
+                    self.capabilities = SessionCapabilities(
+                        supportedSizes: caps.supportedSizes,
+                        previewTextureId: caps.previewTextureId,
+                        naturalTextureId: caps.naturalTextureId,
+                        activeCaptureResolution: size,
+                        activeCropRegion: caps.activeCropRegion,
+                        streamPixelFormat: caps.streamPixelFormat,
+                        isoRange: caps.isoRange,
+                        exposureDurationRangeNs: caps.exposureDurationRangeNs
+                    )
+                }
+                CameraKitLog.notice(.engine, "[resolution] applied \(size.width)x\(size.height)")
+            } catch let e as EngineError {
+                CameraKitLog.error(.engine, "[resolution] EngineError: \(e)")
+                self.error = e
+            } catch {
+                CameraKitLog.error(.engine, "[resolution] setResolution threw: \(error)")
             }
         }
     }
@@ -240,7 +293,7 @@ final class ViewModel {
 
     // MARK: - Capabilities dump (debug helper, written to Documents/capabilities.txt)
 
-    private func dumpCapabilities(_ caps: SessionCapabilities) {
+    private func dumpCapabilities(_ caps: SessionCapabilities) async {
         var lines: [String] = [
             "SessionCapabilities",
             "===================",
@@ -259,6 +312,18 @@ final class ViewModel {
         for s in caps.supportedSizes {
             lines.append("  \(s.width) × \(s.height)")
         }
+
+        // All device.formats entries (unfiltered) — useful when picker results
+        // look surprising. FourCC + dimensions + FPS range + bit-depth/range.
+        let formatLines = await engine.dumpDeviceFormats()
+        if !formatLines.isEmpty {
+            lines.append("")
+            lines.append("All device.formats (unfiltered):")
+            for line in formatLines {
+                lines.append("  \(line)")
+            }
+        }
+
         let text = lines.joined(separator: "\n") + "\n"
         if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             let url = dir.appendingPathComponent("capabilities.txt")

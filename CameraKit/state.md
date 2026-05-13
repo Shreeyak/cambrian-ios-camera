@@ -1,11 +1,11 @@
 # state.md — Stage 11
 
 ## Current stage
-Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1–4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16 fixed. Three §11 HITL evidence items (UI / Liquid Glass / VoiceOver) verified 2026-05-09. **Bug 11 (resolution control) is the last open Stage-12 entry blocker.**
+Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1–4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 fixed. Three §11 HITL evidence items (UI / Liquid Glass / VoiceOver) verified 2026-05-09. **All Stage-12 entry blockers cleared; HITL verification of the Bug 11 picker pending.**
 
-## ⚠️ Blocking Stage 12 — bug 11
+## Stage-12 entry — Bug 11 picker pending HITL
 
-Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`. Stage 12 must clear bug 11 before retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work.
+Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`. Stage 12 begins by retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work; the only remaining gate is iPad HITL on the resolution picker.
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
@@ -18,7 +18,7 @@ Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (no
 | 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | **FIXED** (single-shot Apple `grayWorldDeviceWhiteBalanceGains`; Calibrate / Lock / Auto sidebar; UI status; verified 2026-05-09 HITL) |
 | 8 | Black-balance has no sample-point indicator | LOW | **FIXED** (Stage 11 Task 11 reticle overlay; verified 2026-05-09 HITL) |
 | 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIXED** (2026-04-30 lock around fps setters in `39b9ffe`; verified 2026-05-12 HITL) |
-| 11 | Resolution control is a static label, not a button | LOW-MED | **OPEN** — Stage 12 |
+| 11 | Resolution control is a static label, not a button | LOW-MED | **FIXED** (2026-05-13 — `resolutionLabel` rewritten as `Menu` listing `capabilities.supportedSizes`; checkmark on `activeCaptureResolution`; `ViewModel.setResolution(_:)` wraps `engine.setResolution`, reconstructs capabilities mirror on success, surfaces errors via `error: EngineError?`. iPad HITL pending.) |
 | 14 | Second REC press silently fails to save video | HIGH | **FIXED** (2026-05-12 — `Recording.stop` rewritten to ADR-30 CAS-race finalize; verified 2026-05-12 HITL — stop `durationMs` 39-99 vs 5032-5102 pre-fix; zero silent `.finalizing` no-ops) |
 
 Bugs 5, 6, 9, 15, 16 status in `docs/stage-11-pre-existing-bugs.md` summary table.
@@ -184,6 +184,77 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
     silently in-app today). Both gaps are documented in
     `docs/superpowers/plans/2026-05-13-error-surfacing-followups.md` for
     a follow-up pass.
+63. **2026-05-13 — FullRange-only pixel format; VideoRange dropped; 640×480
+    picker floor.** `CameraSession.swift` (initial open filter) and
+    `CaptureDeviceProviding.supportedSizes` (picker list) and
+    `CameraSession.reconfigureSize` (resolution-change match) all reject
+    `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange` ('420v') and accept
+    only `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange` ('420f'). The
+    picker additionally drops anything smaller than 640×480 (sub-VGA
+    formats like 352×288 / 480×360 are not user-meaningful for this app).
+    Contradicts G-17 and `architecture/03-camera-session.md` §Enumeration
+    step 1, which both say "FullRange preferred, VideoRange accepted." User
+    directive — the downstream Metal YCbCr→RGB conversion is calibrated for
+    FullRange ([0,255]); VideoRange ([16,235]) would require a different
+    matrix or pre-scale and we'd rather fail fast than render washed-out
+    blacks. Risk: if a device exposes a resolution *only* in VideoRange,
+    that resolution disappears from the picker (or, at startup with no 4:3
+    FullRange match, `open()` falls back to fallback dimensions). The new
+    `Documents/capabilities.txt` dump (every `device.formats` entry with
+    FourCC + dimensions + FPS range + bit depth) lets us see exactly which
+    formats are affected on each iPad. Flag upstream.
+64. **2026-05-13 — Bug 11 picker robustness.** Three problems surfaced in
+    first HITL: (a) menu listed each resolution 4–8 times because
+    `supportedSizes` was one-`Size`-per-`AVCaptureDevice.Format` and each
+    resolution typically has many format variants; (b) SwiftUI `Menu` was
+    sluggish/unresponsive because `ForEach(id: \.self)` over duplicate
+    `Size` hashes violated SwiftUI's ID-uniqueness contract; (c) tapping
+    "different" resolutions often picked another format with the same
+    `Size`, hitting `ViewModel.setResolution`'s `current == size`
+    short-circuit and looking like a silent failure. Fix: dedupe at the
+    source — `supportedSizes` insertion-orders unique `Size`s and sorts
+    area-descending. Combined with §63 the picker now offers ~5 distinct
+    resolutions in the order users expect.
+65. **2026-05-13 — `delegate.onSampleBuffer` closure must read `_metalPipeline`
+    live, not capture the original pipeline weakly.** Original
+    `open()` wiring captured `[weak pipeline]` in the sample-buffer
+    callback, so the closure pinned to the open-time pipeline. The
+    first `setResolution` `metalPipeline = nil` cleared that weak
+    reference; from that point on the closure resolved to `nil` and
+    every sample buffer was silently dropped (`try? nil?.encode(...)`).
+    AVF kept delivering, captureDelegate kept refreshing the watchdog
+    (no stall), but no frames reached `MetalPipeline.encode` on the
+    new pipeline — preview went black, capture continuations never
+    resumed (Pass 6 never armed). Fix: capture `[weak self]` and dispatch
+    via `self?._metalPipeline?.encode(...)`; the `_metalPipeline` slot
+    is rewritten by `setResolution` so the closure always sees the
+    current pipeline. Confirmed on iPad HITL — preview switches and
+    captures land at the picker's chosen size. Bug latent since
+    `setResolution` was first wired; surfaced only now because Bug 11
+    made `setResolution` user-reachable.
+66. **2026-05-13 — `ViewModel.supportedSizesCache` decouples picker
+    items from the `capabilities` struct.** The list of supported
+    resolutions is a property of the active `AVCaptureDevice` and
+    doesn't change during a session, but `capabilities` is rebuilt
+    by `ViewModel.setResolution` to update `activeCaptureResolution`.
+    Cached separately as `@ObservationIgnored var supportedSizesCache:
+    [Size]`, populated once from `caps.supportedSizes` at engine open
+    (`start()` and `retryFromFatal()`). The resolution Menu's `ForEach`
+    now reads from this stable slot, so SwiftUI's diffing doesn't
+    rebuild the item tree on resolution change. Paired with restyling
+    the Menu label as a `VStack(icon: "aspectratio", text: resolutionText)`
+    with `.contentShape(Rectangle())` + `.menuStyle(.button)` +
+    `.menuIndicator(.hidden)` for tap-target responsiveness on iPad.
+67. **2026-05-13 — Picker → saved-image-resolution alignment is parked.**
+    Plan written at
+    `docs/superpowers/plans/2026-05-13-resolution-picker-honor-saved-image.md`.
+    HITL confirmed picker drives both preview and saved-TIFF dimensions
+    (1280×720 picker → 1280×720 preview + 1280×720 TIFF; same FOV as the
+    full-res 4032×3024 capture). `activeCropRegion` in `SessionCapabilities`
+    is still pure metadata that doesn't match what the Metal pipeline
+    actually renders (no crop is applied); plan's Option B (drop the
+    `activeCropRegion` / `setCropRegion` public API) remains the
+    recommendation but is deferred. No code change today.
 
 ## Open questions for next stage
 
