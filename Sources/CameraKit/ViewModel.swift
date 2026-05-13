@@ -114,13 +114,7 @@ final class ViewModel {
             return
         }
 
-        frameResultTask = Task { [weak self] in
-            guard let engine = self?.engine else { return }
-            for await r in await engine.frameResultStream() {
-                guard let self else { return }
-                await MainActor.run { self.lastFrameResult = r }
-            }
-        }
+        frameResultTask = makeFrameResultTask()
 
         var needsPostRecoverySetup = false
         for await state in await engine.stateStream() {
@@ -130,13 +124,7 @@ final class ViewModel {
                 needsPostRecoverySetup = false
                 frameResultTask?.cancel()
                 frameResultTask = nil
-                frameResultTask = Task { [weak self] in
-                    guard let engine = self?.engine else { return }
-                    for await r in await engine.frameResultStream() {
-                        guard let self else { return }
-                        await MainActor.run { self.lastFrameResult = r }
-                    }
-                }
+                frameResultTask = makeFrameResultTask()
                 await display.detachBeforeClose()
                 await display.attachAfterOpen()
             }
@@ -179,13 +167,7 @@ final class ViewModel {
             supportedSizesCache = caps.supportedSizes
             capabilities = caps
             await display.attachAfterOpen()
-            frameResultTask = Task { [weak self] in
-                guard let engine = self?.engine else { return }
-                for await r in await engine.frameResultStream() {
-                    guard let self else { return }
-                    await MainActor.run { self.lastFrameResult = r }
-                }
-            }
+            frameResultTask = makeFrameResultTask()
         } catch let e as EngineError {
             error = e
             sessionState = .error
@@ -210,6 +192,35 @@ final class ViewModel {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled else { return }
                 await MainActor.run { self?.captureResult = nil }
+            }
+        }
+    }
+
+    // MARK: - Frame-result subscription
+
+    /// Subscribes to `engine.frameResultStream()` and writes `lastFrameResult`.
+    ///
+    /// `engine.frameResultStream()` emits per frame (30 Hz). We skip writes
+    /// where the new `FrameResult` equals the last published one — that
+    /// drops to zero writes for static scenes (engine still emits every
+    /// frame even when nothing changed). Changing scenes pass through at
+    /// the camera's full 30 Hz so slider readback feels smooth.
+    ///
+    /// No time-based throttle: when an earlier 100 ms (10 Hz) cap was in
+    /// place, the ISO/Shutter/Focus readback text jumped in 100 ms chunks
+    /// during slow slider drags. The picker stays responsive because
+    /// `ExpandedSliderBar` (the only consumer of `lastFrameResult`) is a
+    /// separate `View` struct — its 30 Hz re-renders are local to that
+    /// sub-view and don't invalidate `CameraView.body`.
+    private func makeFrameResultTask() -> Task<Void, Never> {
+        Task { [weak self] in
+            guard let engine = self?.engine else { return }
+            var lastPublished: FrameResult? = nil
+            for await r in await engine.frameResultStream() {
+                guard let self else { return }
+                if r == lastPublished { continue }
+                lastPublished = r
+                await MainActor.run { self.lastFrameResult = r }
             }
         }
     }

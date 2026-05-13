@@ -63,7 +63,7 @@ public struct CameraView: View {
         // (CLAUDE.md §8 — bottom-bar idiom: independently-anchored insets).
         .safeAreaInset(edge: .bottom, spacing: 8) {
             if showExpandedBar {
-                expandedBar(enablement: enablement)
+                ExpandedSliderBar(viewModel: viewModel, enablement: enablement)
                     .padding(.horizontal, 12)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -241,70 +241,10 @@ public struct CameraView: View {
         return String(format: "%02d:%02d", s / 60, s % 60)
     }
 
-    // MARK: - Expanded bar (ISO / Shutter / Focus / Zoom)
-
-    @ViewBuilder
-    private func expandedBar(enablement: ControlEnablement) -> some View {
-        let settings = viewModel.hardware.currentSettings
-        let frame = viewModel.lastFrameResult
-        let caps = viewModel.capabilities
-
-        VStack(alignment: .leading, spacing: 10) {
-            expandedRow(
-                label: "ISO",
-                readback: frame?.iso.map { "\($0)" } ?? "AUTO",
-                initial: Double(settings.iso ?? Int(frame?.iso ?? 400)),
-                range: caps.map {
-                    Double($0.isoRange.lowerBound)...Double($0.isoRange.upperBound)
-                } ?? 30...3200,
-                push: viewModel.hardware.pushISO
-            )
-            expandedRow(
-                label: "Shutter (ms)",
-                readback: frame?.exposureTimeNs.map { String(format: "%.1f", Double($0) / 1_000_000) } ?? "AUTO",
-                initial: Double(settings.exposureTimeNs ?? frame?.exposureTimeNs ?? 16_666_667) / 1_000_000.0,
-                range: 1.0...100.0,
-                push: { ms in viewModel.hardware.pushShutter(ms * 1_000_000) }
-            )
-            expandedRow(
-                label: "Focus",
-                readback: frame?.focusDistance.map { String(format: "%.2f", $0) } ?? "AUTO",
-                initial: settings.focusDistance ?? frame?.focusDistance ?? 0.5,
-                range: 0.0...1.0,
-                push: viewModel.hardware.pushFocus
-            )
-            expandedRow(
-                label: "Zoom",
-                readback: String(format: "%.1fx", settings.zoomRatio ?? 1.0),
-                initial: settings.zoomRatio ?? 1.0,
-                range: 1.0...4.0,
-                push: viewModel.hardware.pushZoom
-            )
-        }
-        .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .opacity(enablement.isSettingsEnabled ? 1.0 : 0.4)
-        .disabled(!enablement.isSettingsEnabled)
-    }
-
-    @ViewBuilder
-    private func expandedRow(
-        label: String,
-        readback: String,
-        initial: Double,
-        range: ClosedRange<Double>,
-        push: @escaping (Double) -> Void
-    ) -> some View {
-        HStack {
-            Text(label).foregroundStyle(.white).frame(width: 100, alignment: .leading)
-            Text(readback)
-                .font(.caption.monospaced())
-                .foregroundStyle(.white)
-                .frame(width: 80, alignment: .trailing)
-            SliderRebinding(initial: initial, range: range, onChange: push)
-                .frame(maxWidth: .infinity)
-        }
-    }
+    // (Expanded bar lives in `ExpandedSliderBar` at the bottom of this file —
+    // extracted so its reads of `viewModel.lastFrameResult` /
+    // `hardware.currentSettings` don't invalidate `CameraView.body` on every
+    // slider-readback tick.)
 
     // MARK: - Calibration reticle (Bug 8 — sample-point indicator)
 
@@ -781,5 +721,85 @@ private struct ResolutionPickerButton: View, Equatable {
     private var label: String {
         guard let active else { return "—" }
         return "\(active.width)×\(active.height)"
+    }
+}
+
+// MARK: - Expanded slider bar (ISO / Shutter / Focus / Zoom)
+
+/// Standalone sub-view for the four-slider expanded bar.
+///
+/// All reads of `viewModel.lastFrameResult` and
+/// `viewModel.hardware.currentSettings` happen inside *this* body, so when
+/// those change SwiftUI only invalidates `ExpandedSliderBar` — not the
+/// parent `CameraView`. Paired with the 10 Hz throttle in
+/// `ViewModel.makeFrameResultTask`, this is what keeps the picker, toolbar,
+/// and sidebar from re-rendering on every camera frame.
+private struct ExpandedSliderBar: View {
+    let viewModel: ViewModel
+    let enablement: ControlEnablement
+
+    var body: some View {
+        let settings = viewModel.hardware.currentSettings
+        let frame = viewModel.lastFrameResult
+        let caps = viewModel.capabilities
+
+        VStack(alignment: .leading, spacing: 10) {
+            row(
+                label: "ISO",
+                readback: frame?.iso.map { "\($0)" } ?? "AUTO",
+                initial: Double(settings.iso ?? Int(frame?.iso ?? 400)),
+                range: caps.map {
+                    Double($0.isoRange.lowerBound)...Double($0.isoRange.upperBound)
+                } ?? 30...3200,
+                push: viewModel.hardware.pushISO
+            )
+            row(
+                label: "Shutter (ms)",
+                readback: frame?.exposureTimeNs.map {
+                    String(format: "%.1f", Double($0) / 1_000_000)
+                } ?? "AUTO",
+                initial: Double(settings.exposureTimeNs ?? frame?.exposureTimeNs ?? 16_666_667)
+                    / 1_000_000.0,
+                range: 1.0...100.0,
+                push: { ms in viewModel.hardware.pushShutter(ms * 1_000_000) }
+            )
+            row(
+                label: "Focus",
+                readback: frame?.focusDistance.map { String(format: "%.2f", $0) } ?? "AUTO",
+                initial: settings.focusDistance ?? frame?.focusDistance ?? 0.5,
+                range: 0.0...1.0,
+                push: viewModel.hardware.pushFocus
+            )
+            row(
+                label: "Zoom",
+                readback: String(format: "%.1fx", settings.zoomRatio ?? 1.0),
+                initial: settings.zoomRatio ?? 1.0,
+                range: 1.0...4.0,
+                push: viewModel.hardware.pushZoom
+            )
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .opacity(enablement.isSettingsEnabled ? 1.0 : 0.4)
+        .disabled(!enablement.isSettingsEnabled)
+    }
+
+    @ViewBuilder
+    private func row(
+        label: String,
+        readback: String,
+        initial: Double,
+        range: ClosedRange<Double>,
+        push: @escaping (Double) -> Void
+    ) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.white).frame(width: 100, alignment: .leading)
+            Text(readback)
+                .font(.caption.monospaced())
+                .foregroundStyle(.white)
+                .frame(width: 80, alignment: .trailing)
+            SliderRebinding(initial: initial, range: range, onChange: push)
+                .frame(maxWidth: .infinity)
+        }
     }
 }
