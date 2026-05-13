@@ -3,6 +3,7 @@ import CoreVideo
 import Foundation
 import ImageIO
 import Testing
+
 @testable import CameraKit
 
 @Suite("Stage07Tests — Still Image Capture (TIFF + EXIF)")
@@ -18,7 +19,6 @@ struct Stage07Tests {
             gateOpen: false
         )
         let capture = StillCapture()
-        capture.authorizationProvider = { .denied }
 
         let buf = try makeFp16Buffer(width: 64, height: 48, r: 0.5, g: 0.5, b: 0.5)
         let tmpURL = FileManager.default.temporaryDirectory
@@ -81,15 +81,17 @@ struct Stage07Tests {
             outputURL: outURL
         )
         guard let src = CGImageSourceCreateWithURL(outURL as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else {
             Issue.record("Failed to decode TIFF at \(outURL.path)")
             return
         }
         #expect(cgImage.width == size.width)
         #expect(cgImage.height == size.height)
         guard let dataProvider = cgImage.dataProvider,
-              let data = dataProvider.data,
-              let bytes = CFDataGetBytePtr(data) else {
+            let data = dataProvider.data,
+            let bytes = CFDataGetBytePtr(data)
+        else {
             Issue.record("No pixel data in decoded TIFF")
             return
         }
@@ -127,24 +129,26 @@ struct Stage07Tests {
             outputURL: outURL
         )
         guard let src = CGImageSourceCreateWithURL(outURL as CFURL, nil),
-              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
-              let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any],
-              let userComment = exif[kCGImagePropertyExifUserComment as String] as? String else {
+            let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
+            let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any],
+            let userComment = exif[kCGImagePropertyExifUserComment as String] as? String
+        else {
             Issue.record("Missing EXIF UserComment in TIFF")
             return
         }
         guard let data = userComment.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
             Issue.record("UserComment is not valid JSON: \(userComment)")
             return
         }
         #expect(json["CamPlugin/v1"] != nil, "JSON must contain 'CamPlugin/v1' key")
     }
 
-    // MARK: - 07:photo-library-authorization-denied-falls-back
+    // MARK: - 07:default-flow-writes-to-documents
 
-    @Test("photo-library-authorization-denied-falls-back: writes to documents directory")
-    func photoLibraryAuthorizationDeniedFallsBack() async throws {
+    @Test("default-flow-writes-to-documents: outputURL=nil resolves to <Documents>/<timestamp>.tif")
+    func defaultFlowWritesToDocuments() async throws {
         let size = Size(width: 2, height: 2)
         let buf = try makeFp16Buffer(width: size.width, height: size.height, r: 0.3, g: 0.4, b: 0.5)
         let metal = try MetalPipeline(
@@ -153,7 +157,6 @@ struct Stage07Tests {
             gateOpen: false
         )
         let capture = StillCapture()
-        capture.authorizationProvider = { .denied }
 
         let t = Task<StillCaptureOutput, Error> {
             try await capture.captureImage(
@@ -207,8 +210,9 @@ struct Stage07Tests {
             outputURL: outURL
         )
         guard let src = CGImageSourceCreateWithURL(outURL as CFURL, nil),
-              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
-              let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any] else {
+            let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
+            let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        else {
             Issue.record("No EXIF dictionary in TIFF")
             return
         }
@@ -231,8 +235,9 @@ private func makeFp16Buffer(
         kCVPixelBufferWidthKey: width,
         kCVPixelBufferHeightKey: height,
     ]
-    let s = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
-                                kCVPixelFormatType_64RGBAHalf, attrs as CFDictionary, &buf)
+    let s = CVPixelBufferCreate(
+        kCFAllocatorDefault, width, height,
+        kCVPixelFormatType_64RGBAHalf, attrs as CFDictionary, &buf)
     guard s == kCVReturnSuccess, let buf else {
         throw NSError(domain: "Test", code: Int(s))
     }
@@ -267,9 +272,13 @@ private func float16(_ v: Float) -> UInt16 {
         let sign = UInt16((bits >> 31) & 1) << 15
         let exp = Int((bits >> 23) & 0xFF) - 127 + 15
         let man = (bits >> 13) & 0x3FF
-        if exp <= 0 { h = sign }
-        else if exp >= 31 { h = sign | 0x7C00 }
-        else { h = sign | UInt16(exp << 10) | UInt16(man) }
+        if exp <= 0 {
+            h = sign
+        } else if exp >= 31 {
+            h = sign | 0x7C00
+        } else {
+            h = sign | UInt16(exp << 10) | UInt16(man)
+        }
     }
     return h
 }

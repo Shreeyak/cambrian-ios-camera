@@ -149,6 +149,41 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
     on decode. `.auto` and `.locked` round-trip unchanged. Calibration is a
     per-session intent. Side effect: any latent recurrence of the historical
     Bug-12 cold-launch-black symptom is rendered harmless.
+61. **2026-05-13 — Recording output is now user-visible (Files.app + opt-in Photos).**
+    Two-piece landing of `docs/superpowers/plans/2026-05-12-recording-output-visibility.md`:
+    Piece 1 (`d8ecfc0`) added `INFOPLIST_KEY_UIFileSharingEnabled` +
+    `LSSupportsOpeningDocumentsInPlace` so `<Documents>` shows in Files.app
+    under "On My iPad → eva-swift-stitch". Piece 2 unified the still + video
+    output API: `RecordingOptions.outputDirectory` + `fileName` were replaced
+    by `outputURL: URL?` + `photosDestination: PhotosDestination` (`.none`
+    / `.copy` / `.move`); `CameraEngine.captureImage(outputPath: String?)`
+    became `captureImage(outputURL: URL? = nil, photosDestination: .none)`.
+    Both APIs route through a new `PhotosLibraryClient` (`resolve` for the
+    URL contract, `publish` for the dispatch, `describe` for typed
+    PHPhotosError messages). `URL.documentsDirectory` is the default
+    location; sandbox escapes throw `EngineError.invalidOutputPath`. Photos
+    auth is requested eagerly in `engine.open()` so the prompts fire
+    back-to-back at first launch instead of mid-shoot. Photos-publish
+    failures are non-fatal: the on-disk file is preserved and a
+    `CameraError(.unknownError, isFatal:false)` is emitted on
+    `errorStream()` for the host app to react to. Architectural deviations
+    versus the spec doc: the spec recommended a host-side "hook seam"; we
+    chose a unified library-side API instead, so a host app drops in
+    `CameraView()` with just the two usage-description Info.plist keys and
+    no Photos plumbing of its own. Stop-promptness (Bug 14) is preserved
+    for `.none` (default); `.copy`/`.move` add the `PHPhotoLibrary`
+    roundtrip latency to `stopRecording`'s wall time, which is acceptable
+    because the caller opted in.
+62. **2026-05-13 — Photos publish errors emit on `errorStream()`; host UI
+    surface deferred.** Both `engine.captureImage` and `engine.stopRecording`
+    publish a non-fatal `CameraError` on `errorStream()` when
+    `PhotosLibraryClient.publish` throws (e.g. `accessUserDenied`). The
+    `eva-swift-stitch` host app does not yet subscribe a UI banner to that
+    stream, and `RecordingViewModel.toggleRecording`'s catch only logs
+    (so `EngineError.invalidOutputPath` from a bad outputURL also fails
+    silently in-app today). Both gaps are documented in
+    `docs/superpowers/plans/2026-05-13-error-surfacing-followups.md` for
+    a follow-up pass.
 
 ## Open questions for next stage
 
