@@ -2,10 +2,13 @@
 # test-summary.sh — wrap `xcodebuild test`; structured output via xcsift.
 #
 # Usage: scripts/test-summary.sh [--scheme NAME] [--filter SUITE] [--destination DEST] [--verbose]
-#   --scheme      default: CameraKit (package scheme, the common case)
-#                 use `eva-swift-stitch` for app-level tests
-#   --filter      passed as `-only-testing:<value>` (e.g. CameraKitTests/Stage01Tests)
-#   --destination override sim/device destination
+#   --scheme      default: eva-swift-stitch (app scheme, hosts CameraKitTests
+#                 via the dual-membership pattern documented in CLAUDE.md §8)
+#                 — switch to `CameraKit` only when running the package's
+#                 SwiftPM testTarget directly (rare; not runnable on device).
+#   --filter      passed as `-only-testing:<value>`
+#                 (e.g. eva-swift-stitchTests/PhotosLibraryClientResolveTests)
+#   --destination override device destination
 #   --verbose     dump full xcodebuild log at the end
 #
 # Destination: physical iPad preferred, Mac "Designed for iPad" fallback.
@@ -14,7 +17,7 @@
 # at .build-logs/<ts>-test-<scheme>.json. Read either at any time.
 set -uo pipefail
 
-SCHEME="CameraKit"
+SCHEME="eva-swift-stitch"
 FILTER=""
 DESTINATION=""
 VERBOSE=0
@@ -34,11 +37,9 @@ if [[ -z "$DESTINATION" ]]; then
   # Prefer physical iPad; fall back to Mac "Designed for iPad". If neither,
   # ERROR — never silently use a simulator.
   #
-  # Caveat: CameraKitTests is tool-hosted. Running `xcodebuild test` against
-  # a physical device fails with "Tool-hosted testing is unavailable on device
-  # destinations" until the target is wired to a host app. Mac "Designed for
-  # iPad" may work where physical iPad does not, since Mac is not a "device
-  # destination" in the iOS sense. See CLAUDE.md §8.
+  # eva-swift-stitchTests is app-hosted (TEST_HOST=eva-swift-stitch.app) and
+  # compiles the package's test sources directly via the dual-membership
+  # pattern (CLAUDE.md §8). Physical iPad is the canonical run target.
   DESTS=$(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
   DEVICE_UUID=$(echo "$DESTS" \
     | grep -E '\{ *platform:iOS, ' \
@@ -47,7 +48,7 @@ if [[ -z "$DESTINATION" ]]; then
     | sed -E 's/.*id:([A-Fa-f0-9-]+).*/\1/')
   if [[ -n "$DEVICE_UUID" ]]; then
     DESTINATION="platform=iOS,id=$DEVICE_UUID"
-    echo "DEST: physical iPad $DEVICE_UUID (will fail if test target is tool-hosted — see CLAUDE.md §8)"
+    echo "DEST: physical iPad $DEVICE_UUID"
   elif echo "$DESTS" | grep -qE 'platform:macOS.*variant:Designed for iPad'; then
     DESTINATION="platform=macOS,arch=arm64,variant=Designed for iPad"
     echo "DEST: Mac 'Designed for iPad' (no physical device connected)"

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02414E067C405CFBDAEF4EEE /* PhotosLibraryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */; };
 		14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */; };
 		14E07E1E2F8E513F00E9F7FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */; };
 		14E07E212F8E513F00E9F7FC /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */; };
@@ -20,6 +21,7 @@
 		5411DD80E5D86868D71B4EF9 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4EFB126527016EEBF27C9B62 /* CameraKit */; };
 		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
+		A29E2F497E8D7BB932CCCE24 /* Stage08Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */; };
 		CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47509CEAA74698DC7E545FE /* Stage11Tests.swift */; };
 		E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */; };
 		E3DA5760A785849A4323F68B /* TestPixelHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */; };
@@ -59,9 +61,11 @@
 		14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		14E07E432F8E51EC00E9F7FC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		45007E7AF3327300AB0630E3 /* Stage02Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage02Tests.swift; sourceTree = "<group>"; };
+		5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage08Tests.swift; sourceTree = "<group>"; };
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage10Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage10Tests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
+		BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotosLibraryClientTests.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
 		DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TestPixelHelpers.swift; path = CameraKit/Tests/CameraKitTests/TestPixelHelpers.swift; sourceTree = "<group>"; };
 		DE72B917051A958CCDA6299B /* Stage09Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage09Tests.swift; sourceTree = "<group>"; };
@@ -107,6 +111,8 @@
 				B40574632638223EEF0762DC /* Stage06Tests.swift */,
 				E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */,
 				DE72B917051A958CCDA6299B /* Stage09Tests.swift */,
+				BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */,
+				5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -355,6 +361,8 @@
 				E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */,
 				CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */,
 				E3DA5760A785849A4323F68B /* TestPixelHelpers.swift in Sources */,
+				02414E067C405CFBDAEF4EEE /* PhotosLibraryClientTests.swift in Sources */,
+				A29E2F497E8D7BB932CCCE24 /* Stage08Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -582,6 +590,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
@@ -602,6 +611,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;

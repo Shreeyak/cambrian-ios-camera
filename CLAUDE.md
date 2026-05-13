@@ -250,10 +250,11 @@ coordinator-inlined source and re-reads after edits dominate token burn.
   error.** Both wrappers try a connected physical iPad first; if none,
   Mac "Designed for iPad" (native, not a simulator); if neither, they exit
   with an error. **Simulators are never used** (top of §6).
-  `test-summary.sh` defaults to scheme `CameraKit`; the `eva-swift-stitch`
-  scheme does **not** include `CameraKitTests` in its plan and
-  `-only-testing:CameraKitTests/...` against it fails with "isn't a member
-  of the specified test plan or scheme".
+  `test-summary.sh` defaults to scheme `eva-swift-stitch`. CameraKitTests
+  files compile into the app-hosted `eva-swift-stitchTests` target via
+  dual-membership (§8). Filter as `-only-testing:eva-swift-stitchTests/<SuiteStructName>`
+  — note that each `@Suite` in those files is its own struct, so the
+  filename does NOT work as a filter prefix.
 - **Build log is ground truth; navigator issues are advisory.** Xcode's Issue
   Navigator (`mcp__xcode__XcodeListNavigatorIssues` and the `(SourceKit)`-tagged
   list returned by `BuildProject` / `build_run_*`) reads from a cache that lags
@@ -284,7 +285,8 @@ Pick the tool that fits the question. Match row by row, top-down:
 | Find literal pattern (scaffold slug, TODO, string occurrence) | `Grep` | Claude `Grep` tool or `rg` |
 | List active scaffolds as a table | `scripts/scaffold-inventory.sh` | — |
 | Build iOS target | `mcp__XcodeBuildMCP__build_run_device` (primary) or `scripts/build-summary.sh` (fallback) | Device-only on this machine (no sims). Wrapper pipes xcodebuild→xcsift→`.build-logs/*.json` + raw log. |
-| Run CameraKit or app tests | `mcp__XcodeBuildMCP__test_device` (primary) or `scripts/test-summary.sh` (fallback) | Device-only (no sims). Wrapper defaults to scheme CameraKit; structured JSON via xcsift. Tool-hosted tests fail on device — see §8. |
+| Run CameraKit or app tests | `mcp__XcodeBuildMCP__test_device` (primary) or `scripts/test-summary.sh` (fallback) | Device-only (no sims). Both default to scheme `eva-swift-stitch` (app-hosted CameraKitTests via dual-membership — see §8). Filter as `eva-swift-stitchTests/<SuiteStructName>`. |
+| Re-wire CameraKitTests after adding a new test file | `scripts/sync-test-target.sh` | Idempotent. Adds new `.swift` files under `CameraKit/Tests/CameraKitTests/` to the Xcode test target. See §8. |
 | Stage kickoff coherence checks | `scripts/stage-preflight.sh` | Run as first action of a new stage. |
 | Refresh CONTRACTS.md explicitly | `scripts/regen-contracts.sh` | Auto-runs on pre-commit; rarely needed by hand. |
 | Log a subagent decision | Append one line to `CameraKit/DECISIONS.md` | Stigmergy; coordinator won't re-read. |
@@ -358,16 +360,25 @@ underlying issue and ask again — do not `--amend` around it.
 
 ## 8. Load-bearing invariants
 
-- **Tests use a host app, not tool-hosted.** `xcodebuild test` against a
-  tool-hosted target on a physical-iPad destination fails with `Tool-hosted
-  testing is unavailable on device destinations`. CameraKitTests must run
-  with the `eva-swift-stitch` app as test host. Because simulators are
-  disallowed on this machine (see §6), there is **no simulator fallback**:
-  until the host-app wiring lands, tests run on physical iPad only (if the
-  target is not tool-hosted) or on Mac "Designed for iPad" (which is not an
-  iOS device destination and may accept tool-hosted tests). If both fail,
-  tests are blocked and the host-app wiring must be fixed before tests can
-  run.
+- **Tests use a host app, not tool-hosted; CameraKitTests is dual-membered.**
+  iOS forbids tool-hosted tests on physical-device destinations (`xcodebuild
+  test` errors with `Tool-hosted testing is unavailable on device
+  destinations`), and simulators are disallowed on this machine (§6). So
+  every `.swift` file in `CameraKit/Tests/CameraKitTests/` is compiled by
+  TWO targets: the SwiftPM `.testTarget(name: "CameraKitTests")` in
+  `CameraKit/Package.swift` (the package's portability contract for future
+  extraction — keep untouched), AND the Xcode `eva-swift-stitchTests` target
+  in `eva-swift-stitch.xcodeproj` (`TEST_HOST=eva-swift-stitch.app`, the
+  one that actually runs on the iPad). Canonical run command:
+  `mcp__XcodeBuildMCP__test_device` with scheme `eva-swift-stitch`, or
+  `scripts/test-summary.sh --filter eva-swift-stitchTests/<SuiteStructName>`
+  (no scheme flag needed; default is `eva-swift-stitch`). To add a new test
+  file in a future stage, create it in `CameraKit/Tests/CameraKitTests/`
+  then run `scripts/sync-test-target.sh` (idempotent). Decision #63 in
+  `CameraKit/state.md` records the rationale. Filter caveat: each `@Suite`
+  is its own struct — `-only-testing:eva-swift-stitchTests/Stage10Tests`
+  (filename) matches NOTHING; use the actual struct name from the file
+  (`Stage10CoordinatorTests`, `Stage10HappyPathTests`, etc.).
 - **The current brief is the source of truth for its stage.** If `architecture/`
   or `ios-platform-guide/` appears to contradict the brief, the brief wins; log
   the conflict in `CameraKit/state.md` under "Decisions taken that weren't in

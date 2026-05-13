@@ -211,12 +211,13 @@ struct Stage08Tests {
         let cppToken = try await registry.registerCallback(stream: .natural, callbacks: realCbs)
 
         let stream = await registry.subscribe(stream: .natural)
-        var swiftFrames: [UInt64] = []
-        let task = Task {
+        let task = Task { () -> [UInt64] in
+            var frames: [UInt64] = []
             for await frameSet in stream {
-                swiftFrames.append(frameSet.frameNumber)
-                if swiftFrames.count == 5 { break }
+                frames.append(frameSet.frameNumber)
+                if frames.count == 5 { break }
             }
+            return frames
         }
         // Allow subscription to land before yielding.
         try await Task.sleep(nanoseconds: 20_000_000)
@@ -224,7 +225,7 @@ struct Stage08Tests {
         for i: UInt64 in 1...5 {
             registry.yield(try makeSyntheticFrameSet(frameNumber: i), stream: .natural)
         }
-        await task.value
+        let swiftFrames = await task.value
 
         #expect(swiftFrames.count == 5)
         #expect(capture.frames.count == 5)
