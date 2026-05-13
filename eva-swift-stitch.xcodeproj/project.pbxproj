@@ -513,6 +513,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "CameraKit saves captured still images to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo access to save images.";
@@ -547,6 +548,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "CameraKit saves captured still images to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo access to save images.";

@@ -4,6 +4,8 @@
 <dict>
 	<key>NSCameraReactionEffectGesturesEnabledDefault</key>
 	<false/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UIRequiresFullScreen</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations~ipad</key>
