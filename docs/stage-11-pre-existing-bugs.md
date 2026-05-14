@@ -644,19 +644,21 @@ post-stall. If yes → SwiftUI re-render path. If no → MainActor stall.
 | 8 | Black-balance has no sample-point indicator | LOW | **FIXED** (Stage 11 Task 11 reticle overlay covers both WB + BB sample point; verified 2026-05-09 HITL) | `CameraView.swift` reticle overlay |
 | 9 | Still-capture image content occupies only top-left fraction; rest green | HIGH | **FIXED** (same `sessionPreset = .inputPriority` fix as Bug 6; `027b688`) | `CameraSession.swift` |
 | 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIXED** (2026-04-30 lock around setters in `39b9ffe`; verified 2026-05-12 HITL — no crash, no `lockForConfiguration` markers) | `CameraSession.swift` |
-| 11 | Resolution control is a static label, not a button | LOW-MED | open | `CameraView.swift` resolutionLabel |
+| 11 | Resolution control is a static label, not a button | LOW-MED | **FIXED** (2026-05-13 — `resolutionLabel` rewritten as a `Menu` over `capabilities.supportedSizes`; `ViewModel.setResolution(_:)` wraps `engine.setResolution`; verified 2026-05-14 HITL on iPad) | `CameraView.swift` resolutionLabel |
 | 12 | Black preview on cold launch; capture/REC unfreezes it | HIGH | **FIXED** (verified 2026-05-09 HITL — preview live on cold launch) | `MTKViewRepresentable` / persisted-settings replay path |
 | 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | **FIXED** (single-shot Apple `grayWorldDeviceWhiteBalanceGains`; Calibrate / Lock / Auto sidebar; UI status; verified 2026-05-09 HITL) | `CalibrationViewModel.swift` / `CameraView.swift` |
 | 14 | Second REC press silently fails to save video | HIGH | **FIXED** (2026-05-12 — `Recording.stop` now uses ADR-30 CAS-race finalize; verified 2026-05-12 HITL — stop `durationMs` 39-99 vs 5032-5102 pre-fix, zero silent `.finalizing` no-ops) | `Recording.swift` |
 | 15 | Debug overlay freezes ~frame 1000 (DEBUG-only) | LOW | **FIXED** (camera resume after backgrounding; `9c03fd5`) | `CameraEngine.swift` / scenePhase handling |
 | 16 | ISO/Shutter slider readouts freeze despite device receiving values | MED | **FIXED** (same root cause as Bug 15; `9c03fd5`) | `HardwareControlsViewModel` |
 
-**Stage 12 must clear bug 11** before retiring
-`scaffolding:10:synchronous-drain-pause` and beginning `UIApplication.beginBackgroundTask`
-work. Bug 11 is the last open Stage-12 blocker on this punch-list.
+**All 16 bugs cleared.** Stage 12 can retire
+`scaffolding:10:synchronous-drain-pause` and begin `UIApplication.beginBackgroundTask`
+work with no open punch-list blockers.
 
 Bugs 4, 7, 8, 12, 13 cleared 2026-05-09 (HITL verified on iPad
 `00008027-000539EA0184402E`, iOS 26.4.x, scheme `eva-swift-stitch`).
 Bugs 10 and 14 cleared 2026-05-12 (HITL verified on the same iPad — Bug 10
 fix in commit `39b9ffe` re-verified, Bug 14 fix in the same session as the
 ADR-30 CAS-race finalize change to `Recording.swift`).
+Bug 11 cleared 2026-05-14 (HITL verified on the same iPad — resolution
+`Menu` picker applies the selected size, captures land at that size).

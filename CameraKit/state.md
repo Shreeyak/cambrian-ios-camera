@@ -1,11 +1,11 @@
 # state.md — Stage 11
 
 ## Current stage
-Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1–4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 fixed. Three §11 HITL evidence items (UI / Liquid Glass / VoiceOver) verified 2026-05-09. **All Stage-12 entry blockers cleared; HITL verification of the Bug 11 picker pending.**
+Stage 11 complete (Phase E §8 TESTABLEs verified). Bugs 1–4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 fixed. Three §11 HITL evidence items (UI / Liquid Glass / VoiceOver) verified 2026-05-09. **All Stage-12 entry blockers cleared; Bug 11 picker HITL verified 2026-05-14.**
 
-## Stage-12 entry — Bug 11 picker pending HITL
+## Stage-12 entry — all blockers cleared
 
-Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`. Stage 12 begins by retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work; the only remaining gate is iPad HITL on the resolution picker.
+Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (none introduced by Stage 11). Full root-cause analysis and fix shapes in `docs/stage-11-pre-existing-bugs.md`. All 16 bugs are fixed and HITL-verified. Stage 12 begins by retiring `scaffolding:10:synchronous-drain-pause` and starting `UIApplication.beginBackgroundTask` work — no remaining gates.
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
@@ -18,7 +18,7 @@ Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (no
 | 13 | WB Calibrate is one-shot with no revert / re-sample / auto path | MED | **FIXED** (single-shot Apple `grayWorldDeviceWhiteBalanceGains`; Calibrate / Lock / Auto sidebar; UI status; verified 2026-05-09 HITL) |
 | 8 | Black-balance has no sample-point indicator | LOW | **FIXED** (Stage 11 Task 11 reticle overlay; verified 2026-05-09 HITL) |
 | 10 | REC button crashes app — fps-range setters missing `lockForConfiguration` | BLOCKER | **FIXED** (2026-04-30 lock around fps setters in `39b9ffe`; verified 2026-05-12 HITL) |
-| 11 | Resolution control is a static label, not a button | LOW-MED | **FIXED** (2026-05-13 — `resolutionLabel` rewritten as `Menu` listing `capabilities.supportedSizes`; checkmark on `activeCaptureResolution`; `ViewModel.setResolution(_:)` wraps `engine.setResolution`, reconstructs capabilities mirror on success, surfaces errors via `error: EngineError?`. iPad HITL pending.) |
+| 11 | Resolution control is a static label, not a button | LOW-MED | **FIXED** (2026-05-13 — `resolutionLabel` rewritten as `Menu` listing `capabilities.supportedSizes`; checkmark on `activeCaptureResolution`; `ViewModel.setResolution(_:)` wraps `engine.setResolution`, reconstructs capabilities mirror on success, surfaces errors via `error: EngineError?`. Verified 2026-05-14 HITL on iPad.) |
 | 14 | Second REC press silently fails to save video | HIGH | **FIXED** (2026-05-12 — `Recording.stop` rewritten to ADR-30 CAS-race finalize; verified 2026-05-12 HITL — stop `durationMs` 39-99 vs 5032-5102 pre-fix; zero silent `.finalizing` no-ops) |
 
 Bugs 5, 6, 9, 15, 16 status in `docs/stage-11-pre-existing-bugs.md` summary table.
@@ -54,15 +54,24 @@ grep -rn '10:synchronous-drain-pause' CameraKit/Sources/
 ```
 Must return ≥1 hit before any Stage 12 edit.
 
-## Pending runtime test verification (Family B follow-ups, 2026-05-13)
+## Family B follow-ups (2026-05-13 → verified 2026-05-14)
 
-The Family B reviewer follow-ups landed today as a single commit cluster —
+The Family B reviewer follow-ups landed as a single commit cluster —
 **10 of 10 items actioned**, zero deferred. The source punch-list plan was
 deleted on close; the resolution narrative for each item lives in the
-"Code changes this pass" section below and in the commit body. Library +
-**full test bundle** both **build-verify** clean on physical iPad after a
-clean rebuild (`build_device` + `build-for-testing` from a purged
-`Objects-normal/`, errors 0 / warnings 0, `** TEST BUILD SUCCEEDED **`).
+"Code changes this pass" section below and in the commit body.
+
+**Runtime-verified 2026-05-14** on physical iPad: full test bundle runs
+**118 passed / 0 failed / 0 skipped** (was 71/0/1 when the verification plan
+was written; intervening commits — `260e5e8`, `a0df522`, `f1689dc` — moved
+the baseline, including un-disabling the previously DEBUG-gated skip). All
+six named Family B tests (`centerPatchOnNaturalThrowsBeforeFirstFrame`,
+`bbCalibrationSampleThrowsBeforeFirstFrame`,
+`centerPatchOnNaturalSamplesInstalledTexture`,
+`newMetalErrorCasesDistinguishable`, `captureDeviceProviderSeamFamilyBSurface`,
+`engineDumpDeviceFormatsReturnsEmptyWhenClosed`) plus the regression set
+(Stage 11 BB calibration + patch sizing, Stage 04 color pipeline + center
+patch, Stage 03 KVO adapter) green — verified against the xcresult bundle.
 
 **Pre-existing test rot discovered + fixed (out of Family B scope):**
 `Stage09Tests.swift:266` was asserting against `Constants.fpsDegradedThresholdFps`,
@@ -74,19 +83,7 @@ verifying Family B tests required a clean test-bundle build. Assertion updated
 to `Constants.fpsDegradedFraction == 0.8` with a comment naming the rename.
 Not Family B work — pre-existing — but required to clear the verification path.
 
-**Tests written but not yet executed** — host-app wiring blocker
-(`docs/superpowers/plans/2026-05-13-camerakit-tests-host-app-wiring.md`)
-must land first. When it does, run the punch list in
-`docs/superpowers/plans/2026-05-13-family-b-followups-test-verification.md`:
-
-- `Stage11Tests.swift` → suite `Stage 11 — Family B follow-ups: calibration no-frame semantics` (4 cases)
-- `Stage01Tests.swift` → `captureDeviceProviderSeamFamilyBSurface` + `engineDumpDeviceFormatsReturnsEmptyWhenClosed`
-
-Plus the regression set (Stage 11 BB calibration, Stage 11 patch sizing,
-Stage 04 color pipeline + center patch, Stage 03 KVO adapter) — all touch
-helpers/symbols renamed or extracted in this pass.
-
-**Code changes this pass** (all build-verified, runtime-pending):
+**Code changes this pass** (all verified on device 2026-05-14):
 - `MetalError`: + `.textureAllocationFailed`, + `.noFrameAvailable`,
   + `Equatable` conformance. `commandBufferFailed(-10)` site migrated;
   both calibration paths now throw `.noFrameAvailable` on cold-engine sampling
@@ -217,7 +214,7 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
     per-session intent. Side effect: any latent recurrence of the historical
     Bug-12 cold-launch-black symptom is rendered harmless.
 61. **2026-05-13 — Recording output is now user-visible (Files.app + opt-in Photos).**
-    Two-piece landing of `docs/superpowers/plans/2026-05-12-recording-output-visibility.md`:
+    Two-piece landing:
     Piece 1 (`d8ecfc0`) added `INFOPLIST_KEY_UIFileSharingEnabled` +
     `LSSupportsOpeningDocumentsInPlace` so `<Documents>` shows in Files.app
     under "On My iPad → eva-swift-stitch". Piece 2 unified the still + video
