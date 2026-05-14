@@ -17,9 +17,11 @@ final class RecordingViewModel {
     @ObservationIgnored private var recordingTimerTask: Task<Void, Never>?
 
     private let engine: CameraEngine
+    private let errorPresenter: ErrorPresenterViewModel
 
-    init(engine: CameraEngine) {
+    init(engine: CameraEngine, errorPresenter: ErrorPresenterViewModel) {
         self.engine = engine
+        self.errorPresenter = errorPresenter
     }
 
     /// Subscribe to the recording-state stream; auto-start/stop the timer on transitions.
@@ -66,12 +68,24 @@ final class RecordingViewModel {
                     _ = try await self.engine.startRecording(options: RecordingOptions())
                 } catch {
                     CameraKitLog.error(.engine, "[recording] startRecording threw: \(error)")
+                    self.errorPresenter.present(
+                        CameraError(
+                            code: .recordingStartFailed,
+                            message: "Recording failed to start: \(error)",
+                            isFatal: false
+                        ))
                 }
             case .recording:
                 do {
                     _ = try await self.engine.stopRecording()
                 } catch {
                     CameraKitLog.error(.engine, "[recording] stopRecording threw: \(error)")
+                    self.errorPresenter.present(
+                        CameraError(
+                            code: .recordingFailed,
+                            message: "Recording failed to stop cleanly: \(error)",
+                            isFatal: false
+                        ))
                 }
             default:
                 CameraKitLog.notice(.engine, "[recording] toggle no-op (state=\(snapshot))")

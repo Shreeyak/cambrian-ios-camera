@@ -55,4 +55,10 @@ No subagent entries this stage; coordinator worked inline.
 
 2026-05-08 [stage-09 bugfix] coordinator — fpsDegradedThresholdFps (fixed 15.0 floor) replaced by fpsDegradedFraction=0.8: threshold = expectedFps×0.8, where expectedFps=min(1e9/exposureNs, targetFps) in manual mode and targetFps in auto mode. Long exposure times are intentional; the 15fps hardcoded floor wrongly fired on valid 13fps delivery from a 75ms shutter setting.
 
+2026-05-14 [stage-11 followup] coordinator — Gap 1 (recording start/stop failures invisible to UI): routed RecordingViewModel's caught errors through ErrorPresenterViewModel.present(_:) → top toast, NOT the plan's suggested bottom-banner (ViewModel.captureResult) pattern. Rationale: single error surface, unified with engine errorStream() failures. RecordingViewModel.init now takes errorPresenter:; ViewModel.init creates `errors` before `recording` to wire it.
+
+2026-05-14 [stage-11 followup] coordinator — Unified error surface (per user): captureImage() failures now route to ErrorPresenterViewModel.present(_:) → top toast too, matching recording failures. `ViewModel.captureResult: Result<StillCaptureOutput,Error>?` narrowed+renamed to `captureConfirmation: StillCaptureOutput?` (success-only) — the `.failure` case is dead. captureBanner is now a success-only green confirmation; the red "Capture failed" bottom banner is gone (errors are top toasts only).
+
+2026-05-14 [stage-11 followup] coordinator — Capture-success confirmation moved from bottom safeAreaInset to a top toast (`captureToast`, green checkmark), stacked in a VStack with `errorToast` under one `.overlay(alignment:.top)`. Kept structurally separate from the error toast per user: own state (`captureConfirmation`), own styling — NOT folded into ErrorPresenterViewModel (which is CameraError-typed). Bottom-edge stack is now expandedBar + bottomBar only. Removed dead `ViewModel.error: EngineError?` (write-only field superseded by ErrorPresenterViewModel).
+
 <!-- new entries go above this line; keep the stage header last -->

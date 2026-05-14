@@ -56,6 +56,15 @@ final class ErrorPresenterViewModel {
         fatalDialog = nil
     }
 
+    /// Route an error to the correct surface (toast vs blocking dialog).
+    ///
+    /// For errors raised by sibling view models (e.g. `RecordingViewModel`'s
+    /// caught `startRecording` / `stopRecording` failures) that never reach the
+    /// engine's `errorStream()`.
+    func present(_ err: CameraError) {
+        handleError(err)
+    }
+
     // MARK: - Test seam
 
     /// Test-only: feed an error directly without touching the engine stream.
@@ -63,7 +72,7 @@ final class ErrorPresenterViewModel {
     /// Brief §8 TESTABLEs `11:non-fatal-error-shows-toast` /
     /// `11:fatal-error-shows-blocking-dialog` rely on this.
     func _feedErrorForTest(_ err: CameraError) {
-        handleError(err)
+        present(err)
     }
 
     // MARK: - Private
