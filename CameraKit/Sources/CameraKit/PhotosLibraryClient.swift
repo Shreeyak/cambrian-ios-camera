@@ -163,8 +163,21 @@ enum PhotosLibraryClient {
                 .appendingPathComponent("\(timestamp).\(defaultExt)")
         }
 
+        // Accept both forms of the sandbox root: NSHomeDirectory() returns
+        // `/var/mobile/Containers/Data/Application/<UUID>` while
+        // `FileManager.default.temporaryDirectory` (and any URL that has
+        // round-tripped through Foundation canonicalization) returns
+        // `/private/var/mobile/...`. The two are the same physical path —
+        // iOS exposes `/private/var` as the canonical location with `/var`
+        // as a stable alias. `URL.resolvingSymlinksInPath()` does NOT
+        // collapse `/var` → `/private/var` on iOS in practice, so we check
+        // both prefixes explicitly rather than relying on canonicalization.
         let home = NSHomeDirectory()
-        guard resolved.path.hasPrefix(home) else {
+        let homeFromPrivate = "/private" + home
+        guard
+            resolved.path.hasPrefix(home)
+                || resolved.path.hasPrefix(homeFromPrivate)
+        else {
             throw EngineError.invalidOutputPath(resolved)
         }
 

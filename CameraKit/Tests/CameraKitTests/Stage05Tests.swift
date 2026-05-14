@@ -6,7 +6,7 @@ import Testing
 
 @testable import CameraKit
 
-@Suite("Stage05Tests")
+@Suite("Stage05Tests", .progressLogged)
 struct Stage05Tests {
 
     // MARK: - Test 1 — 05:uniform-lock-no-torn-writes-under-stress

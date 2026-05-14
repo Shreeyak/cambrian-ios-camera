@@ -79,6 +79,47 @@ scripts/device-log-live.sh grep "open\|error"
 
 Or for cleaner output, use the `Grep` tool on `${TMPDIR}/camerakit-live.log` directly.
 
+## Session boundaries — where to start reading
+
+The log file is opened with `seekToEndOfFile()` (see
+`CameraKitLog.enableFileLogging()` at
+`CameraKit/Sources/CameraKit/CameraKitLog.swift`). Each app launch
+**appends** rather than truncating, so a single day's testing can pile
+dozens of sessions into the same file. Most "what just happened?"
+debugging only needs the most recent one.
+
+Every launch writes exactly one marker line at the moment
+`enableFileLogging()` runs:
+
+```
+=== CameraKit session started 2026-05-13 14:04:33 +0000 ===
+```
+
+Recipes for slicing the file by session:
+
+```bash
+LOG=/tmp/camerakit-snapshot.log   # or ${TMPDIR}/camerakit-live.log
+
+# List every launch in the file
+grep 'session started' "$LOG"
+
+# Print everything since the most-recent launch
+LN=$(grep -n 'session started' "$LOG" | tail -1 | cut -d: -f1)
+tail -n "+$LN" "$LOG"
+
+# Inline awk variant (no intermediate var)
+awk '/=== CameraKit session started/{lines=""} {lines=lines"\n"$0} END{print lines}' "$LOG"
+
+# Activity breakdown of the most-recent session
+tail -n "+$LN" "$LOG" | awk '{print $2}' | sort | uniq -c | sort -rn
+```
+
+If a recent session has zero subsequent log lines, the app crashed
+before any `Logger.notice` fired. If a file has zero markers at all,
+either the app crashed before `enableFileLogging()` ran or the call is
+missing from `eva_swift_stitchApp.init()` — re-verify with
+`grep enableFileLogging eva-swift-stitch/eva_swift_stitchApp.swift`.
+
 ## Important rules
 
 - **Never** suggest `log collect`, `pymobiledevice3`, `idevicesyslog`, `start_device_log_cap`,

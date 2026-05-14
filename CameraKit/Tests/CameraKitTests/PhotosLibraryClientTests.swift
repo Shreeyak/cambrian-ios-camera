@@ -6,7 +6,7 @@ import Testing
 
 // MARK: - PhotosLibraryClient.resolve
 
-@Suite("PhotosLibraryClient.resolve")
+@Suite("PhotosLibraryClient.resolve", .progressLogged)
 struct PhotosLibraryClientResolveTests {
 
     @Test("nil outputURL returns <Documents>/<timestamp>.<ext> with no colons in filename")
@@ -61,6 +61,23 @@ struct PhotosLibraryClientResolveTests {
         )
     }
 
+    @Test("FileManager.temporaryDirectory URL (/private/var/... symlink form) is accepted")
+    func sandboxTmpDirectorySymlinkAccepted() throws {
+        // NSHomeDirectory() returns /var/mobile/Containers/Data/Application/<UUID>,
+        // but FileManager.temporaryDirectory canonicalizes through the /private
+        // root symlink and returns /private/var/mobile/... — both point at the
+        // same physical directory inside the sandbox. The hasPrefix(home) check
+        // must accept either form (regression test for the Stage07
+        // still-capture-in-flight-guard / Stage 12 sweep finding).
+        let input = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".tif")
+        let url = try PhotosLibraryClient.resolve(outputURL: input, defaultExt: "tif")
+        #expect(url.path == input.path)
+        // Sanity — the URL really does carry the /private/var/... shape we're
+        // asserting works, otherwise this test isn't covering the regression.
+        #expect(input.path.hasPrefix("/private/var/"))
+    }
+
     @Test("absolute URL outside the app sandbox throws EngineError.invalidOutputPath")
     func sandboxEscapeThrows() {
         let input = URL(fileURLWithPath: "/tmp/eva-test.mp4")
@@ -77,7 +94,7 @@ struct PhotosLibraryClientResolveTests {
 
 // MARK: - PhotosLibraryClient.describe
 
-@Suite("PhotosLibraryClient.describe")
+@Suite("PhotosLibraryClient.describe", .progressLogged)
 struct PhotosLibraryClientDescribeTests {
 
     private func phError(_ code: PHPhotosError.Code) -> NSError {
@@ -135,7 +152,7 @@ struct PhotosLibraryClientDescribeTests {
 
 // MARK: - Recording + PhotosDestination integration
 
-@Suite("Recording + PhotosDestination")
+@Suite("Recording + PhotosDestination", .progressLogged)
 struct RecordingPhotosDestinationTests {
 
     @Test("Recording.start stores options.photosDestination for engine readback")

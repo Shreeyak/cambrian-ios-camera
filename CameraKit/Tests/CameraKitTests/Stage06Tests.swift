@@ -7,7 +7,7 @@ import Testing
 
 @testable import CameraKit
 
-@Suite("Stage06Tests")
+@Suite("Stage06Tests", .progressLogged)
 struct Stage06Tests {
 
     // MARK: - Test 1 — 06:frame-set-publication

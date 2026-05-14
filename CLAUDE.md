@@ -481,6 +481,11 @@ underlying issue and ask again — do not `--amend` around it.
   The script's hardcoded devicectl UDID points to Shreeyak's iPad — when running on
   the second iPad (iPad A16), update the script's `IPAD_UDID` constant to that
   device's *devicectl* UDID first.
+  The log file is **append-only across launches** (`seekToEndOfFile()` on open);
+  every launch emits one `=== CameraKit session started <ISO date> ===` marker.
+  When debugging "what just happened", slice to the latest session first:
+  `LN=$(grep -n 'session started' camerakit.log | tail -1 | cut -d: -f1); tail -n "+$LN" camerakit.log`.
+  Full recipes in the `ipad-logs` skill ("Session boundaries" section).
 - **Metal drawable: acquire → clear → conditional work → always present.**
   Never return between `view.currentDrawable` and `commandBuffer.present(drawable)`.
   Bailing out after acquiring a drawable without presenting it leaves the CAMetalLayer

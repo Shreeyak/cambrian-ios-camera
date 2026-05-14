@@ -7,7 +7,7 @@ import CoreVideo
 
 // MARK: - Stage02Tests
 
-@Suite("Stage02Tests")
+@Suite("Stage02Tests", .progressLogged)
 struct Stage02Tests {
 
     // MARK: Test 1 — 02:gate-closes-on-inactive

@@ -6,7 +6,7 @@ import Testing
 
 @testable import CameraKit
 
-@Suite("Stage04Tests")
+@Suite("Stage04Tests", .progressLogged)
 struct Stage04Tests {
 
     // MARK: - Test 1 — 04:color-pipeline-golden-frame
@@ -100,17 +100,23 @@ struct Stage04Tests {
         #expect(abs(s1.g - 0.6) < 1e-3)
         #expect(abs(s1.b - 0.2) < 1e-3)
 
-        // Outliers test: 90% of pixels at 0.5, 10% at 1.0. Trimmed mean
-        // (10% from each end discarded) drops the high outliers AND an
-        // equal slice from the low end (all 0.5), so the mean stays 0.5.
+        // Outliers test: 95% of pixels at 0.5, 5% at 1.0. The patch on a
+        // 256×256 capture is 16×16 = 256 samples (see scaledCenterPatchSize),
+        // trim = Int(256 * centerPatchTrimRatio) = Int(256 * 0.075) = 19
+        // discarded from each end. 5% of 256 ≈ 13 outliers — the high-end
+        // trim eats all of them and an extra slice of 0.5s, while the
+        // low-end trim drops 19 more 0.5s. Mean of the remaining 218
+        // samples is exactly 0.5. outlierFraction must stay strictly below
+        // centerPatchTrimRatio (with a stride-placement safety margin) or
+        // residual outliers leak through and the mean drifts.
         let (pBuf2, pTex2) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
-        try fillBufferWithOutliers(pBuf2, base: 0.5, outlier: 1.0, outlierFraction: 0.10)
+        try fillBufferWithOutliers(pBuf2, base: 0.5, outlier: 1.0, outlierFraction: 0.05)
         pipeline.setLatestProcessedForTest(buffer: pBuf2, texture: pTex2)
         let s2 = try await pipeline.dispatchCenterPatch()
-        #expect(abs(s2.r - 0.5) < 1e-2)
-        #expect(abs(s2.g - 0.5) < 1e-2)
-        #expect(abs(s2.b - 0.5) < 1e-2)
+        #expect(abs(s2.r - 0.5) < 1e-3)
+        #expect(abs(s2.g - 0.5) < 1e-3)
+        #expect(abs(s2.b - 0.5) < 1e-3)
     }
 
     // MARK: - Test 4 — 04:set-crop-region-updates-uniform

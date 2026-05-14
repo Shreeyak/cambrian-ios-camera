@@ -6,7 +6,7 @@ import Testing
 
 @testable import CameraKit
 
-@Suite("Stage07Tests — Still Image Capture (TIFF + EXIF)")
+@Suite("Stage07Tests — Still Image Capture (TIFF + EXIF)", .progressLogged)
 struct Stage07Tests {
 
     // MARK: - 07:still-capture-in-flight-guard
