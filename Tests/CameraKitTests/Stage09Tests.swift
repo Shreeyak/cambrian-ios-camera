@@ -58,14 +58,6 @@ final class IntCounter: @unchecked Sendable {
     var get: Int { lock.withLock { value } }
 }
 
-/// Thread-safe SessionState recorder for @Sendable closure capture.
-final class SessionStateLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var items: [SessionState] = []
-    func append(_ s: SessionState) { lock.withLock { items.append(s) } }
-    var snapshot: [SessionState] { lock.withLock { items } }
-}
-
 // MARK: - Stage09WatchdogTests
 
 @Suite("Stage 09 — watchdog identity", .progressLogged)
@@ -166,9 +158,22 @@ struct Stage09BackoffIntegrationTests {
         for _ in 0..<Constants.hwErrorThresholdConsecutive {
             _ = await coord.noteHardwareFailure(message: "hw")
         }
-        // TestClock.sleep() returns immediately, so the recursive enterRecovery
-        // chain unwinds synchronously within a handful of Task yields.
-        for _ in 0..<30 { await Task.yield() }
+        // The recursive enterRecovery chain runs via detached retryTasks —
+        // each enterRecovery spawns the next and returns, so there is no
+        // single handle to await. TestClock.sleep() is immediate, so the
+        // chain settles in a handful of yields, but "a handful" is
+        // scheduler-dependent under parallel test load. Poll for the terminal
+        // fatal instead of guessing a fixed count; the cap fails cleanly if
+        // the chain never terminates.
+        var settled = false
+        for _ in 0..<1000 {
+            if errLog.snapshot.last?.code == .maxRetriesExceeded {
+                settled = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(settled, "recovery chain did not reach maxRetriesExceeded within 1000 yields")
 
         let sleeps = clock.sleepRequests
         #expect(sleeps.prefix(5).elementsEqual([500, 1000, 2000, 4000, 8000]))
@@ -182,36 +187,30 @@ struct Stage09BackoffIntegrationTests {
 
 @Suite("Stage 09 — CAMERA_IN_USE self-heal", .progressLogged)
 struct Stage09CameraInUseTests {
-    // Pre-existing test unblocked by Phase 0's Swift-6 concurrency fixes (prior
-    // to Phase 0 the whole file failed to compile, so this test never ran).
-    // It now compiles but fails: the collector Task does not receive any
-    // state events in the 10 Task.yield()s between the two _postSessionEventForTest
-    // calls and collector.cancel(). Root cause needs investigation — likely the
-    // state transitions are gated behind actor hops that aren't given enough
-    // scheduler time, or the test seam isn't wired to publish states without an
-    // open session. Disabled here; Stage 11.5 will port all Stage 09/10 tests to
-    // TCA TestStore where timing becomes deterministic.
-    @Test(
-        "interruption-ended routes engine to .closed without host action (D-14)",
-        .disabled("pre-existing flake; Phase 0 unblocked the compile, Stage 11.5 TestStore port will fix timing")
-    )
+    /// D-14: a `.cameraInUseEnded` interruption drives the engine to `.closed`
+    /// with no host action — the host must call `open()` again to recover.
+    ///
+    /// Previously `.disabled` as a "timing flake"; the real cause was twofold.
+    /// `close()` early-returns before `publishState(.closed)` when `!isOpen`,
+    /// so on a never-opened engine `.closed` was never published at all — and
+    /// the old detached collector `Task` + `Task.yield()` loop raced the
+    /// scheduler regardless. Fix: `_markOpenForTest()` sets the realistic
+    /// precondition (a real interruption only reaches a running session), and
+    /// the `.bufferingOldest` state stream is drained directly per event, so
+    /// each `next()` returns deterministically with no scheduler dependency.
+    @Test("interruption-ended routes engine to .closed without host action (D-14)")
     func cameraInUseSelfHealToClosed() async throws {
         let engine = CameraEngine()
-        let states = SessionStateLog()
-        let stream = await engine.stateStream()
-        let collector = Task {
-            for await s in stream { states.append(s) }
-        }
-        // Drive the CAMERA_IN_USE path via the test seam.
+        await engine._markOpenForTest()
+        var iterator = await engine.stateStream().makeAsyncIterator()
+
         await engine._postSessionEventForTest(.cameraInUseBegan)
+        let afterBegan = await iterator.next()
+        #expect(afterBegan == .error, "expected .error after cameraInUseBegan")
+
         await engine._postSessionEventForTest(.cameraInUseEnded)
-        // Allow async state updates to propagate.
-        for _ in 0..<10 { await Task.yield() }
-        collector.cancel()
-        // cameraInUseBegan publishes .error; cameraInUseEnded calls resetFromTerminal → close → .closed
-        let snap = states.snapshot
-        #expect(snap.contains(.error), "expected .error after cameraInUseBegan")
-        #expect(snap.last == .closed || snap.contains(.closed), "expected .closed after cameraInUseEnded")
+        let afterEnded = await iterator.next()
+        #expect(afterEnded == .closed, "expected .closed after cameraInUseEnded")
     }
 }
 

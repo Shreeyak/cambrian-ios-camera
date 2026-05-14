@@ -395,6 +395,18 @@ public actor CameraEngine {
         publishError(err)
     }
 
+    /// Test-only: mark the engine open so teardown paths (`close()` and the
+    /// `.cameraInUseEnded` self-heal) can be exercised without real hardware.
+    ///
+    /// Sets `isOpen = true` only; `cameraSession`, `metalPipeline`, etc. stay
+    /// nil — `close()` is nil-safe for all of them, so the path runs cleanly
+    /// and reaches `publishState(.closed)`. Reproduces the realistic D-14
+    /// precondition: a `.cameraInUse` interruption only ever reaches a
+    /// running session, i.e. an already-open engine.
+    func _markOpenForTest() {
+        isOpen = true
+    }
+
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
     nonisolated func tickFrame() {
         Task { await self.onFrameTick() }
