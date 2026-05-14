@@ -334,8 +334,42 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
     `[UInt64]` instead. CLAUDE.md §6 + §8 updated. Consequences:
     extraction-time cleanup of dangling `<path>/Tests/CameraKitTests/*.swift`
     references in `eva-swift-stitch.xcodeproj` (~10 min, deletable refs).
-    Pre-existing test failures surfaced once the suites became runnable
-    are diagnose-only (see "Open questions" below).
+    Three pre-existing test defects surfaced once the suites became
+    runnable — all fixed; see Decision #69.
+69. **2026-05-14 — Three pre-existing CameraKitTests defects fixed +
+    `TestProgressLog` trait added.** All three were latent — never caught
+    because the suites were unrunnable on device before Decision #68.
+    Full bundle now **112 passed / 0 failed / 1 skipped** (the skip is the
+    same DEBUG-gated Stage 11 baseline skip) in ~35 s on Shreeyak's iPad.
+    - `PhotosLibraryClient.resolve` rejected legitimate in-sandbox paths
+      in `/private/var/...` canonical form. `NSHomeDirectory()` returns
+      the `/var` alias; `FileManager.temporaryDirectory` returns
+      `/private/var`. `resolvingSymlinksInPath()` does **not** collapse
+      `/var → /private/var` on iOS (verified on device — first fix
+      attempt with it still failed), so the prefix check now tests both
+      `home` and `"/private" + home` explicitly. Regression test
+      `sandboxTmpDirectorySymlinkAccepted` added.
+    - `Stage04Tests.centerPatchTrimmedMean` asserted a trimmed mean of
+      0.5 with a 10 % outlier fraction, but `centerPatchTrimRatio` is
+      0.075 — ~7 outliers per 256-px patch leaked past the trim, drifting
+      the mean to ~0.516. Test's outlier fraction lowered to 0.05 (below
+      the trim ratio); the production constant was correct.
+    - `Stage08Tests.swiftSubscribeIsFacadeOverCppPool` hung the whole
+      runner under parallel load (340 s → WiFi drop). `subscribe()` uses
+      `.bufferingNewest(1)`; the test yielded 5 frames in a tight
+      synchronous loop with a detached consumer `Task` + `Task.sleep`.
+      Under load the consumer was starved, all 5 yields collapsed into
+      the 1-slot buffer, `await task.value` hung. Rewrote as a per-frame
+      yield/drain handshake — deterministic, no `Task.sleep`. The
+      `.bufferingNewest(1)` policy is correct for production (newest
+      frame wins for preview); only the test's lossless-delivery
+      assumption was wrong.
+    `TestProgressLog.swift` is a Swift Testing `TestScoping` trait
+    (`.progressLogged`, applied to all 37 `@Suite` sites) that logs
+    `[test] ▶/✓/✗ <name>` to `camerakit.log` via a new `CameraKitLog`
+    `.test` category. The last `▶` with no matching `✓` names a hung or
+    crashed test exactly — this is what pinpointed the Stage08 hang
+    (`112 ▶ / 111 ✓ / 1 HUNG`). `ipad-logs` skill documents the workflow.
 
 ## Open questions for next stage
 
@@ -343,23 +377,6 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
 - `SessionState.closing` enum reconciliation (Decision #50). Either add the case in `architecture/04-state.md` and use it, or drop `.closing` from brief §8 enablement matrix.
 - HITL evidence under `measurements/stage-11/` — three slugs deferred.
 - ADR-22 error routing for `updateSettings` failures (Decision #58).
-- **Pre-existing test failures uncovered by Decision #68 wiring** — both are now-visible / never-ran-before defects, not Stage 12 regressions. **109 / 111 tests pass** (one skipped is DEBUG-gated, same as Stage 11 baseline). The two failures:
-  - `Stage07Tests.swift:57` — `still-capture-in-flight-guard` returns
-    `.invalidOutputPath` for a path under
-    `/private/var/mobile/Containers/Data/Application/<UUID>/tmp/<file>.tif`
-    when the test expected `.alreadyInFlight`. The sandbox-prefix check
-    in `PhotosLibraryClient.resolve` likely compares against
-    `/var/mobile/Containers/Data/Application/<UUID>/` (no `/private/`)
-    while the temp URL resolves through the `/private/var → /var` symlink
-    that iOS adds when `URL.temporaryDirectory` is canonicalised. Fix
-    candidates: (a) accept both prefixes, (b) resolve `realpath` on both
-    sides before comparing, (c) compare via `URL.standardizedFileURL`.
-  - `Stage04Tests.swift:111-113` — `centerPatchTrimmedMean` numerical
-    tolerance: `0.0161 < 0.01` is the expectation, but the actual value
-    is `0.0161` for each of `r/g/b`. Tolerance too tight by ~1.6×. Most
-    likely a synthetic-frame generator precision change since Stage 04
-    landed. Bump the tolerance to `2e-2` after verifying the patch
-    sampler itself is still correct.
 
 ## What's built — Stage 10 (permanent)
 
