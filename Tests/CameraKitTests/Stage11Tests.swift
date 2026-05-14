@@ -476,6 +476,71 @@ struct Stage11ErrorPresenterTests {
     }
 }
 
+// MARK: - Stage 11 — Error routing (unified top-toast surface)
+//
+// Follow-ups from docs/superpowers/plans/2026-05-13-error-surfacing-followups.md:
+// recording start/stop failures AND still-capture failures must all reach the
+// unified error UI — `ErrorPresenterViewModel`'s top toast — not just the device
+// log. Driven via a never-opened engine, which throws `EngineError.notOpen`,
+// exercising the catch-block routing without a live capture session.
+
+@Suite("Stage 11 — error routing", .progressLogged)
+struct Stage11ErrorRoutingTests {
+
+    /// Poll until the presenter shows a toast, or 2 s elapse.
+    @MainActor
+    private func awaitToast(_ presenter: ErrorPresenterViewModel) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline, presenter.currentToast == nil {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    @Test("toggleRecording start-failure routes a non-fatal error to the presenter")
+    @MainActor
+    func startFailureRoutesToPresenter() async {
+        let engine = CameraEngine()
+        let presenter = ErrorPresenterViewModel(engine: engine)
+        let vm = RecordingViewModel(engine: engine, errorPresenter: presenter)
+
+        // State is `.idle` by default → toggle attempts start → engine throws `.notOpen`.
+        vm.toggleRecording()
+
+        await awaitToast(presenter)
+        #expect(presenter.currentToast != nil, "start-failure should surface a toast")
+        #expect(presenter.currentToast?.isFatal == false)
+        #expect(presenter.fatalDialog == nil)
+    }
+
+    @Test("toggleRecording stop-failure routes a non-fatal error to the presenter")
+    @MainActor
+    func stopFailureRoutesToPresenter() async {
+        let engine = CameraEngine()
+        let presenter = ErrorPresenterViewModel(engine: engine)
+        let vm = RecordingViewModel(engine: engine, errorPresenter: presenter)
+
+        // `.recording` → toggle attempts stop → engine throws `.notOpen`.
+        vm.recordingState = .recording
+        vm.toggleRecording()
+
+        await awaitToast(presenter)
+        #expect(presenter.currentToast != nil, "stop-failure should surface a toast")
+        #expect(presenter.currentToast?.isFatal == false)
+    }
+
+    @Test("captureImage failure routes a non-fatal error to the presenter")
+    @MainActor
+    func captureFailureRoutesToPresenter() async {
+        let vm = ViewModel()  // engine never opened → captureImage throws `.notOpen`.
+        vm.captureImage()
+
+        await awaitToast(vm.errors)
+        #expect(vm.errors.currentToast != nil, "capture failure should surface a toast")
+        #expect(vm.errors.currentToast?.isFatal == false)
+        #expect(vm.captureConfirmation == nil, "failure must not populate the success banner")
+    }
+}
+
 /// Test-only thread-safe wrapper.
 ///
 /// Avoids `import Atomics` — the `eva-swift-stitchTests` target does not link

@@ -7,8 +7,9 @@ import SwiftUI
 /// `@Observable @MainActor` child VMs (display, recording, hardware, processing,
 /// calibration, errors). Stage 11 surface per `domain-revised/09-ui-behaviors.md`:
 /// 5-button bottom bar, expanded bar (ISO/Shutter/Focus/Zoom), color-calibration
-/// sidebar with WB/BB Calibrate, recording indicator with `mm:ss` timer, capture
-/// banner, non-fatal error toast (auto-dismiss), blocking fatal-error dialog,
+/// sidebar with WB/BB Calibrate, recording indicator with `mm:ss` timer,
+/// capture-success toast, non-fatal error toast (both top, auto-dismiss),
+/// blocking fatal-error dialog,
 /// state-driven enable/disable, scanning overlay bound to `SessionState`,
 /// landscape-right orientation lock.
 public struct CameraView: View {
@@ -37,10 +38,19 @@ public struct CameraView: View {
         .overlay(alignment: .trailing) {
             calibrationSidebarLayer(enablement: enablement)
         }
+        // Top-edge toast stack — error toast and capture-success toast are
+        // structurally separate (own state, own styling) but share this anchor
+        // so they stack instead of overlapping when both are visible.
         .overlay(alignment: .top) {
-            if let toast = viewModel.errors.currentToast {
-                errorToast(toast).padding(.top, 20)
+            VStack(spacing: 8) {
+                if let toast = viewModel.errors.currentToast {
+                    errorToast(toast)
+                }
+                if let output = viewModel.captureConfirmation {
+                    captureToast(output)
+                }
             }
+            .padding(.top, 20)
         }
         .alert(
             "Camera Error",
@@ -55,12 +65,12 @@ public struct CameraView: View {
         } message: { err in
             Text("\(err.code.rawValue)\n\n\(err.message)")
         }
-        // Bottom-edge stack — three independent safeAreaInsets, applied
+        // Bottom-edge stack — two independent safeAreaInsets, applied
         // innermost-first (top-to-bottom on screen): expandedBar (conditional)
-        // → bottomBar (always) → captureBanner (conditional). Splitting the
-        // expanded bar into its own inset stops it from pushing the
-        // bottomBar off-screen when the calibration sidebar is also open
-        // (CLAUDE.md §8 — bottom-bar idiom: independently-anchored insets).
+        // → bottomBar (always). Splitting the expanded bar into its own inset
+        // stops it from pushing the bottomBar off-screen when the calibration
+        // sidebar is also open (CLAUDE.md §8 — bottom-bar idiom:
+        // independently-anchored insets).
         .safeAreaInset(edge: .bottom, spacing: 8) {
             if showExpandedBar {
                 ExpandedSliderBar(viewModel: viewModel, enablement: enablement)
@@ -73,13 +83,7 @@ public struct CameraView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
         }
-        .safeAreaInset(edge: .bottom) {
-            if let result = viewModel.captureResult {
-                captureBanner(result: result)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.captureResult != nil)
+        .animation(.easeInOut(duration: 0.3), value: viewModel.captureConfirmation != nil)
         .animation(.easeInOut(duration: 0.3), value: viewModel.errors.currentToast != nil)
         .animation(.easeInOut(duration: 0.2), value: showExpandedBar)
         .animation(.easeInOut(duration: 0.2), value: sidebarVisible)
@@ -442,27 +446,26 @@ public struct CameraView: View {
         }
     }
 
-    // MARK: - Capture banner (bottom, auto-dismiss)
+    // MARK: - Capture-success toast (top, auto-dismiss)
 
-    @ViewBuilder
-    private func captureBanner(result: Result<StillCaptureOutput, Error>) -> some View {
-        let (text, color): (String, Color) =
-            switch result {
-            case .success(let output):
-                (
-                    "Image saved: \(URL(fileURLWithPath: output.filePath).lastPathComponent)",
-                    .green.opacity(0.85)
-                )
-            case .failure(let error):
-                ("Capture failed: \(error.localizedDescription)", .red.opacity(0.85))
-            }
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(color, in: RoundedRectangle(cornerRadius: 8))
-            .padding(.bottom, 8)
+    /// Success-only capture confirmation — a top toast.
+    ///
+    /// Structurally separate from `errorToast`: its own view-model state
+    /// (`captureConfirmation`) and its own green-checkmark styling. Capture
+    /// *failures* go through `viewModel.errors` (the error toast) instead.
+    private func captureToast(_ output: StillCaptureOutput) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Text("Image saved: \(URL(fileURLWithPath: output.filePath).lastPathComponent)")
+                .font(.caption)
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(10)
+        .foregroundStyle(.white)
+        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: 400)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     // MARK: - Error toast (top, auto-dismiss after ≥3s)

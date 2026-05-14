@@ -6,7 +6,7 @@ import SwiftUI
 /// view models; actor-isolated engine state flows in via async `for await` loops
 /// on the engine's streams. The parent owns engine lifecycle + cross-cutting
 /// session-level state (`sessionState`, `capabilities`, `lastFrameResult`,
-/// `captureResult`); per-feature state lives on the corresponding child VM —
+/// `captureConfirmation`); per-feature state lives on the corresponding child VM —
 /// see `display`, `recording`, `hardware`, `processing`, `calibration`, `errors`.
 ///
 /// `handleScenePhase(_:)` enforces D-06 strict gating: `.inactive` always closes
@@ -21,8 +21,13 @@ final class ViewModel {
     var sessionState: SessionState = .closed
     var capabilities: SessionCapabilities?
     var lastFrameResult: FrameResult?
-    var captureResult: Result<StillCaptureOutput, Error>?
-    var error: EngineError?
+
+    /// Last successful still-capture — drives the transient bottom confirmation
+    /// banner ("Image saved: …").
+    ///
+    /// Success-only: capture *failures* route to `errors` (the unified top-toast
+    /// surface, shared with recording-failure errors), not here.
+    var captureConfirmation: StillCaptureOutput?
 
     /// Cached supported capture resolutions, populated once at `engine.open()`.
     ///
@@ -71,11 +76,12 @@ final class ViewModel {
         let engine = CameraEngine()
         self.engine = engine
         self.display = DisplayViewModel(engine: engine)
-        self.recording = RecordingViewModel(engine: engine)
+        let errors = ErrorPresenterViewModel(engine: engine)
+        self.errors = errors
+        self.recording = RecordingViewModel(engine: engine, errorPresenter: errors)
         self.hardware = HardwareControlsViewModel(engine: engine)
         self.processing = ProcessingViewModel(engine: engine)
         self.calibration = CalibrationViewModel(engine: engine, processingVM: processing)
-        self.errors = ErrorPresenterViewModel(engine: engine)
     }
 
     /// Convenience derived value for the view's `disabled` and `opacity` modifiers.
@@ -105,10 +111,6 @@ final class ViewModel {
             await recording.start()
             await errors.start()
             await dumpCapabilities(caps)
-        } catch let e as EngineError {
-            error = e
-            sessionState = .error
-            return
         } catch {
             sessionState = .error
             return
@@ -168,9 +170,6 @@ final class ViewModel {
             capabilities = caps
             await display.attachAfterOpen()
             frameResultTask = makeFrameResultTask()
-        } catch let e as EngineError {
-            error = e
-            sessionState = .error
         } catch {
             sessionState = .error
         }
@@ -183,15 +182,20 @@ final class ViewModel {
             guard let self else { return }
             do {
                 let output = try await self.engine.captureImage()
-                self.captureResult = .success(output)
+                self.captureConfirmation = output
+                self.bannerDismissTask?.cancel()
+                self.bannerDismissTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run { self?.captureConfirmation = nil }
+                }
             } catch {
-                self.captureResult = .failure(error)
-            }
-            self.bannerDismissTask?.cancel()
-            self.bannerDismissTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                guard !Task.isCancelled else { return }
-                await MainActor.run { self?.captureResult = nil }
+                self.errors.present(
+                    CameraError(
+                        code: .captureFailure,
+                        message: "Capture failed: \(error)",
+                        isFatal: false
+                    ))
             }
         }
     }
@@ -258,7 +262,6 @@ final class ViewModel {
                 CameraKitLog.notice(.engine, "[resolution] applied \(size.width)x\(size.height)")
             } catch let e as EngineError {
                 CameraKitLog.error(.engine, "[resolution] EngineError: \(e)")
-                self.error = e
             } catch {
                 CameraKitLog.error(.engine, "[resolution] setResolution threw: \(error)")
             }
