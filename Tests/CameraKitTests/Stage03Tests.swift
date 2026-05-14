@@ -5,7 +5,7 @@ import Testing
 
 @testable import CameraKit
 
-@Suite("Stage03Tests")
+@Suite("Stage03Tests", .progressLogged)
 struct Stage03Tests {
 
     // MARK: Test 1 — 03:settings-merge-non-nil-fields

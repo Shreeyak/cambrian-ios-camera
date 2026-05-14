@@ -6,7 +6,7 @@ import Testing
 @testable import CameraKit
 import CameraKitInterop
 
-@Suite("Stage 08")
+@Suite("Stage 08", .progressLogged)
 struct Stage08Tests {
 
     // MARK: - Helpers
@@ -211,21 +211,23 @@ struct Stage08Tests {
         let cppToken = try await registry.registerCallback(stream: .natural, callbacks: realCbs)
 
         let stream = await registry.subscribe(stream: .natural)
-        let task = Task { () -> [UInt64] in
-            var frames: [UInt64] = []
-            for await frameSet in stream {
-                frames.append(frameSet.frameNumber)
-                if frames.count == 5 { break }
-            }
-            return frames
-        }
-        // Allow subscription to land before yielding.
-        try await Task.sleep(nanoseconds: 20_000_000)
+        var iterator = stream.makeAsyncIterator()
 
+        // `subscribe()` uses `.bufferingNewest(1)` (PixelSink.swift) — a
+        // single-slot buffer. Drain each frame immediately after yielding it
+        // so the slot never overflows. A prior version used a detached
+        // consumer `Task` + `Task.sleep`, which deadlocked under parallel
+        // test load: the cooperative pool was saturated, the consumer was
+        // starved, and all 5 synchronous yields collapsed into the 1-slot
+        // buffer. This handshake is deterministic regardless of scheduler.
+        var swiftFrames: [UInt64] = []
         for i: UInt64 in 1...5 {
             registry.yield(try makeSyntheticFrameSet(frameNumber: i), stream: .natural)
+            let frameSet = try #require(
+                await iterator.next(),
+                "Swift subscriber stream ended before frame \(i)")
+            swiftFrames.append(frameSet.frameNumber)
         }
-        let swiftFrames = await task.value
 
         #expect(swiftFrames.count == 5)
         #expect(capture.frames.count == 5)

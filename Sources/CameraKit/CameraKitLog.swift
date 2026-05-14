@@ -10,7 +10,7 @@ public enum CameraKitLog {
     public nonisolated(unsafe) static var isEnabled: Bool = false
 
     public enum Category: String {
-        case engine, consumers, scenePhase, interop, metal
+        case engine, consumers, scenePhase, interop, metal, test
     }
 
     private enum Loggers {
@@ -19,6 +19,7 @@ public enum CameraKitLog {
         static let scenePhase = Logger(subsystem: "com.cambrian.camerakit", category: "scenePhase")
         static let interop = Logger(subsystem: "com.cambrian.camerakit", category: "interop")
         static let metal = Logger(subsystem: "com.cambrian.camerakit", category: "metal")
+        static let test = Logger(subsystem: "com.cambrian.camerakit", category: "test")
     }
 
     private static func logger(for category: Category) -> Logger {
@@ -28,6 +29,7 @@ public enum CameraKitLog {
         case .scenePhase: return Loggers.scenePhase
         case .interop: return Loggers.interop
         case .metal: return Loggers.metal
+        case .test: return Loggers.test
         }
     }
 

@@ -26,7 +26,7 @@ private final class IntBox: @unchecked Sendable {
 
 // MARK: - Stage10CoordinatorTests
 
-@Suite("Stage 10 — recording coordinator")
+@Suite("Stage 10 — recording coordinator", .progressLogged)
 struct Stage10CoordinatorTests {
     @Test("coordinator publishes idle(nil) on init")
     func initialState() async {
@@ -114,7 +114,7 @@ struct FastClock: CameraKitClock {
 
 // MARK: - Suite 1: happy path
 
-@Suite("Stage 10 — happy path")
+@Suite("Stage 10 — happy path", .progressLogged)
 struct Stage10HappyPathTests {
     @Test("start → 30 frames → stop returns mp4 URI")
     func recordStartStopHappyPath() async throws {
@@ -158,7 +158,7 @@ struct Stage10HappyPathTests {
 
 // MARK: - Suite 2: deadline cancel
 
-@Suite("Stage 10 — deadline cancel")
+@Suite("Stage 10 — deadline cancel", .progressLogged)
 struct Stage10DeadlineCancelTests {
     @Test("finishWriting deadline triggers cancel; emits RECORDING_TRUNCATED")
     func recordingTruncatedOnDeadline() async throws {
@@ -195,7 +195,7 @@ struct Stage10DeadlineCancelTests {
 
 // MARK: - Suite 3: AE frame-rate range
 
-@Suite("Stage 10 — AE frame-rate range")
+@Suite("Stage 10 — AE frame-rate range", .progressLogged)
 struct Stage10AEFrameRateTests {
     @Test("RecordingOptions fps field is forwarded to the factory")
     func aeFrameRateRangeInOptions() async throws {
@@ -221,7 +221,7 @@ struct Stage10AEFrameRateTests {
 
 // MARK: - Suite 4: NV12 encoder pool
 
-@Suite("Stage 10 — NV12 encoder pool")
+@Suite("Stage 10 — NV12 encoder pool", .progressLogged)
 struct Stage10NV12PoolTests {
     @Test("encoder NV12 pool produces IOSurface-backed buffers")
     func nv12EncoderPoolIsIOSurfaceBacked() throws {
@@ -243,7 +243,7 @@ struct Stage10NV12PoolTests {
 
 // MARK: - Suite 5: pause during recording
 
-@Suite("Stage 10 — pause during recording")
+@Suite("Stage 10 — pause during recording", .progressLogged)
 struct Stage10PauseTests {
     @Test("stop(reason: .pause) transitions to paused state")
     func pauseDuringRecordingFinalizesSynchronously() async throws {
@@ -275,7 +275,7 @@ struct Stage10PauseTests {
 
 // MARK: - Suite 6: resume from pause
 
-@Suite("Stage 10 — resume from pause")
+@Suite("Stage 10 — resume from pause", .progressLogged)
 struct Stage10ResumeTests {
     @Test("Recording is paused after stop(reason:.pause)")
     func pauseYieldsPausedState() async throws {
@@ -298,7 +298,7 @@ struct Stage10ResumeTests {
 
 // MARK: - Suite 7: adaptor back-pressure
 
-@Suite("Stage 10 — adaptor back-pressure")
+@Suite("Stage 10 — adaptor back-pressure", .progressLogged)
 struct Stage10AdaptorBackPressureTests {
     @Test("adaptor.isReadyForMoreMediaData = false drops that frame")
     func adaptorNotReadyDropsFrame() async throws {
@@ -332,7 +332,7 @@ struct Stage10AdaptorBackPressureTests {
 
 // MARK: - Suite 8: fatal finalize
 
-@Suite("Stage 10 — fatal finalize")
+@Suite("Stage 10 — fatal finalize", .progressLogged)
 struct Stage10FatalFinalizeTests {
     @Test("writer.status == .failed on finish emits fatal RECORDING_FAILED")
     func fatalFinalizeEmitsRecordingFailed() async throws {
@@ -366,7 +366,7 @@ struct Stage10FatalFinalizeTests {
 /// for the full 5 s window and silently swallowed REC taps in `RecordingViewModel`.
 /// The fix mirrors `AsyncWithTimeout.runOnQueue`: a `ManagedAtomic<Bool>` CAS race
 /// between the work and deadline branches with `withCheckedContinuation`.
-@Suite("Stage 10 — stop returns promptly on happy path (Bug 14)")
+@Suite("Stage 10 — stop returns promptly on happy path (Bug 14)", .progressLogged)
 struct Stage10StopPromptnessTests {
     @Test("stop() returns shortly after finishWriting completes (must not block on deadline)")
     func stopReturnsPromptlyAfterFinishWriting() async throws {

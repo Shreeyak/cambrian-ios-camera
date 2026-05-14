@@ -7,7 +7,7 @@ import Testing
 
 // MARK: - Stage 11 — Calibration compute (pure helpers)
 
-@Suite("Stage 11 — calibration compute")
+@Suite("Stage 11 — calibration compute", .progressLogged)
 struct Stage11CalibrationComputeTests {
 
     // Identity gains — useful for tests that want the reciprocal-only behavior
@@ -96,7 +96,7 @@ struct Stage11CalibrationComputeTests {
 
 // MARK: - Stage 11 — ControlEnablement (state-driven UI matrix)
 
-@Suite("Stage 11 — control enablement matrix")
+@Suite("Stage 11 — control enablement matrix", .progressLogged)
 struct Stage11ControlEnablementTests {
 
     @Test("closed state disables everything; no scanning")
@@ -204,7 +204,7 @@ struct Stage11ControlEnablementTests {
 
 // MARK: - Stage 11 — Slider debouncer
 
-@Suite("Stage 11 — slider coalescing")
+@Suite("Stage 11 — slider coalescing", .progressLogged)
 struct Stage11SliderDebouncerTests {
 
     /// Brief §8 TESTABLE `11:slider-coalescing-60hz`.
@@ -286,7 +286,7 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
     func awaitAESettled() async { /* no-op for tests */ }
 }
 
-@Suite("Stage 11 — calibration view model")
+@Suite("Stage 11 — calibration view model", .progressLogged)
 struct Stage11CalibrationVMTests {
 
     /// Helper: poll until the stub has recorded at least `count` deltas, or timeout.
@@ -432,7 +432,7 @@ struct Stage11CalibrationVMTests {
 
 // MARK: - Stage 11 — Error presenter view model
 
-@Suite("Stage 11 — error presenter")
+@Suite("Stage 11 — error presenter", .progressLogged)
 struct Stage11ErrorPresenterTests {
 
     /// Brief §8 TESTABLE `11:non-fatal-error-shows-toast`.
@@ -493,7 +493,7 @@ extension ManagedAtomicSafe where T == Int {
 
 // MARK: - Stage 11 — BB calibration scratch encode
 
-@Suite("Stage 11 — BB calibration scratch encode")
+@Suite("Stage 11 — BB calibration scratch encode", .progressLogged)
 struct Stage11BBCalibrationScratchTests {
 
     @Test("dispatchBBCalibrationSample ignores live BB pedestal (sample = BCSG-only)")
@@ -558,7 +558,7 @@ struct Stage11BBCalibrationScratchTests {
 // Pre-rework, `dispatchCenterPatchOnNatural` would silently sample a (0,0,0)
 // pool fallback, biasing WB-calibrate on cold engines.
 
-@Suite("Stage 11 — Family B follow-ups: calibration no-frame semantics")
+@Suite("Stage 11 — Family B follow-ups: calibration no-frame semantics", .progressLogged)
 struct Stage11FamilyBFollowupCalibrationTests {
 
     /// `dispatchCenterPatchOnNatural` must refuse to sample when no frame has
@@ -636,7 +636,7 @@ struct Stage11FamilyBFollowupCalibrationTests {
 
 // MARK: - Stage 11 — Settings persistence WB policy
 
-@Suite("Stage 11 — settings persistence WB policy")
+@Suite("Stage 11 — settings persistence WB policy", .progressLogged)
 struct Stage11SettingsPersistenceWBTests {
 
     private func makeIsolatedDefaults() -> UserDefaults {

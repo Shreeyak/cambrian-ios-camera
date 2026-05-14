@@ -68,7 +68,7 @@ final class SessionStateLog: @unchecked Sendable {
 
 // MARK: - Stage09WatchdogTests
 
-@Suite("Stage 09 — watchdog identity")
+@Suite("Stage 09 — watchdog identity", .progressLogged)
 struct Stage09WatchdogTests {
     @Test("armed token is captured at arm and stable across refresh")
     func tokenCapturedAtArm() async {
@@ -105,7 +105,7 @@ struct Stage09WatchdogTests {
 
 // MARK: - Stage09RecoveryTests
 
-@Suite("Stage 09 — recovery backoff")
+@Suite("Stage 09 — recovery backoff", .progressLogged)
 struct Stage09RecoveryTests {
     @Test("backoff schedule matches constants (1..5+)")
     func backoffMatchesConstants() async {
@@ -120,7 +120,7 @@ struct Stage09RecoveryTests {
 
 // MARK: - Stage09DisarmTests
 
-@Suite("Stage 09 — disarm ordering")
+@Suite("Stage 09 — disarm ordering", .progressLogged)
 struct Stage09DisarmTests {
     @Test("disarm is observed before first state:recovering transition (D-13)")
     func disarmBeforeStateTransition() async {
@@ -147,7 +147,7 @@ struct Stage09DisarmTests {
 
 // MARK: - Stage09BackoffIntegrationTests
 
-@Suite("Stage 09 — backoff integration")
+@Suite("Stage 09 — backoff integration", .progressLogged)
 struct Stage09BackoffIntegrationTests {
     @Test("retries fire at 500/1000/2000/4000/8000 ms; 6th failure is fatal")
     func exponentialBackoffScheduleMatchesConstants() async {
@@ -180,7 +180,7 @@ struct Stage09BackoffIntegrationTests {
 
 // MARK: - Stage09CameraInUseTests
 
-@Suite("Stage 09 — CAMERA_IN_USE self-heal")
+@Suite("Stage 09 — CAMERA_IN_USE self-heal", .progressLogged)
 struct Stage09CameraInUseTests {
     // Pre-existing test unblocked by Phase 0's Swift-6 concurrency fixes (prior
     // to Phase 0 the whole file failed to compile, so this test never ran).
@@ -217,7 +217,7 @@ struct Stage09CameraInUseTests {
 
 // MARK: - Stage09ErrorStreamTests
 
-@Suite("Stage 09 — error stream delivery")
+@Suite("Stage 09 — error stream delivery", .progressLogged)
 struct Stage09ErrorStreamTests {
     @Test("errorStream delivers 5 rapid errors in order (bufferingOldest semantics)")
     func errorStreamDeliversEveryTransition() async throws {
@@ -242,7 +242,7 @@ struct Stage09ErrorStreamTests {
 
 // MARK: - Stage09AETests
 
-@Suite("Stage 09 — AE convergence")
+@Suite("Stage 09 — AE convergence", .progressLogged)
 struct Stage09AETests {
     @Test("AE searching past threshold emits AE_CONVERGENCE_TIMEOUT once")
     func aeConvergenceTimeoutEmits() async throws {
@@ -257,7 +257,7 @@ struct Stage09AETests {
 
 // MARK: - Stage09FPSTests
 
-@Suite("Stage 09 — FPS degradation")
+@Suite("Stage 09 — FPS degradation", .progressLogged)
 struct Stage09FPSTests {
     @Test("FPS below threshold for streak windows emits once; recovery resets streak")
     func fpsDegradedRequiresStreak() async throws {

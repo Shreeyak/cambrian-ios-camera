@@ -77,7 +77,7 @@ private func selectBest4x3(from sizes: [Size]) -> Size {
 
 // MARK: - Stage01Tests
 
-@Suite("Stage01Tests")
+@Suite("Stage01Tests", .progressLogged)
 struct Stage01Tests {
 
     // MARK: Test 1 — 01:capture-device-provider-seam
