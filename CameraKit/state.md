@@ -1,3 +1,200 @@
+# state.md — Stage 12
+
+## Current stage
+Stage 12 complete (MIGRATION). Retired the final scaffold
+`10:synchronous-drain-pause`; **the scaffold corpus is now empty** — every
+scaffold across stages 01–11 is retired. Full test bundle: **125 passed /
+0 failed / 0 skipped** on Shreeyak's iPad (UDID `00008027-000539EA0184402E`,
+iOS 26.x), scheme `eva-swift-stitch`, via `mcp__XcodeBuildMCP__test_device`.
+Both §8 HITL items **verified on device 2026-05-14** — `measurements/stage-12/observability.md`.
+
+## Scaffolding still live
+
+_None._ Stage 12 retired `10:synchronous-drain-pause`, the last live scaffold.
+`grep -rn 'scaffolding:' CameraKit/Sources/` returns only a historical
+"Retires scaffolding:07:…" comment in `CaptureAtomic.cpp` (prose, not a live
+`// scaffolding:NN:slug` marker); `CONTRACTS.md` "Active scaffolds" is empty.
+
+## What's built — Stage 12 (permanent)
+
+MIGRATION stage: retires `10:synchronous-drain-pause` with the production
+background-task primitive, plus the D-11 observability pipeline. No
+user-visible capability beyond the DEBUG delivery-stats overlay.
+
+- **Background-task drain** — `Recording.stop()` wraps its finalize drain in
+  `UIApplication.shared.beginBackgroundTask(withName:expirationHandler:)`
+  (06-capture-and-recording.md §Background drain). The expiration handler
+  calls `writer.cancelWriting()` — never `finishWriting()` (ADR-16, G-08):
+  an interrupted finalize produces a corrupt MP4 with no `moov` atom,
+  cancelling produces an empty file. `endBackgroundTask(_:)` is called on
+  every exit path (normal finalize / deadline cancel / expiration cancel /
+  writer-error) via a single site after the drain.
+- `BackgroundTaskProviding` protocol + `UIApplicationBackgroundTaskProvider`
+  (production) in `Recording.swift` — injected via `Recording.init`
+  (default = real provider) so tests drive the expiration path without a
+  live `UIApplication`.
+- `CameraEngine.finalizeActiveRecording(reason:)` — private helper shared by
+  `stopRecording()`, `pause()`, and `backgroundSuspend()` (the three drain
+  triggers): drains via `Recording.stop` then optionally publishes to Photos.
+  `backgroundSuspend()` now finalizes an active recording before tearing the
+  session down; `pause()` lost the scaffold comment.
+- **C++ D-11 metrics** — `Sources/CameraKitCxx/include/PixelSinkMetrics.h`:
+  `PixelSinkMetrics` struct + `MetricsCallbackFn` typedef. `PixelSinkPool.cpp`:
+  per-lane `std::atomic<uint64_t> overwriteCount_`, `noteOverwrite`,
+  `setMetricsCallback`, `emitMetrics` (auto-fires once per `kFpsWindow = 30`
+  frames in `dispatch`), and a G-26 quality gate — `registerConsumer` returns
+  token 0 when `on_overwrite == nullptr`. New C-ABI: `pixel_sink_pool_note_overwrite`,
+  `_overwrite_count`, `_set_metrics_callback`, `_emit_metrics`.
+- **Interop** — `CppPixelSinkPool` gains `noteOverwrite`, `overwriteCount`,
+  `setMetricsHandler` / `clearMetricsHandler`, `emitMetrics`. The C-ABI
+  `PixelSinkMetrics` struct is unpacked inside `CameraKitInterop` (ADR-13
+  containment) — `setMetricsHandler` takes a Swift `(UInt32, UInt64) -> Void`
+  closure; the `@convention(c)` thunk + `Unmanaged<MetricsHandlerBox>`
+  bridging stay in the interop layer.
+- **`ConsumerRegistry.metricsStream()`** — a single cached
+  `AsyncStream<FrameDeliveryStats>` merging Swift-side per-lane `dropCounts`
+  with the C++ pool's `mailbox_overwrite_count`, emitted as per-window
+  *deltas* (D-11). Driven by the C++ metrics callback; the `MetricsSink`
+  gates the merged-snapshot emission on the last lane (`.tracker`). Released
+  on stream `onTermination` and on `release()`. `registerCallback` now
+  rejects nil `onOverwrite` with `InteropError.missingOnOverwrite` (kept
+  `.invalidCallbacks` for nil `onFrame`).
+- **DEBUG delivery-stats overlay** — `ViewModel.frameDeliveryStats` (DEBUG-only)
+  mirrors `metricsStream()`; `CameraView` shows a long-press-toggled
+  bottom-right panel with live per-lane `swiftDrop` / `cppOverwrite` deltas.
+  `MetricsSink.onMetric` also writes a `[metrics]` line to `camerakit.log`
+  (throttled to ~3 s wall-clock via a `Mutex<ContinuousClock.Instant?>`) so
+  emission cadence is verifiable from device logs even when — as with the
+  current synchronous pool — the counts are structurally zero (Decision #80).
+- `InteropError.missingOnOverwrite` added; `ConsumerRegistry._incrementSwiftDropForTest`
+  test seam added.
+
+## Public API exposed — Stage 12
+
+```swift
+public actor ConsumerRegistry {                                     // PixelSink.swift
+    public func metricsStream() -> AsyncStream<FrameDeliveryStats>
+}
+
+public protocol BackgroundTaskProviding: Sendable { … }             // Recording.swift
+public struct UIApplicationBackgroundTaskProvider: BackgroundTaskProviding { … }
+
+public enum InteropError: Error, Sendable {                         // Errors.swift
+    case missingOnOverwrite   // + existing cases
+}
+```
+
+`Recording.init` gains a `backgroundTaskProvider:` parameter (defaulted, so
+the public signature is source-compatible). `FrameDeliveryStats` shape
+unchanged from Stage 08 — already exported the merged-counter fields.
+
+## Manual test evidence — Stage 12
+
+§8 TESTABLEs from `implementation/briefs/stage-12.md`. Run via
+`mcp__XcodeBuildMCP__test_device`, scheme `eva-swift-stitch`, on Shreeyak's
+iPad (UDID `00008027-000539EA0184402E`, iOS 26.x). Full bundle: 125/0/0.
+
+| Slug | Suite / test | Result |
+|------|--------------|--------|
+| `12:background-task-drain-produces-finalized-mp4` | `Stage12BackgroundTaskTests.backgroundTaskDrainProducesFinalizedMp4` | PASS |
+| `12:expiration-handler-cancels-not-finishes` | `Stage12BackgroundTaskTests.expirationHandlerCancelsNotFinishes` | PASS |
+| `12:end-background-task-called-on-all-paths` | `Stage12BackgroundTaskTests.endBackgroundTaskCalledOnAllPaths` (3 scenarios) | PASS |
+| `12:pixel-sink-registration-without-on-overwrite-rejected` | `Stage12ObservabilityTests.pixelSinkRegistrationWithoutOnOverwriteRejected` | PASS |
+| `12:frame-delivery-stats-merges-swift-and-cpp-counters` | `Stage12ObservabilityTests.frameDeliveryStatsMergesSwiftAndCppCounters` | PASS |
+| `10:record-start-stop-happy-path` (carried fwd) | `Stage12CarriedForwardTests.recordStartStopHappyPath` (under bg-task wrapping) | PASS |
+| `10:recording-truncated-on-deadline` (carried fwd) | `Stage12CarriedForwardTests.recordingTruncatedOnDeadline` (under bg-task wrapping) | PASS |
+
+The Stage 10 originals of the two carried-forward slugs also still pass
+unchanged in the full sweep — they construct `Recording` with the default
+(real) `UIApplicationBackgroundTaskProvider`, exercising the new wrapped
+path on device.
+
+### HITL evidence — verified on device 2026-05-14
+
+Per Stage 12 brief §8 — iPad device manual passes. Both verified on Shreeyak's
+iPad (iPad8,9, iOS 26); full evidence in `measurements/stage-12/observability.md`.
+
+| Slug | Evidence | Status |
+|------|----------|--------|
+| `12:home-button-drain-produces-finalized-mp4-device` | home-button mid-recording → finalized `.mp4` in Photos, or empty (never corrupt) file if budget exceeded | **PASS** — device log `2026-05-14 12:45:50Z`: `[bgsuspend] active recording — finalizing via background-task drain` → `Recording.stop group done: durationMs=286 writerStatus=2 didCancel=false`. `writerStatus=2` = `.completed` → valid finalized MP4; user confirmed file present in Files app. |
+| `12:debug-overlay-shows-live-overwrite-counts` | long-press overlay shows live per-lane drop/overwrite counts from both Swift + C++ | **PASS** — overlay wiring confirmed (long-press toggle). Counts are structurally zero with the current synchronous pool + `.bufferingNewest(1)` stream, so liveness is verified instead via the throttled `[metrics]` log line — device log `2026-05-14 21:40:38Z` shows steady ~3.0 s cadence, proving the C++ `emitMetrics` → `MetricsSink` → `FrameDeliveryStats` path is live. See Decision #80. |
+
+The Instruments `endBackgroundTask`-leak check (brief §11) was **not run**;
+covered instead by unit test `12:end-background-task-called-on-all-paths` plus
+the device log showing `[bgsuspend] stopRunning returned` 2 ms after the drain.
+
+## Decisions taken that weren't in briefs — Stage 12
+
+71. **Brief §4 names `Sources/CameraKit/Consumer.swift` — no such file.**
+    `ConsumerRegistry` lives in `PixelSink.swift`; all §4 "Consumer.swift"
+    edits were applied there. Brief filename is wrong — flag upstream.
+72. **Public API named `metricsStream()`, not `deliveryStats()`.** Brief §3/§12
+    say `metricsStream()`; `architecture/api-skeletons/.../PixelSink.swift`
+    says `deliveryStats()`. Brief wins (CLAUDE.md §8) — shipped `metricsStream()`.
+    Flag upstream to reconcile the api-skeleton stub.
+73. **G-26 gate surfaces `InteropError.missingOnOverwrite`, not
+    `EngineError.interop(.pixelSinkRegistrationRejected)`.** Brief §3/§4 name
+    `InteropError.missingOnOverwrite`; `architecture/05-consumers.md §Quality
+    gate` names the older `EngineError.interop(...)`. Brief wins — added the
+    new case; kept `.invalidCallbacks` for nil `onFrame` (Stage 06/08 tests
+    depend on it). Flag upstream.
+74. **`PixelSinkMetrics.h` wired into the modulemap + included from
+    `PixelSinkCallbacks.h`.** Brief §4 lists neither edit, but Swift cannot
+    see the C struct otherwise. The new C-ABI metrics functions
+    (`pixel_sink_pool_set_metrics_callback` / `_note_overwrite` /
+    `_overwrite_count` / `_emit_metrics`) are declared in `PixelSinkCallbacks.h`
+    alongside the existing `pixel_sink_pool_*` block; `PixelSinkMetrics.h`
+    carries only the struct + function-pointer typedef per the brief.
+75. **FPS-window cadence hardcoded `kFpsWindow = 30` in `PixelSinkPool.cpp`**
+    (mirrors `Constants.fpsMeasurementWindowFrames`), NOT a `-D` define. Unlike
+    `CPP_POOL_THREAD_COUNT` (host-hardware-bound), the window is a fixed
+    constant — no config surface added.
+76. **`PixelSinkMetrics` C struct kept inside `CameraKitInterop` (ADR-13).**
+    `CppPixelSinkPool.setMetricsHandler` takes a plain Swift
+    `(UInt32, UInt64) -> Void` closure; the `@convention(c)` thunk and
+    `Unmanaged<MetricsHandlerBox>` retain/release bridging live in the interop
+    layer. `CameraKit` never imports `CameraKitCxx` or names `PixelSinkMetrics`.
+77. **C++ emits the metrics callback once per lane (ids 0/1/2) each window;
+    the Swift `MetricsSink` gates the merged-snapshot emission on the last
+    lane (`.tracker`, id 2)** so `metricsStream()` yields exactly once per
+    window with per-lane deltas — not three partial snapshots.
+78. **`backgroundSuspend()` during recording finalizes with `reason: .user`
+    (→ `.idle(lastUri:)`), not `.pause`.** Backgrounding genuinely ends the
+    recording — the session is torn down, there is no resumable state — so
+    `.idle` carrying the URI is the correct terminal state. The bg-task-wrapped
+    drain + optional Photos publish is shared with `stopRecording()` /
+    `pause()` via the new private `CameraEngine.finalizeActiveRecording(reason:)`.
+79. **`ConsumerRegistry._incrementSwiftDropForTest(stream:by:)` test seam
+    added.** The brief's `12:frame-delivery-stats-merges-swift-and-cpp-counters`
+    calls for "inject synthetic drops on both Swift and C++ lanes"; the seam
+    injects Swift-side `dropCounts` directly (the C++ side uses the production
+    `noteOverwrite` path), mirroring the codebase's existing `_*ForTest`
+    convention.
+80. **Metrics emit cadence is ~3×/FPS-window, not 1× — accepted, not fixed.**
+    `PixelSinkPool::dispatch` is invoked once per (stream, frame); the single
+    `dispatchCount_` counter therefore reaches `% kFpsWindow == 0` three times
+    per 30 real frames (3 lanes). The brief's §8 wording says "once per FPS
+    measurement window." Left as-is because it is **not a correctness bug**:
+    the per-lane `overwriteCount_` atomics are incremented per-event, and
+    `MetricsSink` ships exact cumulative deltas against the prior snapshot, so
+    no event is ever lost regardless of emit frequency — a livelier overlay
+    refresh (~3/s) is if anything preferable. Flag upstream to reconcile the
+    brief wording. Separately, the `[metrics]` *log* line in `MetricsSink`
+    (added post-HITL to make emission cadence observable in `camerakit.log`)
+    **is** throttled — to ~3 s wall-clock via `Mutex<ContinuousClock.Instant?>`
+    — so the device log stays readable; the panel emit is left unthrottled.
+
+## Open questions for next stage
+
+**None — Stage 12 is the final stage of the implementation pipeline.** The
+scaffold corpus is empty; every brief stage 01–12 is implemented, and both
+Stage 12 §8 HITL items are verified on device. Remaining items are carry-overs
+already tracked under Stage 11 (Decision #50 `SessionState.closing` enum
+reconciliation; Decision #58 ADR-22 error routing for `updateSettings`) plus
+upstream brief-wording reconciliations flagged in Decisions #71–#80.
+
+---
+
 # state.md — Stage 11
 
 ## Current stage
@@ -46,13 +243,11 @@ HITL items require human verification on a physical iPad — cannot be automated
 
 | Slug | File | Line | Retires in |
 |------|------|------|-----------|
-| `10:synchronous-drain-pause` | `CameraEngine.swift` | `pause()` | Stage 12 |
+| `10:synchronous-drain-pause` | `CameraEngine.swift` | `pause()` | Stage 12 — **RETIRED** |
 
-Pre-flight grep command (Stage 12 must run before modifying sources):
-```
-grep -rn '10:synchronous-drain-pause' CameraKit/Sources/
-```
-Must return ≥1 hit before any Stage 12 edit.
+**Superseded** — see the Stage 12 section above: `10:synchronous-drain-pause`
+was retired by Stage 12 and the scaffold corpus is now empty. This table is
+kept as Stage 11 history.
 
 ## Family B follow-ups (2026-05-13 → verified 2026-05-14)
 

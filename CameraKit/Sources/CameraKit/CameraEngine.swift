@@ -535,6 +535,11 @@ public actor CameraEngine {
     public func backgroundSuspend() async {
         CameraKitLog.notice(.engine, "[bgsuspend] enter gate=false stopRunning")
         submissionGate.store(false, ordering: .sequentiallyConsistent)
+        if recording != nil {
+            CameraKitLog.notice(
+                .engine, "[bgsuspend] active recording — finalizing via background-task drain")
+            _ = await finalizeActiveRecording(reason: .user)
+        }
         await drainSubmittedFrame()
         if let session = cameraSession {
             captureDelegate?.logNextFrame = true
@@ -1015,18 +1020,34 @@ public actor CameraEngine {
     ///   Photos owns the bytes.
     /// - Throws: `EngineError.notOpen` if no recording is active or the engine is not open.
     public func stopRecording() async throws -> String {
-        guard let rec = recording,
-            let pipeline = metalPipeline,
+        guard recording != nil,
+            metalPipeline != nil,
             let session = cameraSession
         else { throw EngineError.notOpen }
         let stopStartMs = clock.nowMs()
+        CameraKitLog.notice(.engine, "[recording] stopRecording entry")
+        let uri = await finalizeActiveRecording(reason: .user)
+        try? await session.setPreviewFrameRateRange()
+        let stopDurationMs = clock.nowMs() - stopStartMs
         CameraKitLog.notice(
             .engine,
-            "[recording] stopRecording entry: pipeline.isRecording=\(pipeline.isRecording.load(ordering: .acquiring))"
+            "[recording] stopRecording exit: durationMs=\(stopDurationMs)"
         )
+        return uri
+    }
+
+    /// Finalizes the active recording.
+    ///
+    /// Drains the writer — the drain is wrapped in a `UIApplication`
+    /// background-task assertion inside `Recording.stop`,
+    /// 06-capture-and-recording.md §Background drain — then optionally
+    /// publishes the result to Photos. Shared by `stopRecording()`, `pause()`,
+    /// and `backgroundSuspend()`, the three triggers named in the Stage 12
+    /// brief. Returns the output URI, or `""` when no recording is active.
+    private func finalizeActiveRecording(reason: Recording.StopReason) async -> String {
+        guard let rec = recording, let pipeline = metalPipeline else { return "" }
         pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
-        let uri = await rec.stop(reason: .user)
-        try? await session.setPreviewFrameRateRange()
+        let uri = await rec.stop(reason: reason)
         let destination = await rec.photosDestination
         self.recording = nil
         pipeline.onEncodedBufferReady = nil
@@ -1034,8 +1055,8 @@ public actor CameraEngine {
         // Optional Photos publish — runs after Recording.stop so it does not
         // pin the recording state machine. Bug-14 stop-promptness is preserved
         // for `destination == .none` (the default); for `.copy`/`.move` this
-        // adds the PHPhotoLibrary roundtrip latency to stopRecording's wall
-        // time, which is acceptable because the caller opted into Photos.
+        // adds the PHPhotoLibrary roundtrip latency, which is acceptable
+        // because the caller opted into Photos.
         if destination != .none, let url = URL(string: uri) {
             do {
                 try await PhotosLibraryClient.publish(
@@ -1062,28 +1083,17 @@ public actor CameraEngine {
                 )
             }
         }
-
-        let stopDurationMs = clock.nowMs() - stopStartMs
-        CameraKitLog.notice(
-            .engine,
-            "[recording] stopRecording exit: durationMs=\(stopDurationMs)"
-        )
         return uri
     }
 
-    /// Pauses capture and finalizes any active recording synchronously on the engine actor.
+    /// Pauses capture and finalizes any active recording.
     ///
-    /// scaffolding:10:synchronous-drain-pause — pause() during recording runs finalize
-    /// synchronously on the engine actor. There is NO UIApplication.beginBackgroundTask
-    /// wrapper, so the drain cannot survive backgrounding. Stage 12 retires this scaffold
-    /// by adding the background-task assertion around the same finalize path.
+    /// The finalize runs through `Recording.stop`, whose drain is wrapped in a
+    /// `UIApplication` background-task assertion (06-capture-and-recording.md
+    /// §Background drain) so a concurrent backgrounding cannot truncate it
+    /// into a corrupt MP4.
     public func pause() async throws {
-        if let rec = recording, let pipeline = metalPipeline {
-            pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
-            _ = await rec.stop(reason: .pause)
-            self.recording = nil
-            pipeline.onEncodedBufferReady = nil
-        }
+        _ = await finalizeActiveRecording(reason: .pause)
         await cameraSession?.stopRunningAsync()
         publishState(.paused)
     }

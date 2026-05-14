@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include "PixelSinkMetrics.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +34,19 @@ void     pixel_sink_pool_dispatch(void* handle, uint32_t stream,
                                   void* surface);
 unsigned pixel_sink_pool_consumer_count(void* handle, uint32_t stream);
 uintptr_t pixel_sink_pool_raw_pointer(void* handle);
+
+// MARK: - D-11 observability (mailbox-overwrite metrics)
+
+// Records a mailbox-overwrite event for `stream` (cumulative per-lane counter)
+// and notifies that lane's registered consumers via their on_overwrite callback.
+void     pixel_sink_pool_note_overwrite(void* handle, uint32_t stream);
+// Current cumulative mailbox-overwrite count for `stream`.
+uint64_t pixel_sink_pool_overwrite_count(void* handle, uint32_t stream);
+// Registers the per-window metrics callback (nullptr clears it).
+void     pixel_sink_pool_set_metrics_callback(void* handle, MetricsCallbackFn cb, void* context);
+// Forces an immediate metrics emission for every lane (test seam; the pool
+// otherwise emits automatically once per FPS measurement window).
+void     pixel_sink_pool_emit_metrics(void* handle);
 
 // MARK: - CaptureAtomic C-ABI (capture_atomic_*)
 
