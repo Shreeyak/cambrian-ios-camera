@@ -339,8 +339,8 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
 69. **2026-05-14 — Three pre-existing CameraKitTests defects fixed +
     `TestProgressLog` trait added.** All three were latent — never caught
     because the suites were unrunnable on device before Decision #68.
-    Full bundle now **112 passed / 0 failed / 1 skipped** (the skip is the
-    same DEBUG-gated Stage 11 baseline skip) in ~35 s on Shreeyak's iPad.
+    (Counts here were updated by Decision #70 — full bundle is now
+    **113 passed / 0 failed / 0 skipped**.)
     - `PhotosLibraryClient.resolve` rejected legitimate in-sandbox paths
       in `/private/var/...` canonical form. `NSHomeDirectory()` returns
       the `/var` alias; `FileManager.temporaryDirectory` returns
@@ -370,6 +370,31 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
     `.test` category. The last `▶` with no matching `✓` names a hung or
     crashed test exactly — this is what pinpointed the Stage08 hang
     (`112 ▶ / 111 ✓ / 1 HUNG`). `ipad-logs` skill documents the workflow.
+70. **2026-05-14 — Last skipped test un-disabled; backoff-integration
+    flake fixed. Full bundle 113 / 0 / 0.** Two more `Task.yield`-timing
+    defects, same family as the Stage08 hang (Decision #69):
+    - `Stage09CameraInUseTests.cameraInUseSelfHealToClosed` was
+      `.disabled` as a "timing flake" with a stale remediation note
+      (it pointed at a Stage 11.5 TCA TestStore port that Decision #55
+      reverted). Real cause was twofold: `CameraEngine.close()`
+      early-returns before `publishState(.closed)` when `!isOpen`, so on
+      a never-opened engine `.closed` was never published *at all*; and
+      the detached collector `Task` + `Task.yield()` loop raced the
+      scheduler regardless. Fix: new `_markOpenForTest()` seam sets the
+      realistic D-14 precondition (a `.cameraInUse` interruption only
+      reaches a running session), and the `.bufferingOldest` state stream
+      is drained directly per event. No production logic changed — the
+      `guard isOpen` in `close()` is correct (idempotency); the test was
+      just unrealistic. Dead `SessionStateLog` helper removed.
+    - `Stage09BackoffIntegrationTests.exponentialBackoffScheduleMatchesConstants`
+      flaked (passed once, failed twice across runs). `RecoveryCoordinator`'s
+      recursive `enterRecovery` chain runs via detached `retryTask`s — no
+      single handle to await — and the test guessed a fixed `0..<30`
+      `Task.yield()` count. Replaced with condition-based polling: loop
+      until the terminal `.maxRetriesExceeded` error lands in the log,
+      bounded at 1000 yields so a genuinely-broken chain fails cleanly
+      instead of hanging. Test-only change.
+    Result: every CameraKitTests file now runs on device with zero skips.
 
 ## Open questions for next stage
 
