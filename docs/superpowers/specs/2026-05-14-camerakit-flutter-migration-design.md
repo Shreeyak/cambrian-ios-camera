@@ -1,6 +1,6 @@
 # CameraKit → Flutter Migration — Design (Phases 1–2)
 
-**Status:** Approved 2026-05-14
+**Status:** Approved 2026-05-14 · amended 2026-05-14 (Phase 1 split into 1A/1B — OpenCV consumer decoupling added)
 **Date:** 2026-05-14
 **Scope:** Phases 1–2 only (all work stays inside `eva-swift-stitch`). Phase 3 is a separate spec→plan cycle.
 
@@ -23,8 +23,10 @@ gives the Flutter package an iOS camera implementation.
 
 The migration is three phases:
 
-1. **Phase 1 — Decouple UI from engine.** Move SwiftUI out of the package; curate the
-   engine's public surface into a clean facade.
+1. **Phase 1 — Decouple UI and the OpenCV consumer from the package.** Two independent
+   workstreams: **1A** moves SwiftUI out of the package and curates the engine's public
+   surface; **1B** moves the OpenCV/Canny C++ consumer + the OpenCV xcframework out of the
+   package, leaving only the consumer-join seam.
 2. **Phase 2 — Conform the facade vocabulary to the (amended) Flutter contract**, add the
    in-scope additive capabilities, update the dev harness, leave the package cleanly
    extractable.
@@ -43,7 +45,9 @@ this migration.
 
 ---
 
-## Target architecture — two layers, mirroring Android
+## Target architecture
+
+### Engine layering — two layers, mirroring Android
 
 Android's structure, which we now match:
 
@@ -98,9 +102,69 @@ The Pigeon wire baggage — handle/`Int64` addressing, `Cam*` ↔ native transla
 `AsyncStream` → `FlutterApi` callback pumping, `Result` completion handlers — is **not**
 in `CameraEngine`. It is absorbed entirely by the Phase 3 Pigeon adapter.
 
+### Consumer seam — OpenCV lives outside the package
+
+CameraKit's C++ side already confines OpenCV (ADR-11) and already exposes a
+consumer-registration seam — `pixel_sink_pool_register(handle, stream, callbacks)`
+(C-ABI) / `ConsumerRegistry.registerCallback(stream:callbacks:)` (Swift). The *only*
+OpenCV user is the Canny edge-detection consumer. So the package is made OpenCV-free by
+moving that one consumer out and having external code register it through the existing
+seam — the package keeps only the *option to join*.
+
+```
+Today:                                  Target:
+CameraKit/Package.swift                 CameraKit/Package.swift  (OpenCV-FREE)
+├── opencv2 (xcframework)               ├── CameraKitCxx  (no opencv2 dep)
+├── CameraKitCxx → opencv2              │   ├── PixelSinkPool.cpp   ← join + fan-out
+│   ├── PixelSinkPool.cpp               │   ├── CaptureAtomic.cpp   ← capture guard (stays)
+│   ├── CannyStubConsumer.cpp (OpenCV)  │   └── include/ PixelSink.hpp · PixelSinkCallbacks.h
+│   ├── CaptureAtomic.cpp               │            · PixelSinkMetrics.h  ← PUBLIC SEAM
+│   └── include/ …                      ├── CameraKitInterop  (CppCannyStub removed)
+├── CameraKitInterop                    └── CameraKit
+│   └── …Pool ·…Callbacks ·…Atomic           └── ConsumerRegistry — vends seam, registers
+│       · CppCannyStub                            nothing; exposes pool handle via
+└── CameraKit                                     getNativePipelineHandle()
+    └── ConsumerRegistry — registers
+        Canny INTERNALLY               eva-swift-stitch (app)  ← OpenCV lives here
+                                       ├── Frameworks/opencv2.xcframework  (app links it)
+                                       └── AppCxx/CannyConsumer.cpp  (#include <opencv2/…>
+                                              + #include <PixelSinkCallbacks.h>)
+```
+
+Subscriber-joins flow — identical for the dev harness now and the Flutter plugin in
+Phase 3:
+
+```
+App / Flutter plugin                    CameraKit package
+engine.open() ───────────────────────▶  produces natural · processed · TRACKER lanes
+h = engine.getNativePipelineHandle() ◀─  opaque pool pointer
+pixel_sink_pool_register(h, .tracker, ──▶ PixelSinkPool registers the entry
+  {on_frame, on_overwrite, …})
+…frames… dispatch(.tracker, …) ────────▶ app's on_frame ─▶ cv::Canny  (OpenCV in the app)
+```
+
+`getNativePipelineHandle()` — **already in the Pigeon contract** — is the join point. The
+`UInt64` it returns is the `uintptr_t` of the C++ pool (`pixel_sink_pool_raw_pointer` of
+the same object `pixel_sink_pool_create` produced) — cast it to `void*` to pass to
+`pixel_sink_pool_register`. No contract change is needed for the seam itself.
+
+**Two registration paths, one pool:**
+- **Swift API** — `engine.consumers.registerCallback(stream:callbacks:)`. *Canonical path
+  for the SwiftUI dev harness* (Phase 1B) — Swift-typed, already present.
+- **C-ABI** — `pixel_sink_pool_register(handle, stream, callbacks)` against the
+  `getNativePipelineHandle()` pointer. *What Phase 3's Flutter plugin native code will
+  use.*
+
+Both land in the same `PixelSinkPool`.
+
 ---
 
-## Phase 1 — Decouple UI from engine
+## Phase 1 — Decouple UI and the OpenCV consumer from the package
+
+Two independent workstreams (either order). Both make the package contain nothing app- or
+consumer-specific.
+
+### 1A — Decouple UI from engine
 
 **Relocate SwiftUI out of the package** into the `eva-swift-stitch` app target:
 `CameraView.swift`, `ViewModel.swift`, the 6 child view models
@@ -136,8 +200,46 @@ last fine-grained-helper calls from the UI (see §2b).
 **Result:** CameraKit builds with zero SwiftUI import; `eva_swift_stitchApp.swift`
 presents `CameraView()` now sourced from the app target.
 
+### 1B — Decouple the OpenCV consumer from the package
+
+The package's C++ side splits along the seam that **already exists** (see "Consumer seam"
+above). **Stays in the package** (`CameraKitCxx`, now OpenCV-free): `PixelSinkPool.cpp`
+(join + fan-out), `PixelSink.hpp` + the pool portion of `PixelSinkCallbacks.h` +
+`PixelSinkMetrics.h` (the public subscriber seam), and `CaptureAtomic.cpp/.hpp` (the
+capture-in-flight guard — not a consumer, no OpenCV). **Moves to the app target**:
+`CannyStubConsumer.cpp` + its `canny_stub_*` C-ABI (into its own header), the
+`CppCannyStub` interop wrapper, and the `opencv2.xcframework` link.
+
+- `CameraKit/Package.swift` — drop the `opencv2` `binaryTarget` and the
+  `CameraKitCxx → opencv2` dependency; `CameraKitCxx` compiles no OpenCV code.
+- `PixelSinkCallbacks.h` + `include/module.modulemap` — remove the `canny_stub_*`
+  declarations (they move with the Canny source).
+- `ConsumerRegistry` / engine setup — delete the *internal* Canny registration call site;
+  the package registers no consumer of its own — it vends the seam and exposes the pool
+  handle via `getNativePipelineHandle()`. The engine still *produces* the tracker stream;
+  it exists precisely for external consumers.
+- App target — link `Frameworks/opencv2.xcframework`; add the moved Canny C++ under an
+  app-side `AppCxx/` group. The harness registers the Canny consumer via the **Swift API**
+  — `engine.consumers.registerCallback(stream: .tracker, callbacks:)` — the canonical path
+  for 1B (the C-ABI path is reserved for Phase 3's Flutter plugin native code).
+- **Consumer lifecycle is now the app's responsibility** (it was implicit when Canny lived
+  in-package): register after each `engine.open()`; treat the handle as dead after
+  `engine.close()` and re-register on the next `open()`; the handle stays valid across
+  `pause` / `resume` (the pool is kept, only the drain pauses).
+- App-side Swift↔C++ interop stays minimal — the Canny consumer is pure C++ exposing a
+  single C entry point, so the app needs no package-style `.interoperabilityMode(.Cxx)`
+  target.
+- Any tests exercising the Canny consumer relocate to the app target alongside it
+  (mirroring 1A's test relocation).
+
+**Build gotchas to validate on device:** the app's own `.cpp` files need a header search
+path to `CameraKitCxx/include` so `#include <PixelSinkCallbacks.h>` resolves; the app C++
+target must match `cxxLanguageStandard: .cxx20`, the `CPP_POOL_THREAD_COUNT` define, and
+`CoreVideo` / `IOSurface` linkage.
+
 ### Phase 1 critical files
 
+**1A — UI:**
 - Move out of `CameraKit/Sources/CameraKit/`: `CameraView.swift`, `ViewModel.swift`,
   `DisplayViewModel.swift`, `RecordingViewModel.swift`, `HardwareControlsViewModel.swift`,
   `ProcessingViewModel.swift`, `CalibrationViewModel.swift` (carries
@@ -145,6 +247,21 @@ presents `CameraView()` now sourced from the app target.
   `SliderDebouncer.swift`
 - `eva-swift-stitch/` app target — destination for the above
 - `CameraKit/Tests/CameraKitTests/Stage11Tests.swift`, `Stage10Tests.swift` — relocate / split
+
+**1B — OpenCV consumer:**
+- Move out of `CameraKit/Sources/CameraKitCxx/`: `CannyStubConsumer.cpp`; the `canny_stub_*`
+  C-ABI split into its own header
+- Move out of `CameraKit/Sources/CameraKitInterop/`: `CppCannyStub`
+- `CameraKit/Package.swift` — remove the `opencv2` binaryTarget + the `CameraKitCxx`
+  dependency on it
+- `CameraKit/Sources/CameraKitCxx/include/PixelSinkCallbacks.h`, `include/module.modulemap`
+  — remove `canny_stub_*`
+- `CameraKit/Sources/CameraKit/PixelSink.swift` + engine setup — delete the internal Canny
+  registration
+- `eva-swift-stitch/` app target + `eva-swift-stitch.xcodeproj` — new `AppCxx/` group, the
+  `opencv2.xcframework` link, the app-side registration call
+
+**Shared:**
 - `CameraKit/Package.swift`, `eva-swift-stitch.xcodeproj` — target membership updates
 - `CameraKit/CONTRACTS.md`, `CameraKit/state.md`, `CameraKit/DECISIONS.md` — regen / update
 
@@ -277,11 +394,18 @@ no contract surface.
 - Public surface = `CameraEngine`'s curated surface + value types. "Curated" is **not**
   literally "= the contract": it is *contract operations + a small harness-only debug
   surface* that has no Pigeon counterpart and stays `public` because relocated view models
-  call it cross-module:
-  - `consumers.registerCallback(stream: .tracker, …)` — `DisplayViewModel`'s debug tracker overlay
-  - `deviceSnapshotStream()` — `ViewModel`'s KVO-fed device-state subscription
+  call it cross-module. The harness-only surface, **verified against the UI code**:
+  - `currentTrackerTexture()` + `consumers.subscribe(stream: .tracker)` +
+    `consumers.registerCallback(stream: .tracker, …)` / `unregister()` —
+    `DisplayViewModel`'s debug tracker texture + overlay
+  - `consumers.metricsStream()` — `ViewModel`'s `FrameDeliveryStats` long-press overlay
+  - `currentSettingsSnapshot()` — `HardwareControlsViewModel`'s slider seeding (a Flutter
+    UI derives live values from `onFrameResult` instead)
+  - `dumpDeviceFormats()` — debug capabilities dump
   Phase 3 must know these are harness-only (no Pigeon counterpart) vs. contract-backed.
-- `CameraKitCxx` + the OpenCV xcframework untouched, still package targets.
+- `CameraKitCxx` slimmed to the consumer-join seam (`PixelSinkPool` + `PixelSink.hpp` +
+  the pool C-ABI + `CaptureAtomic`); the OpenCV xcframework and the Canny consumer are
+  **no longer package targets** — they live in the app (Phase 1B).
 - The package still builds **only via the xcodeproj / XcodeBuildMCP** — standalone
   `swift build` still does not work (iOS-only AVFoundation); unchanged and acceptable.
 - Phase 3's packaging choice (Flutter SPM-plugin support vs. CocoaPods vendoring) is left
@@ -315,19 +439,30 @@ no contract surface.
 - **Not** collapsing the 7 view models into a unified mediator — ADR-21 decomposition is
   preserved (except the deliberate calibration-orchestration move-down in §2b).
 - No facade protocol — `CameraEngine`'s curated public surface is the facade.
+- Phase 1B does **not** redesign the consumer seam — `pixel_sink_pool_register` /
+  `ConsumerRegistry.registerCallback` already exist; 1B only relocates the OpenCV consumer
+  that uses them, and removes OpenCV from the package's build graph.
 - No changes to the brief pipeline; this runs after Stage 12.
 
 ---
 
 ## Verification
 
-**Phase 1**
+**Phase 1A — UI**
 - CameraKit builds headless via XcodeBuildMCP (`build_run_device`) — no SwiftUI import in
   the package.
 - App builds and presents `CameraView()` from the app target on a physical iPad.
 - All non-UI Stage01–Stage10 tests pass unchanged.
 - Relocated `Stage11Tests` (+ the split `Stage10Tests` case) pass in the app target,
   including `CalibrationEngineStub`-backed calibration tests.
+
+**Phase 1B — OpenCV consumer**
+- `CameraKit/Package.swift` has no `opencv2` target; `CameraKitCxx` compiles with zero
+  OpenCV includes; the `CameraKit` library builds with no OpenCV in its graph.
+- The app links `opencv2.xcframework`, registers its Canny consumer through the seam after
+  `engine.open()`, and edge counts flow on device — the Stage 08 Canny behaviour is
+  preserved, just app-side.
+- Relocated Canny-consumer tests pass in the app target.
 
 **Phase 2**
 - `CameraEngine`'s curated surface compiles clean under Swift 6 strict concurrency
