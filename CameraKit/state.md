@@ -23,7 +23,14 @@ Stage 11 regression and follow-up HITL on iPad surfaced 16 pre-existing bugs (no
 
 Bugs 5, 6, 9, 15, 16 status in `docs/stage-11-pre-existing-bugs.md` summary table.
 
-Full regression after fixes (2026-04-30, iPad iOS 26.4.1, scheme `eva-swift-stitch`, no `-skip-testing` flags): **71 passed, 0 failed, 1 skipped** (same DEBUG-gated skip as Stage 11 baseline).
+Full regression after fixes (2026-04-30, iPad iOS 26.4.1, scheme `eva-swift-stitch`, no `-skip-testing` flags): **71 passed, 0 failed, 1 skipped**.
+
+**Updated 2026-05-14** — once CameraKitTests became app-hosted and
+runnable on device (Decisions #68–70), the full bundle is **113 passed /
+0 failed / 0 skipped** on Shreeyak's iPad. The historical "1 skipped"
+was `Stage09CameraInUseTests.cameraInUseSelfHealToClosed` — an
+unconditional `.disabled`, **not** a DEBUG-gated skip (earlier state.md
+wording was wrong) — now un-disabled and passing.
 
 Three Stage 11 §11 HITL evidence items — verified 2026-05-09 on iPad:
 
