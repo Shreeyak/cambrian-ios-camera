@@ -29,6 +29,14 @@ final class ViewModel {
     /// surface, shared with recording-failure errors), not here.
     var captureConfirmation: StillCaptureOutput?
 
+    #if DEBUG
+    /// Latest per-window frame-delivery stats (D-11) — drives the long-press
+    /// debug overlay.
+    ///
+    /// DEBUG-only; the production UI never surfaces this.
+    var frameDeliveryStats: FrameDeliveryStats?
+    #endif
+
     /// Cached supported capture resolutions, populated once at `engine.open()`.
     ///
     /// The set of supported sizes is a property of the active `AVCaptureDevice`
@@ -55,6 +63,10 @@ final class ViewModel {
 
     @ObservationIgnored private var frameResultTask: Task<Void, Never>?
     @ObservationIgnored private var bannerDismissTask: Task<Void, Never>?
+
+    #if DEBUG
+    @ObservationIgnored private var metricsTask: Task<Void, Never>?
+    #endif
 
     // MARK: - ScenePhase tracking (ADR-09, D-06, 08-ui.md §scenePhase wiring)
 
@@ -117,6 +129,9 @@ final class ViewModel {
         }
 
         frameResultTask = makeFrameResultTask()
+        #if DEBUG
+        metricsTask = makeMetricsTask()
+        #endif
 
         var needsPostRecoverySetup = false
         for await state in await engine.stateStream() {
@@ -139,6 +154,10 @@ final class ViewModel {
         frameResultTask = nil
         bannerDismissTask?.cancel()
         bannerDismissTask = nil
+        #if DEBUG
+        metricsTask?.cancel()
+        metricsTask = nil
+        #endif
         await recording.stop()
         await hardware.stop()
         await processing.stop()
@@ -170,6 +189,10 @@ final class ViewModel {
             capabilities = caps
             await display.attachAfterOpen()
             frameResultTask = makeFrameResultTask()
+            #if DEBUG
+            metricsTask?.cancel()
+            metricsTask = makeMetricsTask()
+            #endif
         } catch {
             sessionState = .error
         }
@@ -228,6 +251,21 @@ final class ViewModel {
             }
         }
     }
+
+    #if DEBUG
+    /// Subscribes to `engine.consumers.metricsStream()` (D-11) and mirrors each
+    /// per-window `FrameDeliveryStats` into `frameDeliveryStats` for the
+    /// long-press debug overlay.
+    private func makeMetricsTask() -> Task<Void, Never> {
+        Task { [weak self] in
+            guard let engine = self?.engine else { return }
+            for await stats in await engine.consumers.metricsStream() {
+                guard let self else { return }
+                await MainActor.run { self.frameDeliveryStats = stats }
+            }
+        }
+    }
+    #endif
 
     // MARK: - Resolution change (parent-owned because it mutates session capabilities)
 

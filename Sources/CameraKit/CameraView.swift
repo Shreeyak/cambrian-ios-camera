@@ -19,6 +19,11 @@ public struct CameraView: View {
     @State private var showExpandedBar: Bool = false
     @Environment(\.scenePhase) private var scenePhase
 
+    #if DEBUG
+    /// Long-press toggles the D-11 frame-delivery-stats panel in `debugSurface`.
+    @State private var showDeliveryStats: Bool = false
+    #endif
+
     public init() {}
 
     public var body: some View {
@@ -492,6 +497,14 @@ public struct CameraView: View {
     #if DEBUG
     @ViewBuilder
     private var debugSurface: some View {
+        // Long-press anywhere over the preview toggles the D-11 delivery-stats
+        // panel. Sits below the interactive debug controls (added later in this
+        // ViewBuilder) so the tracker toggle stays tappable.
+        Color.clear
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 0.6) {
+                showDeliveryStats.toggle()
+            }
         // Frame number overlay (top-left).
         if let overlay = viewModel.display.debugOverlay {
             VStack {
@@ -543,6 +556,37 @@ public struct CameraView: View {
             }
             Spacer()
         }
+        // D-11 frame-delivery-stats panel (bottom-right), long-press toggled.
+        if showDeliveryStats, let stats = viewModel.frameDeliveryStats {
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    deliveryStatsPanel(stats)
+                }
+            }
+        }
+    }
+
+    /// Live per-lane delivery counters from both the Swift facade
+    /// (`droppedByLane`) and the C++ pool (`cppOverwriteByLane`), per-window
+    /// deltas (D-11).
+    private func deliveryStatsPanel(_ stats: FrameDeliveryStats) -> some View {
+        let lanes: [StreamId] = [.natural, .processed, .tracker]
+        return VStack(alignment: .leading, spacing: 2) {
+            Text("FrameDeliveryStats (Δ/window)")
+                .font(.caption2.bold())
+            ForEach(lanes, id: \.self) { lane in
+                Text(
+                    "\(lane.rawValue): swiftDrop=\(stats.droppedByLane[lane] ?? 0)"
+                        + "  cppOverwrite=\(stats.cppOverwriteByLane[lane] ?? 0)")
+            }
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.cyan)
+        .padding(8)
+        .background(.black.opacity(0.7))
+        .padding([.bottom, .trailing], 16)
     }
     #endif
 }

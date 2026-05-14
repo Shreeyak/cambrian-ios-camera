@@ -86,6 +86,13 @@ public actor ConsumerRegistry {
     // `nonisolated let` so `yield()` (nonisolated) can dispatch without actor hop.
     nonisolated let cppPool: CppPixelSinkPool = CppPixelSinkPool()
 
+    // D-11 metrics stream — cached (one underlying stream, shared by re-callers)
+    // and the live `MetricsSink` it drives. `metricsSink` is retained here so a
+    // teardown via `release()` can tear it down deterministically; the stream's
+    // own `onTermination` also releases it when a caller cancels independently.
+    private var cachedMetricsStream: AsyncStream<FrameDeliveryStats>?
+    private var metricsSink: MetricsSink?
+
     public init() {}
 
     // MARK: - Subscribe (Swift lane, D-01)
@@ -116,14 +123,18 @@ public actor ConsumerRegistry {
 
     /// Registers a C-ABI consumer in the C++ pool.
     ///
-    /// Throws `InteropError.invalidCallbacks` if `callbacks.onFrame` is nil or
-    /// if `callbacks.onOverwrite` is nil (both required by D-03).
+    /// Throws `InteropError.invalidCallbacks` if `callbacks.onFrame` is nil
+    /// (D-03), or `InteropError.missingOnOverwrite` if `callbacks.onOverwrite`
+    /// is nil — the G-26-avoidance quality gate (D-11): a sink that cannot
+    /// surface mailbox-overwrite drops is rejected at registration time.
     public func registerCallback(
         stream: StreamId,
         callbacks: PixelSinkCallbacks
     ) throws -> ConsumerToken {
         guard let onFrame = callbacks.onFrame else { throw InteropError.invalidCallbacks }
-        guard let onOverwrite = callbacks.onOverwrite else { throw InteropError.invalidCallbacks }
+        guard let onOverwrite = callbacks.onOverwrite else {
+            throw InteropError.missingOnOverwrite
+        }
         // onError is optional per D-03; default to a no-op to satisfy CppPixelSinkCallbacks.
         let onError: PixelSinkCallbacks.OnError = callbacks.onError ?? { _, _ in }
 
@@ -134,11 +145,53 @@ public actor ConsumerRegistry {
             context: callbacks.context
         )
         let token = cppPool.register(stream: stream.rawPoolId, callbacks: cbs)
+        // The C++ pool enforces the same G-26 gate and returns token 0 when it
+        // rejects a registration — defense in depth behind the guard above.
+        guard token != 0 else { throw InteropError.missingOnOverwrite }
         CameraKitLog.notice(
             .consumers,
             "registerCallback: stream=\(stream.rawPoolId) token=\(token) cppCount=\(self.cppPool.consumerCount(stream: stream.rawPoolId))"
         )
         return ConsumerToken(id: token, stream: stream)
+    }
+
+    // MARK: - Metrics stream (D-11)
+
+    /// A single `AsyncStream<FrameDeliveryStats>` aggregating Swift-side per-lane
+    /// drop counters and the C++ pool's `mailbox_overwrite_count` atomics (D-11).
+    ///
+    /// The C++ pool drives the cadence — one emission per `FPS_MEASUREMENT_WINDOW_FRAMES`
+    /// — via its metrics callback; each sample carries per-lane *deltas*, not
+    /// cumulative counts. Cached: re-callers receive the same stream.
+    public func metricsStream() -> AsyncStream<FrameDeliveryStats> {
+        if let cached = cachedMetricsStream { return cached }
+        var capturedSink: MetricsSink?
+        let stream = AsyncStream<FrameDeliveryStats>(
+            bufferingPolicy: .bufferingNewest(1)
+        ) { continuation in
+            let sink = MetricsSink(
+                continuation: continuation,
+                cppPool: self.cppPool,
+                swiftDropCount: { [weak self] lane in
+                    self?.dropCount(for: lane) ?? 0
+                })
+            capturedSink = sink
+            self.cppPool.setMetricsHandler { [weak sink] lane, overwriteCount in
+                sink?.onMetric(stream: lane, overwriteCount: overwriteCount)
+            }
+            continuation.onTermination = { [self] _ in
+                self.cppPool.clearMetricsHandler()
+                Task { await self.clearMetricsSink() }
+            }
+        }
+        metricsSink = capturedSink
+        cachedMetricsStream = stream
+        return stream
+    }
+
+    private func clearMetricsSink() {
+        metricsSink = nil
+        cachedMetricsStream = nil
     }
 
     // MARK: - Unregister
@@ -253,6 +306,10 @@ public actor ConsumerRegistry {
     /// regression caught this on iPad iOS 26.4.1). Drain the continuations
     /// outside the lock to avoid the recursion.
     func release() {
+        metricsSink?.finish()
+        cppPool.clearMetricsHandler()
+        metricsSink = nil
+        cachedMetricsStream = nil
         let toFinish: [AsyncStream<FrameSet>.Continuation] = state.withLock { inner in
             let conts = inner.subscribers.values.flatMap { $0.map(\.continuation) }
             inner.subscribers.removeAll()
@@ -266,6 +323,13 @@ public actor ConsumerRegistry {
     /// Per-lane drop counter — readable from tests via @testable import.
     nonisolated func dropCount(for stream: StreamId) -> UInt64 {
         state.withLock { $0.dropCounts[stream] ?? 0 }
+    }
+
+    /// Test seam: synthetically bump the Swift-side per-lane drop counter so
+    /// `metricsStream()` aggregation can be exercised without driving real
+    /// mailbox overflow (D-11).
+    nonisolated func _incrementSwiftDropForTest(stream: StreamId, by count: UInt64 = 1) {
+        state.withLock { $0.dropCounts[stream, default: 0] &+= count }
     }
 
     /// Per-lane subscriber count — readable from tests via @testable import.
@@ -291,4 +355,78 @@ extension StreamId {
         case .tracker: return 2
         }
     }
+}
+
+// MARK: - MetricsSink (D-11 aggregation)
+
+/// Drives `ConsumerRegistry.metricsStream()`.
+///
+/// The C++ pool invokes `onMetric` once per lane per FPS window; this merges
+/// the Swift-side per-lane drop counters with the C++ pool's per-lane
+/// `mailbox_overwrite_count` and emits a single `FrameDeliveryStats` carrying
+/// per-lane *deltas* (D-11) when the last lane (`.tracker`) reports.
+private final class MetricsSink: @unchecked Sendable {
+    private let continuation: AsyncStream<FrameDeliveryStats>.Continuation
+    private let cppPool: CppPixelSinkPool
+    private let swiftDropCount: @Sendable (StreamId) -> UInt64
+    private let prev = Mutex<(cpp: [StreamId: UInt64], swift: [StreamId: UInt64])>(
+        (cpp: [:], swift: [:]))
+    private let lastLogged = Mutex<ContinuousClock.Instant?>(nil)
+
+    init(
+        continuation: AsyncStream<FrameDeliveryStats>.Continuation,
+        cppPool: CppPixelSinkPool,
+        swiftDropCount: @escaping @Sendable (StreamId) -> UInt64
+    ) {
+        self.continuation = continuation
+        self.cppPool = cppPool
+        self.swiftDropCount = swiftDropCount
+    }
+
+    /// Invoked per-lane by the C++ metrics callback.
+    ///
+    /// The pool emits every lane each window in id order, so `.tracker` (id 2,
+    /// the last lane) is the once-per-window trigger for the merged snapshot.
+    func onMetric(stream: UInt32, overwriteCount: UInt64) {
+        guard stream == StreamId.tracker.rawPoolId else { return }
+        let stats: FrameDeliveryStats = prev.withLock { p in
+            var cppDelta: [StreamId: UInt64] = [:]
+            var swiftDelta: [StreamId: UInt64] = [:]
+            for lane in StreamId.allCases {
+                let curCpp = cppPool.overwriteCount(stream: lane.rawPoolId)
+                let curSwift = swiftDropCount(lane)
+                cppDelta[lane] = curCpp &- (p.cpp[lane] ?? 0)
+                swiftDelta[lane] = curSwift &- (p.swift[lane] ?? 0)
+                p.cpp[lane] = curCpp
+                p.swift[lane] = curSwift
+            }
+            return FrameDeliveryStats(
+                producedByLane: [:],
+                deliveredByLane: [:],
+                droppedByLane: swiftDelta,
+                holdOverBudgetByLane: [:],
+                poolExhaustion: 0,
+                cppOverwriteByLane: cppDelta)
+        }
+        // The panel emit (`continuation.yield`) runs every FPS window; the log
+        // line is throttled to ~3 s wall-clock so `camerakit.log` stays readable.
+        let now = ContinuousClock.now
+        let shouldLog = lastLogged.withLock { last -> Bool in
+            if let last, now - last < .seconds(3) { return false }
+            last = now
+            return true
+        }
+        if shouldLog {
+            let perLane = StreamId.allCases.map { lane in
+                "\(lane)=\(stats.cppOverwriteByLane[lane] ?? 0)/\(stats.droppedByLane[lane] ?? 0)"
+            }.joined(separator: " ")
+            CameraKitLog.notice(
+                .consumers,
+                "[metrics] window emit (cppOverwrite/swiftDrop): \(perLane)"
+            )
+        }
+        continuation.yield(stats)
+    }
+
+    func finish() { continuation.finish() }
 }

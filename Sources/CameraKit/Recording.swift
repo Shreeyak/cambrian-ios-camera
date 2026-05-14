@@ -2,6 +2,48 @@ import AVFoundation
 import Atomics
 import CoreMedia
 import Foundation
+import UIKit
+
+/// Abstraction over the UIApplication background-task API.
+///
+/// Per 06-capture-and-recording.md §Background drain: lets the recording drain
+/// run inside an OS-granted background-task assertion, and lets tests exercise
+/// the expiration path without a live `UIApplication`.
+public protocol BackgroundTaskProviding: Sendable {
+    /// Begins a background task; the returned identifier must be passed to
+    /// `endBackgroundTask` exactly once. `expirationHandler` runs on an
+    /// arbitrary queue if the OS reclaims the assertion before completion.
+    func beginBackgroundTask(
+        name: String,
+        expirationHandler: @escaping @Sendable () -> Void
+    ) async -> Int
+    /// Ends the background task identified by `id`. A no-op for an invalid id.
+    func endBackgroundTask(_ id: Int) async
+}
+
+/// Production `BackgroundTaskProviding` backed by `UIApplication.shared`.
+public struct UIApplicationBackgroundTaskProvider: BackgroundTaskProviding {
+    public init() {}
+
+    public func beginBackgroundTask(
+        name: String,
+        expirationHandler: @escaping @Sendable () -> Void
+    ) async -> Int {
+        await MainActor.run {
+            UIApplication.shared.beginBackgroundTask(
+                withName: name, expirationHandler: expirationHandler
+            ).rawValue
+        }
+    }
+
+    public func endBackgroundTask(_ id: Int) async {
+        let identifier = UIBackgroundTaskIdentifier(rawValue: id)
+        guard identifier != .invalid else { return }
+        await MainActor.run {
+            UIApplication.shared.endBackgroundTask(identifier)
+        }
+    }
+}
 
 /// Recording coordinator — owns AVAssetWriter + adaptor lifecycle (D-04, ADR-16).
 ///
@@ -30,6 +72,7 @@ public actor Recording {
     private let clock: any CameraKitClock
     private let hooks: Hooks
     private let writerFactory: AssetWriterFactory
+    private let backgroundTaskProvider: any BackgroundTaskProviding
 
     private var writer: (any AssetWriting)?
     private var adaptor: (any AssetWriterPixelBufferAdapting)?
@@ -46,11 +89,13 @@ public actor Recording {
     public init(
         clock: any CameraKitClock,
         hooks: Hooks,
-        writerFactory: @escaping AssetWriterFactory
+        writerFactory: @escaping AssetWriterFactory,
+        backgroundTaskProvider: any BackgroundTaskProviding = UIApplicationBackgroundTaskProvider()
     ) {
         self.clock = clock
         self.hooks = hooks
         self.writerFactory = writerFactory
+        self.backgroundTaskProvider = backgroundTaskProvider
     }
 
     // MARK: - Public Methods
@@ -139,6 +184,21 @@ public actor Recording {
         let deadlineMs = Int(Constants.recordingFinishTimeoutSeconds * 1000)
         let clock = self.clock
         let didCancel = ManagedAtomic<Bool>(false)
+
+        // Background-task assertion around the drain (06-capture-and-recording.md
+        // §Background drain). If the OS reclaims the assertion mid-drain the
+        // expiration handler cancels the writer — never `finishWriting` (ADR-16,
+        // G-08): an interrupted `finishWriting` produces a corrupt MP4 with no
+        // `moov` atom, whereas `cancelWriting` produces an empty file. The
+        // handler runs on an arbitrary queue; it schedules `cancelWriting`
+        // through a detached `Task`, requiring no engine-actor hop.
+        let bgTaskId = await backgroundTaskProvider.beginBackgroundTask(
+            name: "recording-drain"
+        ) {
+            didCancel.store(true, ordering: .sequentiallyConsistent)
+            Task { await writer.cancelWriting() }
+        }
+
         // ADR-30 pattern (see AsyncWithTimeout.swift): CAS race between the work
         // branch and the deadline branch with a `ManagedAtomic<Bool>` resume-once
         // gate. `withTaskGroup` is NOT used here because `group.waitForAll()`
@@ -173,6 +233,12 @@ public actor Recording {
                 resumeOnce()
             }
         }
+
+        // `endBackgroundTask` on every exit path (Stage 12 §7): this single site
+        // after the drain covers normal finalize, deadline cancel, expiration
+        // cancel, and the writer-error path below.
+        await backgroundTaskProvider.endBackgroundTask(bgTaskId)
+
         let stopGroupDoneMs = self.clock.nowMs()
         let stopWriterStatus = await writer.status.rawValue
         CameraKitLog.notice(

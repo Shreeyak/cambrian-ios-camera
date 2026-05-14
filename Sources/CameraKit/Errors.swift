@@ -76,8 +76,12 @@ public enum MetalError: Error, Sendable, Equatable {
 public enum InteropError: Error, Sendable {
     case pixelSinkRegistrationRejected(code: Int32)
     case pipelineHandleUnavailable
-    /// on_frame or on_overwrite was nil on registerCallback (D-03 / D-11 quality gate).
+    /// on_frame was nil on registerCallback (D-03 quality gate).
     case invalidCallbacks
+    /// on_overwrite was nil on registerCallback — the G-26-avoidance quality
+    /// gate (D-11): a sink that cannot surface mailbox-overwrite drops is
+    /// rejected at registration, never silently degraded at runtime.
+    case missingOnOverwrite
     /// Unmanaged retain/release mismatch detected on unregister.
     case retainMismatch
 }
