@@ -1,6 +1,6 @@
 # CameraKit → Flutter Migration — Design (Phases 1–2)
 
-**Status:** Approved 2026-05-14 · amended 2026-05-14 (Phase 1 split into 1A/1B — OpenCV consumer decoupling added)
+**Status:** Approved 2026-05-14 · amended 2026-05-14 (Phase 1 split into 1A/1B — OpenCV consumer decoupling) · amended 2026-05-15 (advisor critique — flaws #1/#2/#3 resolved) · amended 2026-05-15 (open() initial-settings conformance + Phase 3 texture-bridge handoff; §2d.8 calibration host methods; WB iterative Dart port deferred to a future-work plan)
 **Date:** 2026-05-14
 **Scope:** Phases 1–2 only (all work stays inside `eva-swift-stitch`). Phase 3 is a separate spec→plan cycle.
 
@@ -146,7 +146,9 @@ pixel_sink_pool_register(h, .tracker, ──▶ PixelSinkPool registers the entr
 `getNativePipelineHandle()` — **already in the Pigeon contract** — is the join point. The
 `UInt64` it returns is the `uintptr_t` of the C++ pool (`pixel_sink_pool_raw_pointer` of
 the same object `pixel_sink_pool_create` produced) — cast it to `void*` to pass to
-`pixel_sink_pool_register`. No contract change is needed for the seam itself.
+`pixel_sink_pool_register`. The Pigeon contract types this handle `Int64?` while
+CameraKit's Swift surface is `UInt64` — the Phase 3 adapter bridges the sign +
+nullability; not a Phase 1–2 concern. No contract change is needed for the seam itself.
 
 **Two registration paths, one pool:**
 - **Swift API** — `engine.consumers.registerCallback(stream:callbacks:)`. *Canonical path
@@ -231,6 +233,12 @@ capture-in-flight guard — not a consumer, no OpenCV). **Moves to the app targe
   target.
 - Any tests exercising the Canny consumer relocate to the app target alongside it
   (mirroring 1A's test relocation).
+- **C-ABI parity probe** — 1B adds a minimal non-OpenCV C consumer (counts frames, no
+  image processing) registered via the **C-ABI** path (`pixel_sink_pool_register`), plus a
+  test asserting it observes the same frame sequence as a Swift-API consumer on the same
+  stream. The C-ABI path is what Phase 3's Flutter plugin native code will use; without
+  this probe it ships unexercised until Phase 3, where divergences (context lifetime,
+  threading, counters, unregister-while-dispatching) are hardest to debug.
 
 **Build gotchas to validate on device:** the app's own `.cpp` files need a header search
 path to `CameraKitCxx/include` so `#include <PixelSinkCallbacks.h>` resolves; the app C++
@@ -288,13 +296,29 @@ Examples:
   iOS," not implemented. (See §2d.)
 - Anything **ambiguous** → surfaced to the user for a decision, not decided unilaterally.
 
+**`open()` — fold initial settings into `OpenConfiguration` (a shape alignment, not a
+rename).** The Pigeon contract's `open(String? cameraId, CamSettings? settings)` folds an
+initial hardware-settings bag into `open`. CameraKit's `open(configuration:)` today takes
+only *structural* config — `OpenConfiguration` = `cameraId` / `captureResolution` /
+`cropRegion` — and expects hardware settings via a follow-up `updateSettings(...)`. To
+conform without an "open-at-defaults → snap-to-settings" flicker on the first frames,
+**widen `OpenConfiguration` with `initialSettings: CameraSettings?`** so requested settings
+are live from frame one. This is a Phase-2 CameraKit surface change. The Phase 3 adapter
+then maps `open(cameraId, settings)` →
+`engine.open(OpenConfiguration(cameraId:, captureResolution:, cropRegion:, initialSettings:))`.
+Resolution sourcing: the Pigeon `open` carries no explicit resolution (it arrives via a
+follow-up `setResolution(handle, w, h)`), so on the Flutter path the adapter opens at the
+**default highest native resolution — `Size(4032, 3024)`**, the camera's assumed default
+configuration — and `cropRegion` is sourced from `CamSettings.cropOutputSize`.
+
 ### 2b. Calibration orchestration moves down
 
 The contract's calibration surface is just `sampleCenterPatch`. Today the multi-step
 WB/BB algorithms (sample patch → compute gains → apply → await convergence) live in
 `CalibrationViewModel` — camera-control logic that leaked into the UI.
 
-Add `calibrateWhiteBalance()` / `calibrateBlackBalance()` to `CameraEngine`.
+Add `calibrateWhiteBalance()` / `calibrateBlackBalance()` to `CameraEngine` (Phase 2 wraps
+CameraKit's *current* iOS calibration approach — see the resolved note below).
 `CalibrationViewModel` becomes a thin caller. Once the VM stops calling the fine-grained
 helpers (`applyManualGainsAndAwait`, `awaitWBSettled`, `sampleCenterPatchForBBCalibration`,
 `setWBPreset`, `awaitAESettled`, …), **those helpers can be marked `internal`** — this is
@@ -303,6 +327,38 @@ the surface-curation step that Phase 1 had to defer.
 `CalibrationEngineProtocol` shrinks accordingly (it now needs only the high-level
 `calibrate*` operations + whatever the thinned VM still touches); `CalibrationEngineStub`
 is updated to match.
+
+> **Resolved (2026-05-15) — algorithm source.** An opus review confirmed the Android Dart
+> WB algorithm cannot port verbatim: its `wbStep` pins green as a fixed pivot — valid on
+> Camera2's unfloored `COLOR_CORRECTION_GAINS`, but not on iOS, where
+> `AVCaptureWhiteBalanceGains` clamps every channel to `[1.0, maxWhiteBalanceGain]` and
+> renormalizes to the minimum channel; pinning a channel at the floor makes the loop
+> oscillate (a failure the Swift team already hit — see `CalibrationCompute.swift:36-54`).
+> **Phase-2 decision:** `calibrateWhiteBalance()` / `calibrateBlackBalance()` are created as
+> engine methods now, but they **wrap CameraKit's *current* iOS approach** — single-shot WB
+> (`grayWorldDeviceWhiteBalanceGains` → clamp → lock, relocated from `CalibrationViewModel`)
+> and the already-established iOS black-balance code. They do **not** yet adopt the Android
+> iterative loop. Porting that loop (the loop shape, `wbError`, and constants port verbatim;
+> only `wbStep` swaps — for the existing, unit-tested `CalibrationCompute.grayWorldGains`)
+> is **future work**, scoped in
+> `docs/superpowers/plans/2026-05-15-wb-calibration-dart-port.md`. A Dart black-balance port
+> may follow if it proves better. The replace-vs-alongside question for the single-shot
+> path is delegated to that future-work plan. The Pigeon contract still surfaces the
+> trigger methods now (§2d.8) — the contract method is a trigger, mechanism-agnostic to
+> whichever internal algorithm is live.
+
+**Concurrency contract.** `CameraEngine` is an actor, so calls are serialized — but a
+`calibrate*` call is a multi-`await` sequence other engine methods can interleave with.
+Calibration is **exclusive + abort-on-lifecycle**:
+- While a `calibrate*` call is in flight, conflicting mutating ops — `updateSettings(...)`
+  touching white balance, `setResolution(...)` — throw `.calibrationInProgress`.
+- `Task.cancel()`, `close()`, and the `interrupted` `SessionState` (§2d.5) **abort** the
+  in-flight calibration; the abort path restores white balance to a safe state before
+  throwing `CancellationError`.
+- The internal KVO waits (`awaitWBSettled`, `awaitAESettled`, …) stay timeout-bounded, so
+  calibration cannot wedge the actor indefinitely.
+This is stricter than today's implicit UI-driven behaviour (where the VM's `Task` was just
+cancelled on navigation) — the engine now owns these guarantees explicitly.
 
 > **Note:** This partially reverses Stage-11's ADR-21 decomposition (where
 > `CalibrationViewModel` owns `calibrateWB()` / `calibrateBB()` / `resetToAutoWB()` /
@@ -316,11 +372,19 @@ is updated to match.
 - **Capability range fields** — populate focus / zoom / EV-comp min-max on
   `SessionCapabilities`. The contract's `CamCapabilities` already has these slots; CameraKit
   just needs to expose them. **No contract change needed.**
-- **Active-config-changed stream** — CameraKit emits a stream when the active resolution /
-  crop / texture-ID changes (the correctly-conceived version of `onCapabilitiesChanged`;
-  see §2d.2).
+- **Active-config-changed stream** — CameraKit emits a stream when the active resolution
+  or crop changes (the correctly-conceived version of `onCapabilitiesChanged`; see §2d.2).
+  **Phase-2 payload is resolution + crop only** — Flutter texture IDs don't exist until
+  Phase 3's texture bridge mints them, so the texture-ID field is a Phase-3 addition to
+  the `CamStreamConfiguration` type, not a Phase-2 CameraKit responsibility.
 - **Natural-stream vocabulary** — CameraKit's surface uses "natural stream" terminology
   consistently; the raw↔natural mapping is documented (see §2d.1).
+- **Lane pixel-buffer accessor** — add a synchronous `nonisolated`
+  `currentPixelBuffer(stream:) -> CVPixelBuffer?` mirroring the existing `currentTexture()`
+  / `currentProcessedTexture()` accessors. Phase 3's zero-copy `FlutterTexture` bridge
+  needs a cheap "latest IOSurface-backed buffer for this lane" pull; exposing it in Phase 2
+  keeps the bridge a thin Phase-3 adapter rather than forcing it to drain the `subscribe()`
+  stream. See `2026-05-15-phase3-handoff-notes.md`.
 
 **Deferred to Phase 3:** `captureNaturalPicture` (raw hardware JPEG via
 `AVCapturePhotoOutput`) — a genuinely new capture path, not vocabulary work.
@@ -344,10 +408,11 @@ package's Android side in **Phase 3**. CameraKit's Phase-2 conformance targets t
    `cropOutputSize` is set or cleared, or after `setResolution` resolves to a new camera
    stream size." That's an *active-selection* event, not a *capabilities* event.
    - Method: `onCapabilitiesChanged` → `onStreamConfigurationChanged`
-   - Payload: **decided** — a new lean `CamStreamConfiguration` carrying only what
-     actually changed (active resolution + active crop + texture IDs), replacing the heavy
-     `CamCapabilities`. Phase 3 adds the new Pigeon type and updates the Android side to
-     build/send it.
+   - Payload: **decided** — a new lean `CamStreamConfiguration` replacing the heavy
+     `CamCapabilities`. The **resolution + crop** fields are real in Phase 2 (CameraKit
+     emits them on its Swift-side stream); the **texture-ID** field is added to
+     `CamStreamConfiguration` in Phase 3, when the texture bridge mints the IDs. Phase 3
+     adds the Pigeon type and updates the Android side to build/send it.
 
 3. **Android-only fields** — `noiseReductionMode`, `edgeMode` on `CamSettings`; error
    codes `cameraDevice`, `cameraService`, `cameraDisabled`, `maxCamerasInUse`,
@@ -386,7 +451,26 @@ no contract surface.
 7. **`streamPixelFormat` on `CamCapabilities`.** Add a pixel-format field so the Flutter
    side can interpret the iOS `CVPixelBuffer` textures. CameraKit's `SessionCapabilities`
    already exposes `streamPixelFormat` → no Phase-2 CameraKit surface change. (Leans
-   Phase-3 texture-bridge, but the contract decision belongs here.)
+   Phase-3 texture-bridge, but the contract decision belongs here.) **Zero-copy
+   constraint:** Flutter's iOS texture path wraps the `CVPixelBuffer` via
+   `CVMetalTextureCacheCreateTextureFromImage`, which is genuinely zero-copy *only* for a
+   cache-compatible format (`kCVPixelFormatType_32BGRA`). Phase 2 must confirm the lane
+   buffers are emitted in a cache-compatible format — otherwise the Phase-3 bridge is
+   forced into a per-frame CPU copy. See `2026-05-15-phase3-handoff-notes.md`.
+
+8. **`calibrateWhiteBalance` / `calibrateBlackBalance` host methods.** Surface the engine's
+   calibration triggers on the contract — `@async CamCalibrationResult
+   calibrateWhiteBalance(int handle)` and `@async CamCalibrationResult
+   calibrateBlackBalance(int handle)`, with a new `CamCalibrationResult { CamRgbSample
+   before; CamRgbSample after; bool converged; int iterations; }` (modelled on Android's
+   existing `WbCalibrationResult` / `BbCalibrationResult` shapes). `sampleCenterPatch` stays
+   as the low-level primitive for callers who want their own loop. **Cross-platform
+   consequence:** Android's calibration loop today lives in Dart
+   (`cambrian_camera_controller.dart`); Phase 3 moves it down into `CameraController.kt` so
+   the host method owns the orchestration on both platforms. The two engines will *not* be
+   bit-identical (Android: processed-lane sampling + green-pivot math; iOS: natural-lane
+   sampling + `grayWorldGains`) — the contract method is mechanism-agnostic; a
+   `CameraKit/DECISIONS.md` entry records the divergence.
 
 ### 2e. "Cleanly extractable" — Phase 2 exit criteria
 
@@ -413,12 +497,14 @@ no contract surface.
 
 ### Phase 2 critical files
 
-- `CameraKit/Sources/CameraKit/CameraEngine.swift` — renamed methods, `calibrate*` added,
-  fine-grained helpers demoted to `internal`, `cameraPermissionStatus()` /
-  `requestCameraPermission()` added (§2d.6)
+- `CameraKit/Sources/CameraKit/CameraEngine.swift` — renamed methods, `calibrate*` added
+  (wrapping CameraKit's current iOS approach — §2b), fine-grained helpers demoted to `internal`,
+  `cameraPermissionStatus()` / `requestCameraPermission()` added (§2d.6),
+  `currentPixelBuffer(stream:)` accessor added (§2c)
 - `CameraKit/Sources/CameraKit/Settings.swift`, `Capabilities.swift`, `FrameSet.swift`,
   `SessionState.swift`, `Errors.swift` — field/type vocabulary alignment; capability
-  range fields; `SessionState.interrupted` added (§2d.5)
+  range fields; `SessionState.interrupted` added (§2d.5); `OpenConfiguration` widened with
+  `initialSettings: CameraSettings?` (§2a)
 - `eva-swift-stitch/…` — relocated harness updated to conformed vocabulary;
   `CalibrationViewModel` thinned to a caller; `CalibrationEngineProtocol` / `…Stub` shrunk
 - `CameraKit/Tests/CameraKitTests/` — **new engine-side tests** for `calibrateWhiteBalance()`
@@ -436,6 +522,8 @@ no contract surface.
 - **Phase 3:** physical relocation into `camera2_flutter_demo`, the Pigeon adapter
   (`CambrianCameraPlugin.swift` iOS + `CameraHostApi` impl), the texture-registry bridge,
   applying the contract amendments to the Flutter package + Android, `captureNaturalPicture`.
+  Carry-forward decisions and the zero-copy texture-bridge design are captured in
+  `2026-05-15-phase3-handoff-notes.md` — the briefing material for the Phase 3 spec→plan cycle.
 - **Not** collapsing the 7 view models into a unified mediator — ADR-21 decomposition is
   preserved (except the deliberate calibration-orchestration move-down in §2b).
 - No facade protocol — `CameraEngine`'s curated public surface is the facade.
@@ -463,11 +551,17 @@ no contract surface.
   `engine.open()`, and edge counts flow on device — the Stage 08 Canny behaviour is
   preserved, just app-side.
 - Relocated Canny-consumer tests pass in the app target.
+- The C-ABI parity probe passes: a C-ABI-registered consumer and a Swift-API consumer on
+  the same stream observe identical frame sequences; a register → `close()` → re-register
+  cycle leaks nothing.
 
 **Phase 2**
 - `CameraEngine`'s curated surface compiles clean under Swift 6 strict concurrency
   (`SWIFT_STRICT_CONCURRENCY = complete`); demoted helpers are `internal`.
 - The harness runs on a physical iPad with the conformed vocabulary.
+- `open()` with `initialSettings` applies the requested hardware settings from the first
+  frame (no defaults-then-snap flicker); on the Flutter-path default, an unset
+  `captureResolution` opens at `Size(4032, 3024)`.
 - WB / BB calibration still works on-device (HITL) after the orchestration move-down.
 - New capability range fields (focus / zoom / EV-comp) are populated and non-zero.
 - The active-config stream fires on `setResolution` and `setCropRegion`.
