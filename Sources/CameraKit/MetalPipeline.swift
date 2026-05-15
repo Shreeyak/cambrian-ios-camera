@@ -80,21 +80,35 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// Preview-facing "latest" textures.
     ///
-    /// Written on the delivery queue after each successful encode; read by
-    /// MTKView.draw via `currentTexture()` without an actor hop.
-    /// `nonisolated(unsafe)` per G-13 / Stage 06 design: two pointer-sized stores
-    /// accepted as a Stage 06 trade-off (single writer: delivery queue).
-    nonisolated(unsafe) private(set) var latestNaturalTex: MTLTexture?
-    nonisolated(unsafe) private(set) var latestProcessedTex: MTLTexture?
-    nonisolated(unsafe) private(set) var latestTrackerTex: MTLTexture?
+    /// Single writer on the AVF delivery queue (`addCompletedHandler`
+    /// callback); readers on MainActor / sessionQueue / the C++ pixel-sink
+    /// consumer thread. See `Mailbox<T>` for the safety contract. G-13 /
+    /// Stage 06 design.
+    ///
+    /// Storage is `private` (Mailbox-write access is restricted to this
+    /// type); the public-read companion below forwards `latest` so external
+    /// readers continue to see `pipeline.latestNaturalTex` returning
+    /// `MTLTexture?` — preserves the prior `private(set)` semantics.
+    private let _latestNaturalTex = Mailbox<MTLTexture>()
+    private let _latestProcessedTex = Mailbox<MTLTexture>()
+    private let _latestTrackerTex = Mailbox<MTLTexture>()
 
-    // Phase-2 §2c: lane CVPixelBuffer mailboxes — read by
-    // `CameraEngine.currentPixelBuffer(stream:)` for the Phase-3 zero-copy
-    // FlutterTexture bridge. Same single-writer-on-delivery-queue contract
-    // as the MTLTexture mailboxes above.
-    nonisolated(unsafe) private(set) var latestNaturalBuffer: CVPixelBuffer?
-    nonisolated(unsafe) private(set) var latestProcessedBuffer: CVPixelBuffer?
-    nonisolated(unsafe) private(set) var latestTrackerBuffer: CVPixelBuffer?
+    var latestNaturalTex: MTLTexture? { _latestNaturalTex.latest }
+    var latestProcessedTex: MTLTexture? { _latestProcessedTex.latest }
+    var latestTrackerTex: MTLTexture? { _latestTrackerTex.latest }
+
+    // Phase-2 §2c: lane CVPixelBuffer mailboxes — paired with the texture
+    // mailboxes above. Single writer on the AVF delivery queue; readers
+    // wherever the raw `CVPixelBuffer` is needed
+    // (`CameraEngine.currentPixelBuffer(stream:)` for the Phase-3 zero-copy
+    // FlutterTexture bridge). See `Mailbox<T>`.
+    private let _latestNaturalBuffer = Mailbox<CVPixelBuffer>()
+    private let _latestProcessedBuffer = Mailbox<CVPixelBuffer>()
+    private let _latestTrackerBuffer = Mailbox<CVPixelBuffer>()
+
+    var latestNaturalBuffer: CVPixelBuffer? { _latestNaturalBuffer.latest }
+    var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
+    var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 
     /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex`.
     ///
@@ -549,8 +563,8 @@ final class MetalPipeline: @unchecked Sendable {
                 consumers.yield(fs, stream: .tracker)
             }
             // Update preview mailboxes for MTKView draw pass.
-            self.latestNaturalBuffer = naturalBuf
-            self.latestNaturalTex = naturalTexI
+            self._latestNaturalBuffer.store(naturalBuf)
+            self._latestNaturalTex.store(naturalTexI)
             // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` can
             // confirm naturalTex has been refreshed past a given timestamp. CAS
             // loop ensures we only advance the published PTS — out-of-order
@@ -564,11 +578,11 @@ final class MetalPipeline: @unchecked Sendable {
                 if ok { break }
                 cur = actual
             }
-            self.latestProcessedBuffer = processedBuf
-            self.latestProcessedTex = processedTexI
+            self._latestProcessedBuffer.store(processedBuf)
+            self._latestProcessedTex.store(processedTexI)
             if let tBuf = trackerBuf, let tTex = trackerTex {
-                self.latestTrackerBuffer = tBuf
-                self.latestTrackerTex = tTex
+                self._latestTrackerBuffer.store(tBuf)
+                self._latestTrackerTex.store(tTex)
             }
             self.texturePool.flush()
         }
@@ -590,15 +604,15 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// Returns the latest natural texture for the MTKView draw pass.
     ///
-    /// Reads `latestNaturalTex` mailbox (nonisolated(unsafe) per G-13).
+    /// Reads `latestNaturalTex` `Mailbox<T>` (G-13 single-writer model).
     /// Falls back to dequeuing a blank pool buffer on the first call before any frame arrives.
     func currentTexture() -> MTLTexture {
         if let t = latestNaturalTex { return t }
         if let pair = try? texturePool.dequeuePoolTexture(
             pool: naturalPool, width: captureSize.width, height: captureSize.height
         ) {
-            latestNaturalBuffer = pair.buffer
-            latestNaturalTex = pair.texture
+            _latestNaturalBuffer.store(pair.buffer)
+            _latestNaturalTex.store(pair.texture)
             return pair.texture
         }
         fatalError("MetalPipeline.currentTexture: no preview texture available")
@@ -606,15 +620,15 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// Returns the latest processed texture for the right-half MTKView.
     ///
-    /// Reads `latestProcessedTex` mailbox (nonisolated(unsafe) per G-13).
+    /// Reads `latestProcessedTex` `Mailbox<T>` (G-13 single-writer model).
     /// Falls back to dequeuing a blank pool buffer on the first call before any frame arrives.
     func currentProcessedTex() -> MTLTexture {
         if let t = latestProcessedTex { return t }
         if let pair = try? texturePool.dequeuePoolTexture(
             pool: processedPool, width: captureSize.width, height: captureSize.height
         ) {
-            latestProcessedBuffer = pair.buffer
-            latestProcessedTex = pair.texture
+            _latestProcessedBuffer.store(pair.buffer)
+            _latestProcessedTex.store(pair.texture)
             return pair.texture
         }
         fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
@@ -889,13 +903,13 @@ final class MetalPipeline: @unchecked Sendable {
     var stillCaptureDequeueCountForTest: Int { stillCaptureDequeueCount }
 
     func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
-        latestNaturalBuffer = buffer
-        latestNaturalTex = texture
+        _latestNaturalBuffer.store(buffer)
+        _latestNaturalTex.store(texture)
     }
 
     func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
-        latestProcessedBuffer = buffer
-        latestProcessedTex = texture
+        _latestProcessedBuffer.store(buffer)
+        _latestProcessedTex.store(texture)
     }
 
     /// Writes color uniforms directly into the pipeline's uniforms Mutex.
