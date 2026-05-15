@@ -572,7 +572,7 @@ public actor CameraEngine {
     /// Returns `[]` when no live device is bound (e.g., closed engine or
     /// fake provider in tests). Used by `ViewModel.dumpCapabilities` to
     /// snapshot the format table to `Documents/capabilities.txt`.
-    func dumpDeviceFormats() async -> [String] {
+    public func dumpDeviceFormats() async -> [String] {
         guard let device = cameraSession?.device else { return [] }
         return await device.dumpAllFormats()
     }
@@ -1120,7 +1120,7 @@ public actor CameraEngine {
 
     /// Sets the GPU submission gate (ADR-09, D-06).
     /// `.inactive` policy is strict — always gates, regardless of UIApplication state.
-    func setGate(_ open: Bool) {
+    public func setGate(_ open: Bool) {
         submissionGate.store(open, ordering: .sequentiallyConsistent)
     }
 
@@ -1128,7 +1128,7 @@ public actor CameraEngine {
     ///
     /// Bounds the drain window to FRAME_LATENCY_BUDGET_MS (ADR-09).
     /// No-op if no buffer has been committed yet this session.
-    func drainSubmittedFrame() async {
+    public func drainSubmittedFrame() async {
         metalPipeline?.drainLastBuffer()
     }
 
