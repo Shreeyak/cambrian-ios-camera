@@ -15,18 +15,14 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
     ],
     targets: [
-        // OpenCV v4.13 xcframework for Canny edge detection (ADR-29).
-        // Path is relative to CameraKit/Package.swift.
-        // Only ios-arm64 slice present; sufficient for physical iPad + Mac "Designed for iPad".
-        .binaryTarget(
-            name: "opencv2",
-            path: "../Frameworks/opencv2.xcframework"
-        ),
-        // C++ PixelSink pool + Canny stub consumer.
-        // OpenCV confined here; no OpenCV symbols escape to public headers (ADR-11).
+        // C++ PixelSink pool + atomics. No OpenCV — Phase 1B (2026-05-15) moved
+        // the Canny consumer + the opencv2 xcframework into the eva-swift-stitch
+        // app target. The package now contains the consumer-join seam only
+        // (PixelSinkPool fan-out, CaptureAtomic capture guard); external code
+        // joins via engine.getNativePipelineHandle() + pixel_sink_pool_register.
         .target(
             name: "CameraKitCxx",
-            dependencies: ["opencv2"],
+            dependencies: [],
             publicHeadersPath: "include",
             cxxSettings: [
                 .define("CPP_POOL_THREAD_COUNT", to: "4"),
