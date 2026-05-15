@@ -34,9 +34,31 @@ public struct SessionCapabilities: Sendable, Hashable {
     public let naturalTextureId: Int
     public let activeCaptureResolution: Size
     public let activeCropRegion: Rect
+    /// Pixel format string of the *lane buffers* (natural/processed/tracker) —
+    /// what `currentPixelBuffer(stream:)` and the Phase-3 texture bridge see.
+    ///
+    /// CameraKit's lane buffers are `kCVPixelFormatType_64RGBAHalf`
+    /// (16-bit half-precision RGBA, MTLPixelFormat.rgba16Float) — HDR-grade
+    /// precision, IOSurface-backed, Metal-cache compatible. Note this is **not**
+    /// the camera *source* format (which is YUV `420f`, converted in
+    /// MetalPipeline). Phase-2 design §2d.7 + §2c.
     public let streamPixelFormat: String
     public let isoRange: ClosedRange<Float>
     public let exposureDurationRangeNs: ClosedRange<Int64>
+    /// Lens-position range — always `0.0...1.0` on iOS.
+    ///
+    /// `AVCaptureDevice.lensPosition` is normalized, not real diopters. Kept
+    /// for shape parity with the Pigeon contract's `focusMin`/`focusMax`.
+    /// Phase-2 design §2c.
+    public let focusRange: ClosedRange<Double>
+    /// `AVCaptureDevice.minAvailableVideoZoomFactor` ... `maxAvailableVideoZoomFactor`.
+    ///
+    /// Returned for the active format. Phase-2 design §2c.
+    public let zoomRange: ClosedRange<Double>
+    /// `AVCaptureDevice.minExposureTargetBias` ... `maxExposureTargetBias`.
+    ///
+    /// Reported in EV stops (signed). Phase-2 design §2c.
+    public let evCompensationRange: ClosedRange<Float>
 
     public init(
         supportedSizes: [Size],
@@ -46,7 +68,10 @@ public struct SessionCapabilities: Sendable, Hashable {
         activeCropRegion: Rect,
         streamPixelFormat: String,
         isoRange: ClosedRange<Float>,
-        exposureDurationRangeNs: ClosedRange<Int64>
+        exposureDurationRangeNs: ClosedRange<Int64>,
+        focusRange: ClosedRange<Double>,
+        zoomRange: ClosedRange<Double>,
+        evCompensationRange: ClosedRange<Float>
     ) {
         self.supportedSizes = supportedSizes
         self.previewTextureId = previewTextureId
@@ -56,6 +81,9 @@ public struct SessionCapabilities: Sendable, Hashable {
         self.streamPixelFormat = streamPixelFormat
         self.isoRange = isoRange
         self.exposureDurationRangeNs = exposureDurationRangeNs
+        self.focusRange = focusRange
+        self.zoomRange = zoomRange
+        self.evCompensationRange = evCompensationRange
     }
 }
 
@@ -64,15 +92,26 @@ public struct OpenConfiguration: Sendable, Hashable {
     public var cameraId: String?
     public var captureResolution: Size?
     public var cropRegion: Rect?
+    /// Hardware settings to apply during session setup, before the first frame
+    /// is delivered.
+    ///
+    /// Folds the Pigeon contract's `open(cameraId, settings)` shape into
+    /// CameraKit's structural `OpenConfiguration` so the requested settings are
+    /// live from frame one (no defaults-then-snap flicker). Phase-2 design
+    /// §2a. Applied via the same `updateSettings` merge+coupling+commit path
+    /// after `setupSession` returns and before the first `startRunning`.
+    public var initialSettings: CameraSettings?
 
     public init(
         cameraId: String? = nil,
         captureResolution: Size? = nil,
-        cropRegion: Rect? = nil
+        cropRegion: Rect? = nil,
+        initialSettings: CameraSettings? = nil
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
         self.cropRegion = cropRegion
+        self.initialSettings = initialSettings
     }
 }
 

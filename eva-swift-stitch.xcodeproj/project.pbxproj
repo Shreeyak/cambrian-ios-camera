@@ -8,8 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		02414E067C405CFBDAEF4EEE /* PhotosLibraryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */; };
+		03BF2B50447F697923BE269A /* Stage13Phase2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92D8458D14C4E5103EDC5C1E /* Stage13Phase2Tests.swift */; };
 		04C0DE71181BCBB1E76DD4FA /* SliderDebouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBF4B8958FFF36C3B92510DB /* SliderDebouncer.swift */; };
 		05EBAEEEA7E3802F0248BCA1 /* DisplayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A006996C3386DD396979F953 /* DisplayViewModel.swift */; };
+		09ABB819A33A2634300E0FDF /* Stage13CalibrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B41F4786693B0AE021B2232 /* Stage13CalibrationTests.swift */; };
 		0D564774D754090505282403 /* ViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B5C08ABF73F3F47F010206 /* ViewModel.swift */; };
 		14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */; };
 		14E07E1E2F8E513F00E9F7FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */; };
@@ -108,9 +110,11 @@
 		4D88C5072FC744614C4BA75E /* ControlEnablement.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlEnablement.swift; sourceTree = "<group>"; };
 		5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage08Tests.swift; sourceTree = "<group>"; };
 		58A316EE7A8B88A4493811AC /* CannyConsumer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = CannyConsumer.h; sourceTree = "<group>"; };
+		6B41F4786693B0AE021B2232 /* Stage13CalibrationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage13CalibrationTests.swift; sourceTree = "<group>"; };
 		6B74220C49CCDE9BFB3F4579 /* AppCxx-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "AppCxx-Bridging-Header.h"; sourceTree = "<group>"; };
 		6BFAE64BECE46F827035CC14 /* OrientationLock.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OrientationLock.swift; sourceTree = "<group>"; };
 		90F0F0412724352774BCA98D /* Stage12Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage12Tests.swift; sourceTree = "<group>"; };
+		92D8458D14C4E5103EDC5C1E /* Stage13Phase2Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage13Phase2Tests.swift; sourceTree = "<group>"; };
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		A006996C3386DD396979F953 /* DisplayViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DisplayViewModel.swift; sourceTree = "<group>"; };
 		A499A435F949C833F11A2B43 /* CounterConsumer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; path = CounterConsumer.cpp; sourceTree = "<group>"; };
@@ -195,6 +199,8 @@
 				5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */,
 				DABEEEB1238FBD1FD99E0F73 /* TestProgressLog.swift */,
 				90F0F0412724352774BCA98D /* Stage12Tests.swift */,
+				92D8458D14C4E5103EDC5C1E /* Stage13Phase2Tests.swift */,
+				6B41F4786693B0AE021B2232 /* Stage13CalibrationTests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -504,6 +510,8 @@
 				887DC67B9E822441EC774F06 /* Stage11UITests.swift in Sources */,
 				9E9526A44F1758E6635C0095 /* Stage08CannyTests.swift in Sources */,
 				C82F8FF22301253C7C29DA32 /* CABIParityTests.swift in Sources */,
+				03BF2B50447F697923BE269A /* Stage13Phase2Tests.swift in Sources */,
+				09ABB819A33A2634300E0FDF /* Stage13CalibrationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

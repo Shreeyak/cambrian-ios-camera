@@ -9,7 +9,7 @@ import Foundation
 /// Owns `currentSettings` as a local mirror seeded from the persisted snapshot.
 ///
 /// Hardware vs Processing kept separate: different engine endpoints
-/// (`updateSettings` vs `setProcessingParameters`), different failure modes
+/// (`updateSettings` vs `setProcessingParams`), different failure modes
 /// (hardware can fail per device caps; processing cannot), different
 /// concurrency concerns.
 @Observable @MainActor

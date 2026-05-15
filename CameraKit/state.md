@@ -1,3 +1,116 @@
+# state.md — Migration Phase 2
+
+## Current stage
+
+Phase 2 complete (Flutter migration — vocabulary, additive capabilities,
+calibration move-down). CameraKit's facade now matches the Pigeon contract
+vocabulary (where the spec calls for a real semantic match), exposes the
+additive capabilities Phase 3 needs (capability range fields,
+`currentPixelBuffer(stream:)`, `streamConfigurationStream()`), routes
+AVF interruptions via the new `SessionState.interrupted` case, exposes
+camera + Photos permission helpers as `nonisolated static` methods, and
+owns the WB / BB calibration algorithms engine-side via the new
+`calibrateWhiteBalance()` / `calibrateBlackBalance()` methods. Eleven
+fine-grained calibration helpers have been demoted to `internal`. The
+relocated `CalibrationViewModel` is now a thin caller; its protocol +
+stub shrunk from 11 methods to 4.
+
+Full test bundle: **141 passed / 0 failed / 0 skipped** on Shreeyak's
+iPad (UDID `00008027-000539EA0184402E`, iOS 26.4.2), scheme
+`eva-swift-stitch`, via `mcp__XcodeBuildMCP__test_device` — 127 prior
+baseline + 14 net new (`Stage13Phase2*` × 9 + `Stage13Calibration*` × 4 +
+1 thinned-VM-test net delta).
+
+HITL on device 2026-05-15: app launched at 4032×3024, 7 sequential WB
+calibrations completed engine-side (each ~190 ms), BB calibration applied
+visually (preview confirms pedestal subtraction), 4 resolution swaps
+clean (640×480 ↔ 1440×1080 ↔ 3264×2448 ↔ 4032×3024), SwiftUI
+ScenePhase pause/resume now publishes `SessionState.paused`/`.streaming`
+(mid-session follow-up to user feedback). AVF `wasInterruptedNotification`
+path verified by unit test only — Control Center / Notification Center on
+iPad don't trigger AVF interruption (system keeps camera bound). Evidence:
+`measurements/phase-2/verification.md`.
+
+Public-surface changes (Phase 2):
+
+- **Renamed** — `setProcessingParameters(_:)` → `setProcessingParams(_:)`
+  (matches Pigeon `setProcessingParams`).
+- **Added** —
+  `OpenConfiguration.initialSettings: CameraSettings?` (folds
+  `open(cameraId, settings)` shape into structural OpenConfiguration);
+  `SessionCapabilities.focusRange`, `.zoomRange`, `.evCompensationRange`
+  (capability range fields per §2c, populated from new
+  `CaptureDeviceProviding` properties);
+  `SessionState.interrupted` (per §2d.5);
+  `CameraEngine.cameraPermissionStatus()`,
+  `requestCameraPermission()`,
+  `photosAddPermissionStatus()`,
+  `requestPhotosAddPermission()`
+  — all `nonisolated static` (callable pre-`open()`) per §2d.6;
+  `CameraEngine.currentPixelBuffer(stream:) -> CVPixelBuffer?`
+  (sync nonisolated, mirrors `currentTexture()` — Phase-3 zero-copy seam);
+  `CameraEngine.streamConfigurationStream() -> AsyncStream<StreamConfiguration>`
+  + new `StreamConfiguration` value type (active-config emit on
+  `setResolution`/`setCropRegion`);
+  `CameraEngine.calibrateWhiteBalance()` /
+  `calibrateBlackBalance() async throws -> CalibrationResult`
+  + new `CalibrationResult` value type (single-shot returns
+  `converged: true, iterations: 1`);
+  `CameraEngine.currentProcessingParametersSnapshot()`
+  (mirrors `currentSettingsSnapshot()`; VM mirror sync after BB);
+  `CameraEngine.notifyScenePhasePaused(_:)`
+  (publishes `.paused`/`.streaming` for SwiftUI scenePhase route);
+  `EngineError.calibrationInProgress`
+  (concurrency guard for `updateSettings`-WB/`setResolution` during
+  in-flight `calibrate*()`).
+- **Demoted to `internal`** —
+  `sampleCenterPatchOnNatural`,
+  `sampleCenterPatchForBBCalibration`,
+  `currentDeviceWBGains`,
+  `maxWhiteBalanceGain`,
+  `grayWorldDeviceWBGains`,
+  `freshGrayWorldDeviceWBGains`,
+  `awaitWBSettled`,
+  `setWBPreset`,
+  `applyManualGainsAndAwait`,
+  `awaitNaturalAfter`,
+  `awaitAESettled` — 11 fine-grained calibration helpers, no longer
+  needed cross-module after the §2b move-down.
+- **Re-typed** — `SessionCapabilities.streamPixelFormat` semantics
+  fixed: now reports the **lane** format (`"RGBA16F"` —
+  `kCVPixelFormatType_64RGBAHalf`/MTLPixelFormat.rgba16Float, what
+  consumers of `currentPixelBuffer(stream:)` see), no longer the camera
+  *source* format (`"420f"`, which was misleading for downstream
+  consumers and Phase-3's bridge).
+
+Calibration concurrency contract (Phase 2 §2b):
+- `updateSettings(_ settings:)` throws `EngineError.calibrationInProgress`
+  when a `calibrate*()` is in flight AND `settings` touches any WB field.
+- `setResolution(size:)` throws `EngineError.calibrationInProgress`
+  whenever a `calibrate*()` is in flight (it would invalidate the
+  pipeline reference).
+- `close()` and the AVF `.otherInterruption` route call
+  `calibrationTask?.cancel()` — the task's catch path restores
+  `wbMode = .auto` before propagating `CancellationError`.
+
+xcodeproj additions (via `scripts/sync-test-target.sh`):
+- New test files added as **dual-membered** (default per CLAUDE.md §8) —
+  `CameraKit/Tests/CameraKitTests/Stage13Phase2Tests.swift`,
+  `CameraKit/Tests/CameraKitTests/Stage13CalibrationTests.swift`.
+
+Build wrapper hotfix:
+- `scripts/build-summary.sh` and `scripts/test-summary.sh` had a stale
+  grep for `variant:Designed for iPad` that no longer matches Xcode 26.x's
+  `variant:Designed for [iPad,iPhone]`. Updated both to a tolerant
+  pattern.
+
+## Scaffolding still live
+
+_None._ Phase 2 added no scaffolds; the post-Stage-12 empty scaffold
+corpus is preserved.
+
+---
+
 # state.md — Migration Phase 1B (post-Phase-1A)
 
 ## Current stage

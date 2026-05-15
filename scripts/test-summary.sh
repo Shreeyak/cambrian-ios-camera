@@ -49,7 +49,7 @@ if [[ -z "$DESTINATION" ]]; then
   if [[ -n "$DEVICE_UUID" ]]; then
     DESTINATION="platform=iOS,id=$DEVICE_UUID"
     echo "DEST: physical iPad $DEVICE_UUID"
-  elif echo "$DESTS" | grep -qE 'platform:macOS.*variant:Designed for iPad'; then
+  elif echo "$DESTS" | grep -qE 'platform:macOS.*variant:Designed for (iPad|\[iPad'; then
     DESTINATION="platform=macOS,arch=arm64,variant=Designed for iPad"
     echo "DEST: Mac 'Designed for iPad' (no physical device connected)"
   else

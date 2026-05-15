@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Sole owner of `currentProcessing`. Each push coalesces via a per-control
 /// `SliderDebouncer`; the dispatch closure mutates `currentProcessing`
-/// optimistically and forwards via `engine.setProcessingParameters(_:)`. The
+/// optimistically and forwards via `engine.setProcessingParams(_:)`. The
 /// engine's `Mutex<UniformStorage>` (D-17 / ADR-34 / Inv-6) is the single
 /// host-write path — this VM does not bypass it.
 ///
@@ -103,7 +103,7 @@ final class ProcessingViewModel {
     /// sampling from `naturalTex` would violate the first.
     ///
     /// Mutates the mirror BEFORE dispatching so the MainActor read-modify-write is
-    /// atomic — `await engine.setProcessingParameters` would otherwise suspend
+    /// atomic — `await engine.setProcessingParams` would otherwise suspend
     /// MainActor between the read and the write, letting concurrent slider
     /// debouncers clobber black-balance fields. The engine actor's mailbox
     /// serializes the eventual GPU-side write.
@@ -114,14 +114,24 @@ final class ProcessingViewModel {
         next.blackG = offsets.g
         next.blackB = offsets.b
         currentProcessing = next
-        await engine.setProcessingParameters(next)
+        await engine.setProcessingParams(next)
+    }
+
+    /// Refresh `currentProcessing` from the engine's authoritative snapshot.
+    ///
+    /// Called by `CalibrationViewModel` after engine-side `calibrateBlackBalance()`
+    /// (Phase-2 §2b) so the slider mirror reflects the just-applied pedestal
+    /// without re-reading the sample. No engine dispatch — the engine already
+    /// has the values; this only updates the UI mirror.
+    func refreshFromEngineSnapshot(_ snap: ProcessingParameters) {
+        currentProcessing = snap
     }
 
     /// Reset all color uniforms to identity.
     func resetProcessing() async {
         let next = ProcessingParameters.identity
         currentProcessing = next
-        await engine.setProcessingParameters(next)
+        await engine.setProcessingParams(next)
     }
 
     // MARK: - Private
@@ -131,7 +141,7 @@ final class ProcessingViewModel {
     /// `SliderDebouncer`'s consumer task runs OFF MainActor, so we hop on with
     /// `MainActor.run` and perform the full read-modify-write inside that single
     /// hop — guaranteeing each debouncer (and `applyBlackBalance`) observes a
-    /// consistent prior state. The `engine.setProcessingParameters` dispatch
+    /// consistent prior state. The `engine.setProcessingParams` dispatch
     /// runs after the hop; the engine actor serializes downstream writes.
     private func makeDebouncer(
         _ mutate: @escaping @Sendable (inout ProcessingParameters, Double) -> Void
@@ -145,7 +155,7 @@ final class ProcessingViewModel {
                 self.currentProcessing = p
                 return p
             }
-            await engine.setProcessingParameters(next)
+            await engine.setProcessingParams(next)
         }
     }
 }

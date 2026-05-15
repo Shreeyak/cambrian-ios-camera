@@ -78,13 +78,50 @@ The one real asymmetry is push-vs-pull cadence — both are genuinely zero-copy.
   ids; tear down on close.
 - The `CamStreamConfiguration` texture-ID field (deferred from §2d.2) is minted here.
 
-### Pixel-format constraint
+### Pixel-format constraint — Phase-2 finding (2026-05-15)
 
-`CVMetalTextureCacheCreateTextureFromImage` is zero-copy **only** for a cache-compatible
-format — `kCVPixelFormatType_32BGRA` is the safe one. Phase 2 (§2d.7) confirms CameraKit's
-lane buffers are emitted in a cache-compatible format. If they are not, the Phase-3 bridge
-is forced into a per-frame CPU copy — which is the exact failure this section exists to
-prevent. Treat a format mismatch surfaced in Phase 2 as a blocker, not a Phase-3 problem.
+`CVMetalTextureCacheCreateTextureFromImage` is zero-copy **only** for a
+cache-compatible format. The original assumption was `kCVPixelFormatType_32BGRA`
+("the safe one"). **Phase 2 found CameraKit's lane buffers are
+`kCVPixelFormatType_64RGBAHalf` (RGBA16F), not BGRA.** They are IOSurface-backed
++ Metal-cache-compatible (CameraKit itself wraps them via the same cache in
+`TexturePoolManager.makeIOSurfaceBackedRGBA16F`), so zero-copy via `CVMetalTextureCache`
+**does work** — but only if the consumer wraps as `MTLPixelFormat.rgba16Float`.
+
+Phase 2 reports this via `SessionCapabilities.streamPixelFormat = "RGBA16F"`
+(also asserted by regression test `Stage13Phase2PixelFormatTests.laneFormatIsRGBA16F`).
+The earlier `"420f"` value was incorrect — that's the camera *source* format
+(YUV before MetalPipeline's Pass-1 conversion), not what Phase-3's bridge sees.
+
+**Phase-3 carry-forward — the Flutter texture wrap.** Flutter's iOS embedder
+typically wraps the returned `CVPixelBuffer` as `.bgra8Unorm` via its own
+`CVMetalTextureCache`. With CameraKit's RGBA16F lanes, this is the open
+question: pick one of three paths in Phase 3, do not discover this mid-build.
+
+  1. **Custom `FlutterTexture` that wraps RGBA16F directly.** If Flutter's iOS
+     embedder lets the plugin own the texture-creation step (it does — that is
+     the entire point of `FlutterTexture.copyPixelBuffer()`), the bridge can
+     wrap as `.rgba16Float` itself. Most likely to preserve zero-copy and the
+     HDR precision; verify on device.
+  2. **Make CameraKit emit BGRA8 instead of RGBA16F.** Smaller footprint per
+     pixel, broader downstream compatibility, but loses the HDR-grade precision
+     CameraKit currently has (8-bit per channel vs 16-bit half-float). This is
+     a CameraKit pipeline change — `TexturePoolManager.makeIOSurfaceBackedRGBA16F`
+     and `TexturePoolManager.makeWorkingFormatPool` would have to change format,
+     and downstream samplers that read RGBA16F (still capture, calibration
+     samplers) would need to follow. Largest blast radius.
+  3. **Accept a per-frame conversion copy.** Either at the bridge (Metal compute
+     pass RGBA16F → BGRA8 in a 1-slot pool) or at Flutter (CPU readback). The
+     compute-pass option keeps zero-copy on the GPU side but adds one Metal
+     pass per frame; the CPU readback violates the zero-copy promise outright.
+     Last resort.
+
+This belongs in the **Phase-3 spec**: Phase 3 picks (1), (2), or (3) before
+implementing the bridge. None of these should land mid-implementation.
+
+**This is the only Phase-2 surface contract that intentionally differs from
+the original spec text** — see DECISIONS.md entries for Phase 2 (the
+`streamPixelFormat semantics` entry) for rationale.
 
 ### Open question for the Phase 3 plan
 

@@ -18,6 +18,10 @@ actor FakeCaptureDevice: CaptureDeviceProviding {
     var isoRange: ClosedRange<Float> { 20.0...800.0 }
     var exposureDurationRangeNs: ClosedRange<Int64> { 1_000...500_000_000 }
     var maxWhiteBalanceGain: Float { 4.0 }
+    var minAvailableVideoZoomFactor: Double { 1.0 }
+    var maxAvailableVideoZoomFactor: Double { 8.0 }
+    var minExposureTargetBias: Float { -3.0 }
+    var maxExposureTargetBias: Float { 3.0 }
     var lensAperture: Float { 0 }
 
     func installKVOIngest() {}

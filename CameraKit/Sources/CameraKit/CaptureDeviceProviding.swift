@@ -16,6 +16,16 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     var exposureDurationRangeNs: ClosedRange<Int64> { get async }
     var maxWhiteBalanceGain: Float { get async }
 
+    // Phase-2 §2c capability range fields.
+    /// `AVCaptureDevice.minAvailableVideoZoomFactor` for the active format.
+    var minAvailableVideoZoomFactor: Double { get async }
+    /// `AVCaptureDevice.maxAvailableVideoZoomFactor` for the active format.
+    var maxAvailableVideoZoomFactor: Double { get async }
+    /// `AVCaptureDevice.minExposureTargetBias` (EV stops, signed).
+    var minExposureTargetBias: Float { get async }
+    /// `AVCaptureDevice.maxExposureTargetBias` (EV stops, signed).
+    var maxExposureTargetBias: Float { get async }
+
     func lockForConfiguration() async throws
     func unlockForConfiguration() async
 
@@ -234,6 +244,11 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     }
 
     var maxWhiteBalanceGain: Float { avDevice.maxWhiteBalanceGain }
+
+    var minAvailableVideoZoomFactor: Double { Double(avDevice.minAvailableVideoZoomFactor) }
+    var maxAvailableVideoZoomFactor: Double { Double(avDevice.maxAvailableVideoZoomFactor) }
+    var minExposureTargetBias: Float { avDevice.minExposureTargetBias }
+    var maxExposureTargetBias: Float { avDevice.maxExposureTargetBias }
 
     var lensAperture: Float { avDevice.lensAperture }
 
