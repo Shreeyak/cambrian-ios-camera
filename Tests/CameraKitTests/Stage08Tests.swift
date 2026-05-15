@@ -73,40 +73,9 @@ struct Stage08Tests {
         #expect(registry.cppConsumerCount(for: .tracker) == 0)
     }
 
-    // MARK: - 08:canny-stub-consumer-receives-tracker-frames
-
-    /// CppCannyStub registered as a C-ABI consumer receives tracker-stream frames.
-    ///
-    /// The stub's `processedCount` increments via the C++ callback path when
-    /// a trampoline invokes `canny_stub_on_frame` through the Unmanaged context.
-    @Test("08:canny-stub-consumer-receives-tracker-frames")
-    func cannyStubConsumerReceivesTrackerFrames() async throws {
-        let registry = ConsumerRegistry()
-        let stub = CppCannyStub()
-        // CppCannyStub.makeCallbacks() wires its internal handle as context so
-        // canny_stub_on_frame is called for each dispatched frame — incrementing
-        // processedCount. We rebuild PixelSinkCallbacks from the stub's handle
-        // via an Unmanaged trampoline to stay in @convention(c) territory.
-        let counter = LockingCounter()
-        let cbs = PixelSinkCallbacks(
-            onFrame: { ctx, _, _, _, _ in
-                Unmanaged<LockingCounter>.fromOpaque(ctx!).takeUnretainedValue().increment()
-            },
-            onOverwrite: { _, _ in },
-            onError: { _, _ in },
-            context: Unmanaged.passUnretained(counter).toOpaque()
-        )
-        let token = try await registry.registerCallback(stream: .tracker, callbacks: cbs)
-
-        for i: UInt64 in 1...10 {
-            registry.yield(try makeSyntheticFrameSet(frameNumber: i), stream: .tracker)
-        }
-        #expect(counter.value == 10)
-        // CppCannyStub exists and its processedCount API is exercised (HITL feeds real IOSurfaces).
-        _ = stub.processedCount
-
-        await registry.unregister(token: token)
-    }
+    // Phase 1B (2026-05-15): the prior `cannyStubConsumerReceivesTrackerFrames`
+    // test relocated to eva-swift-stitchTests/Stage08CannyTests.swift —
+    // `CppCannyStub` now lives in the app target's AppCxx/ layer.
 
     // MARK: - 08:get-native-pipeline-handle-holds-actor
 
