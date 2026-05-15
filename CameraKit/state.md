@@ -1,4 +1,82 @@
-# state.md — Migration Phase 1A (post-Stage-12)
+# state.md — Migration Phase 1B (post-Phase-1A)
+
+## Current stage
+
+Phase 1B complete (Flutter migration — OpenCV consumer decoupling).
+CameraKit package now contains **zero OpenCV references**: `opencv2`
+`binaryTarget` removed from `Package.swift`; `CameraKitCxx → opencv2`
+dependency dropped; `canny_stub_*` C-ABI declarations removed from
+`PixelSinkCallbacks.h`. `CannyStubConsumer.cpp` → `eva-swift-stitch/
+AppCxx/CannyConsumer.cpp` (with `PixelSink` inheritance dropped on move
+— the C-ABI thunk was the only caller, the inheritance was dead).
+`CppCannyStub` Swift wrapper → `eva-swift-stitch/AppCxx/CppCannyStub.swift`
+(same class name + public API surface, so `DisplayViewModel` callsites
+are unchanged). The app target links `Frameworks/opencv2.xcframework`
+embed-signed; new `AppCxx-Bridging-Header.h` exposes the relocated
+`canny_stub_*` + the new `counter_consumer_*` C-ABI to Swift on both
+app and test targets.
+
+Full test bundle: **127 passed / 0 failed / 0 skipped** on Shreeyak's
+iPad (UDID `00008027-000539EA0184402E`, iOS 26.4.2), scheme
+`eva-swift-stitch`, via `mcp__XcodeBuildMCP__test_device` — 125 prior
+baseline + 2 new C-ABI parity probes (`CABIParityTests.cabiParityWithSwiftAPI`,
+`CABIParityTests.cabiUnregisterStopsDelivery`).
+
+C-ABI parity verified: a `pixel_sink_pool_register`-registered C++
+consumer and a Swift-API `engine.consumers.registerCallback`-registered
+consumer on the same stream observe identical frame sequences across a
+20-frame test; a register → unregister → re-register cycle leaks no
+observable delivery. This is exactly the path Phase 3's Flutter plugin
+native code will use; before this probe it shipped completely unexercised.
+
+HITL: relocated Canny consumer registers via the seam after
+`engine.open()` on iPad; `cppConsumers=1` on stream=2 (tracker) stable
+across 1500+ frames (~50 s), `surface=true` every yield, zero overwrites
+or drops in any `[metrics] window emit`. Evidence:
+`measurements/phase-1b/canny-overlay.md`.
+
+Bridge state: `CameraKitInterop` **stays exported** as a SwiftPM product
+(reversing the Phase 1A memo's prediction). The dual-membered
+`Stage08Tests.stillCaptureUsesCppAtomic` still imports `CppCaptureAtomic`
+from it; un-exporting would break that test in the Xcode test target.
+App target dropped its `CameraKitInterop` dep; test target keeps it.
+CLAUDE.md §8 dual-membership default stays intact.
+
+Public-surface changes (Phase 1B):
+
+- Removed from `CameraKit/Sources/CameraKitCxx/include/PixelSinkCallbacks.h`:
+  `canny_stub_create`, `canny_stub_destroy`, `canny_stub_on_frame`,
+  `canny_stub_processed_count`, `canny_stub_edge_count` (relocated app-side
+  to `eva-swift-stitch/AppCxx/include/CannyConsumer.h`)
+- Removed from `CameraKit/Sources/CameraKitInterop/CameraKitInterop.swift`:
+  `public final class CppCannyStub` (relocated app-side to
+  `eva-swift-stitch/AppCxx/CppCannyStub.swift`)
+- Removed from `CameraKit/Package.swift`: `.binaryTarget(name: "opencv2", …)`
+  and the `"opencv2"` entry from `CameraKitCxx`'s `dependencies`
+- No public additions to `CameraKit` itself. `CONTRACTS.md` regenerated;
+  the only diff was the timestamp.
+
+xcodeproj additions (via Ruby `xcodeproj` gem):
+
+- App target: `SWIFT_OBJC_BRIDGING_HEADER`,
+  `HEADER_SEARCH_PATHS += $(SRCROOT)/CameraKit/Sources/CameraKitCxx/include`,
+  `FRAMEWORK_SEARCH_PATHS += $(SRCROOT)/Frameworks`,
+  `Frameworks/opencv2.xcframework` linked + embed-signed
+- Test target: same three build settings (so `Stage08CannyTests` and
+  `CABIParityTests` can see the bridging-header-exposed C-ABI)
+- New test files added as **single-target membership** (deliberate
+  exception to CLAUDE.md §8, same pattern as Phase 1A's `Stage11UITests`):
+  `eva-swift-stitchTests/Stage08CannyTests.swift`,
+  `eva-swift-stitchTests/CABIParityTests.swift`
+
+## Scaffolding still live
+
+_None._ Phase 1B added no scaffolds; the post-Stage-12 empty scaffold
+corpus is preserved.
+
+---
+
+# state.md — Migration Phase 1A (historical)
 
 ## Current stage
 
