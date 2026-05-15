@@ -36,14 +36,22 @@ public actor CameraEngine {
     // before the continuation was non-nil; emits during that window were dropped.
     private nonisolated let stateContinuationBox =
         Mutex<AsyncStream<SessionState>.Continuation?>(nil)
-    // Bug 5: nonisolated(unsafe) so the eager construction in init() can install
-    // the continuation before any publishX(...) call. Writers afterwards are
-    // actor-isolated (init then optional clear in close()); single-writer-per-phase.
-    nonisolated(unsafe) private var cachedStateStream: AsyncStream<SessionState>?
+    // Bug 5: eagerly constructed in init() so the continuation is installed in
+    // the box BEFORE any publishX(...) can fire. Write-once-before-read mailbox
+    // per `Mailbox<T>` contract.
+    private let cachedStateStream = Mailbox<AsyncStream<SessionState>>()
     private nonisolated let errorContinuationBox =
         Mutex<AsyncStream<CameraError>.Continuation?>(nil)
-    nonisolated(unsafe) private var cachedErrorStream: AsyncStream<CameraError>?
-    private var isOpen: Bool = false
+    private let cachedErrorStream = Mailbox<AsyncStream<CameraError>>()
+    /// Authoritative SessionState — see `SessionStateMachine`.
+    private var stateMachine = SessionStateMachine()
+
+    /// Derived: open if any state other than `.closed`.
+    ///
+    /// Post-Stage-12 hardening: the prior stored `isOpen: Bool` was a
+    /// 2-state degenerate view of a 7-case enum; `SessionStateMachine` is
+    /// now the single source of truth. See DECISIONS entry 2026-05-15.
+    private var isOpen: Bool { stateMachine.current != .closed }
     private var currentSettings: CameraSettings?
     /// Latest `ProcessingParameters` applied via `setProcessingParams(_:)`.
     ///
@@ -60,13 +68,13 @@ public actor CameraEngine {
     private var calibrationTask: Task<CalibrationResult, Error>?
     private nonisolated let frameResultContinuationBox =
         Mutex<AsyncStream<FrameResult>.Continuation?>(nil)
-    nonisolated(unsafe) private var cachedFrameResultStream: AsyncStream<FrameResult>?
+    private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
     private var frameCounter: UInt64 = 0
 
     // Phase-2 §2c — active stream-configuration stream.
     private nonisolated let streamConfigContinuationBox =
         Mutex<AsyncStream<StreamConfiguration>.Continuation?>(nil)
-    nonisolated(unsafe) private var cachedStreamConfigStream: AsyncStream<StreamConfiguration>?
+    private let cachedStreamConfigStream = Mailbox<AsyncStream<StreamConfiguration>>()
     private var currentCropRegion: Rect?
 
     private var watchdogs: WatchdogPair?
@@ -97,10 +105,12 @@ public actor CameraEngine {
     // moved past it (typical after any transient back-pressure). Tracker tex
     // already followed this live-forward pattern (line ~565).
 
-    // Stage 06: tracker texture mailbox — see latestTrackerTex on MetalPipeline (G-13).
-    // Written on the delivery queue via the pipeline's completedHandler; read by
-    // ViewModel without actor hop (nonisolated(unsafe) — single writer: delivery queue).
-    nonisolated(unsafe) private var _metalPipeline: MetalPipeline?
+    // Bug 4 / G-13: pipeline handle lives in a `Mailbox<T>` — single writer
+    // (engine actor in `open()` / `close()`); readers wherever the pipeline's
+    // own mailboxes need to be consulted (`currentTexture(stream:)`,
+    // `currentPixelBuffer(stream:)`). Written exactly once per open / cleared
+    // once per close; the mailbox holds a single pointer-sized reference.
+    private let _metalPipeline = Mailbox<MetalPipeline>()
 
     // MARK: - Public API
 
@@ -111,36 +121,41 @@ public actor CameraEngine {
         // any publishX(...) can fire. The lazy first-call pattern dropped the
         // .streaming emit fired inside engine.open() because ViewModel.start()
         // did not call stateStream() until after open() returned.
-        self.cachedStateStream = AsyncStream<SessionState>(
-            SessionState.self,
-            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
-        ) { [weak self] continuation in
-            self?.stateContinuationBox.withLock { $0 = continuation }
-        }
-        self.cachedErrorStream = AsyncStream<CameraError>(
-            CameraError.self,
-            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
-        ) { [weak self] continuation in
-            self?.errorContinuationBox.withLock { $0 = continuation }
-        }
-        self.cachedFrameResultStream = AsyncStream<FrameResult>(
-            FrameResult.self,
-            bufferingPolicy: .bufferingNewest(1)
-        ) { [weak self] continuation in
-            self?.frameResultContinuationBox.withLock { $0 = continuation }
-        }
-        self.cachedStreamConfigStream = AsyncStream<StreamConfiguration>(
-            StreamConfiguration.self,
-            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
-        ) { [weak self] continuation in
-            self?.streamConfigContinuationBox.withLock { $0 = continuation }
-        }
-        self.cachedRecordingStream = AsyncStream<RecordingState>(
-            RecordingState.self,
-            bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
-        ) { [weak self] continuation in
-            self?.recordingContinuationBox.withLock { $0 = continuation }
-        }
+        self.cachedStateStream.store(
+            AsyncStream<SessionState>(
+                SessionState.self,
+                bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+            ) { [weak self] continuation in
+                self?.stateContinuationBox.withLock { $0 = continuation }
+            })
+        self.cachedErrorStream.store(
+            AsyncStream<CameraError>(
+                CameraError.self,
+                bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+            ) { [weak self] continuation in
+                self?.errorContinuationBox.withLock { $0 = continuation }
+            })
+        self.cachedFrameResultStream.store(
+            AsyncStream<FrameResult>(
+                FrameResult.self,
+                bufferingPolicy: .bufferingNewest(1)
+            ) { [weak self] continuation in
+                self?.frameResultContinuationBox.withLock { $0 = continuation }
+            })
+        self.cachedStreamConfigStream.store(
+            AsyncStream<StreamConfiguration>(
+                StreamConfiguration.self,
+                bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+            ) { [weak self] continuation in
+                self?.streamConfigContinuationBox.withLock { $0 = continuation }
+            })
+        self.cachedRecordingStream.store(
+            AsyncStream<RecordingState>(
+                RecordingState.self,
+                bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
+            ) { [weak self] continuation in
+                self?.recordingContinuationBox.withLock { $0 = continuation }
+            })
     }
 
     /// Returns the last successfully committed settings, or nil if none have been applied.
@@ -219,7 +234,7 @@ public actor CameraEngine {
         //    closure must read it live each frame rather than capture the original
         //    `pipeline` reference (which goes nil at the first `setResolution`).
         delegate.onSampleBuffer = { [weak self] sampleBuffer in
-            try? self?._metalPipeline?.encode(sampleBuffer: sampleBuffer)
+            try? self?._metalPipeline.latest?.encode(sampleBuffer: sampleBuffer)
         }
         delegate.engine = self
 
@@ -230,14 +245,12 @@ public actor CameraEngine {
         }
         self.captureDelegate = delegate
         self.metalPipeline = pipeline
-        self._metalPipeline = pipeline
+        self._metalPipeline.store(pipeline)
         stillCapture = StillCapture()
         self.deliveryQueue = delivery
 
         // Install KVO ingest so `lastSnapshot` is populated for Rule 3.
         await device.installKVOIngest()
-
-        self.isOpen = true
 
         // 7. Open the gate (idempotent — starts true; explicit after any prior close).
         submissionGate.store(true, ordering: .sequentiallyConsistent)
@@ -308,7 +321,7 @@ public actor CameraEngine {
         }
 
         // 10. Publish .streaming state.
-        publishState(.streaming)
+        publishState(.streaming, kind: .command)
 
         // Apply persisted ProcessingParameters if any (07-settings.md §Persistence).
         if let persistedProcessing = SettingsPersistence.loadProcessing() {
@@ -379,17 +392,16 @@ public actor CameraEngine {
             $0?.finish()
             $0 = nil
         }
-        cachedFrameResultStream = nil
+        cachedFrameResultStream.store(nil)
         frameCounter = 0
         await consumers.release()
         cameraSession = nil
         captureDelegate = nil
         metalPipeline = nil
         stillCapture = nil
-        _metalPipeline = nil
+        _metalPipeline.store(nil)
         deliveryQueue = nil
-        isOpen = false
-        publishState(.closed)
+        publishState(.closed, kind: .command)
     }
 
     /// Returns an AsyncStream of SessionState events.
@@ -397,7 +409,7 @@ public actor CameraEngine {
     /// ADR-22: buffered with .bufferingOldest(Constants.stateStreamBufferSize).
     /// The stream is cached — multiple callers receive the same stream instance.
     public func stateStream() -> AsyncStream<SessionState> {
-        if let existing = cachedStateStream { return existing }
+        if let existing = cachedStateStream.latest { return existing }
         let stream = AsyncStream<SessionState>(
             SessionState.self,
             bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
@@ -405,21 +417,21 @@ public actor CameraEngine {
             // Synchronous install via nonisolated box — see Bug 3.
             self?.stateContinuationBox.withLock { $0 = continuation }
         }
-        cachedStateStream = stream
+        cachedStateStream.store(stream)
         return stream
     }
 
     /// Sensor-metadata heartbeat at `frameRateTargetFPS / frameResultHeartbeatIntervalFrames` Hz.
     /// `.bufferingNewest(1)` per ADR-22 (frame-rate stream).
     public func frameResultStream() -> AsyncStream<FrameResult> {
-        if let existing = cachedFrameResultStream { return existing }
+        if let existing = cachedFrameResultStream.latest { return existing }
         let stream = AsyncStream<FrameResult>(
             FrameResult.self,
             bufferingPolicy: .bufferingNewest(1)
         ) { [weak self] continuation in
             self?.frameResultContinuationBox.withLock { $0 = continuation }
         }
-        cachedFrameResultStream = stream
+        cachedFrameResultStream.store(stream)
         return stream
     }
 
@@ -429,14 +441,14 @@ public actor CameraEngine {
     /// Phase-2 design §2c. Cached stream — multiple callers receive the same instance.
     /// `.bufferingOldest` so every config change is delivered.
     public func streamConfigurationStream() -> AsyncStream<StreamConfiguration> {
-        if let s = cachedStreamConfigStream { return s }
+        if let s = cachedStreamConfigStream.latest { return s }
         let stream = AsyncStream<StreamConfiguration>(
             StreamConfiguration.self,
             bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
         ) { [weak self] continuation in
             self?.streamConfigContinuationBox.withLock { $0 = continuation }
         }
-        cachedStreamConfigStream = stream
+        cachedStreamConfigStream.store(stream)
         return stream
     }
 
@@ -459,14 +471,14 @@ public actor CameraEngine {
     /// ADR-22: .bufferingOldest so every error is delivered. Subscribe once per consumer
     /// lifetime; same instance returned thereafter.
     public func errorStream() -> AsyncStream<CameraError> {
-        if let cached = cachedErrorStream { return cached }
+        if let cached = cachedErrorStream.latest { return cached }
         let stream = AsyncStream<CameraError>(
             CameraError.self,
             bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
         ) { [weak self] continuation in
             self?.errorContinuationBox.withLock { $0 = continuation }
         }
-        cachedErrorStream = stream
+        cachedErrorStream.store(stream)
         return stream
     }
 
@@ -492,19 +504,26 @@ public actor CameraEngine {
     /// (`ErrorPresenterViewModel`, Phase-3's Pigeon adapter) see a consistent
     /// pause/resume signal.
     public func notifyScenePhasePaused(_ paused: Bool) {
-        publishState(paused ? .paused : .streaming)
+        publishState(paused ? .paused : .streaming, kind: .command)
     }
 
-    /// Test-only: mark the engine open so teardown paths (`close()` and the
-    /// `.cameraInUseEnded` self-heal) can be exercised without real hardware.
+    /// Test-only: drive the state machine into `.streaming` so teardown paths
+    /// (`close()` and the `.cameraInUseEnded` self-heal) can be exercised
+    /// without real hardware.
     ///
-    /// Sets `isOpen = true` only; `cameraSession`, `metalPipeline`, etc. stay
-    /// nil — `close()` is nil-safe for all of them, so the path runs cleanly
-    /// and reaches `publishState(.closed)`. Reproduces the realistic D-14
-    /// precondition: a `.cameraInUse` interruption only ever reaches a
+    /// Pokes `SessionStateMachine` directly via `_setCurrentForTest` (bypasses
+    /// classification — matches the prior `isOpen = true` intent of skipping
+    /// the normal `.opening`/`.streaming` path). No emission on the state
+    /// stream — preserves the original `isOpen = true` semantics where the
+    /// seam mutated state without publishing. Tests that need a published
+    /// `.streaming` should call `engine.open()` or subscribe before posting
+    /// events that advance state. `cameraSession`, `metalPipeline`, etc.
+    /// stay nil — `close()` is nil-safe for all of them, so the path runs
+    /// cleanly and reaches `publishState(.closed)`. Reproduces the realistic
+    /// D-14 precondition: a `.cameraInUse` interruption only ever reaches a
     /// running session, i.e. an already-open engine.
     func _markOpenForTest() {
-        isOpen = true
+        stateMachine._setCurrentForTest(.streaming)
     }
 
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
@@ -616,7 +635,7 @@ public actor CameraEngine {
 
         await session.stopRunningAsync()
         metalPipeline = nil
-        _metalPipeline = nil
+        _metalPipeline.store(nil)
 
         try await session.reconfigureSize(size)
 
@@ -642,7 +661,7 @@ public actor CameraEngine {
             }
         }
         metalPipeline = pipeline
-        _metalPipeline = pipeline
+        _metalPipeline.store(pipeline)
 
         captureDelegate?.logNextFrame = true
         submissionGate.store(true, ordering: .sequentiallyConsistent)
@@ -713,23 +732,23 @@ public actor CameraEngine {
     /// queue). MUST be re-evaluated each draw; do not cache the returned
     /// pointer (Bug 4: pool rotation strands cached pointers).
     public nonisolated func currentTexture() -> (any MTLTexture)? {
-        _metalPipeline?.latestNaturalTex
+        _metalPipeline.latest?.latestNaturalTex
     }
 
     /// Exposes the live processed-tex mailbox for the right-half MTKView draw.
     ///
     /// Same live-mailbox contract as `currentTexture()` — re-evaluate per draw.
     public nonisolated func currentProcessedTexture() -> (any MTLTexture)? {
-        _metalPipeline?.latestProcessedTex
+        _metalPipeline.latest?.latestProcessedTex
     }
 
     /// Stage 06: returns the latest tracker texture for external consumers.
     ///
     /// nonisolated so callers can access synchronously without an actor hop.
-    /// Reads `latestTrackerTex` from the pipeline's nonisolated(unsafe) mailbox
-    /// (G-13). Returns nil if no frame has been encoded yet or the engine is closed.
+    /// Reads `latestTrackerTex` from the pipeline's `Mailbox<T>` (G-13).
+    /// Returns nil if no frame has been encoded yet or the engine is closed.
     public nonisolated func currentTrackerTexture() -> (any MTLTexture)? {
-        _metalPipeline?.latestTrackerTex
+        _metalPipeline.latest?.latestTrackerTex
     }
 
     /// Returns the latest IOSurface-backed `CVPixelBuffer` for the requested lane,
@@ -741,9 +760,9 @@ public actor CameraEngine {
     /// Phase-2 design §2c.
     public nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? {
         switch stream {
-        case .natural: return _metalPipeline?.latestNaturalBuffer
-        case .processed: return _metalPipeline?.latestProcessedBuffer
-        case .tracker: return _metalPipeline?.latestTrackerBuffer
+        case .natural: return _metalPipeline.latest?.latestNaturalBuffer
+        case .processed: return _metalPipeline.latest?.latestProcessedBuffer
+        case .tracker: return _metalPipeline.latest?.latestTrackerBuffer
         }
     }
 
@@ -1181,21 +1200,21 @@ public actor CameraEngine {
     private var recording: Recording?
     private nonisolated let recordingContinuationBox =
         Mutex<AsyncStream<RecordingState>.Continuation?>(nil)
-    nonisolated(unsafe) private var cachedRecordingStream: AsyncStream<RecordingState>?
+    private let cachedRecordingStream = Mailbox<AsyncStream<RecordingState>>()
     private var assetWriterFactory: AssetWriterFactory = DefaultAssetWriterFactory.make
 
     /// Returns a stream of `RecordingState` transitions.
     ///
     /// Buffered with `.bufferingOldest` per ADR-22. Cached — multiple callers receive the same stream.
     public func recordingStateStream() -> AsyncStream<RecordingState> {
-        if let s = cachedRecordingStream { return s }
+        if let s = cachedRecordingStream.latest { return s }
         let stream = AsyncStream<RecordingState>(
             RecordingState.self,
             bufferingPolicy: .bufferingOldest(Constants.stateStreamBufferSize)
         ) { [weak self] c in
             self?.recordingContinuationBox.withLock { $0 = c }
         }
-        cachedRecordingStream = stream
+        cachedRecordingStream.store(stream)
         return stream
     }
 
@@ -1330,7 +1349,7 @@ public actor CameraEngine {
     public func pause() async throws {
         _ = await finalizeActiveRecording(reason: .pause)
         await cameraSession?.stopRunningAsync()
-        publishState(.paused)
+        publishState(.paused, kind: .command)
     }
 
     /// Resumes capture after a pause().
@@ -1339,7 +1358,7 @@ public actor CameraEngine {
     public func resume() async throws {
         guard isOpen, let session = cameraSession else { throw EngineError.notOpen }
         await session.startRunningAsync()
-        publishState(.streaming)
+        publishState(.streaming, kind: .command)
     }
 
     func publishRecordingStateFromHook(_ s: RecordingState) {
@@ -1374,13 +1393,36 @@ public actor CameraEngine {
 
     // MARK: - Private helpers
 
-    private func publishState(_ state: SessionState) {
+    private func publishState(
+        _ state: SessionState,
+        kind: SessionStateMachine.Kind,
+        function: String = #function
+    ) {
+        let from = stateMachine.current
+        let classification = stateMachine.transition(to: state, kind: kind)
+        if classification == .offMap {
+            CameraKitLog.warning(
+                .engine,
+                "[state] off-map transition from=\(from.rawValue) "
+                    + "to=\(state.rawValue) kind=\(kind.rawValue) caller=\(function)"
+            )
+            #if DEBUG
+            assertionFailure(
+                "off-map SessionState transition: \(from) → \(state) "
+                    + "(kind=\(kind)) from \(function)"
+            )
+            #endif
+        }
         stateContinuationBox.withLock { $0?.yield(state) }
     }
 
     // MARK: - Stage 09 internal hooks
 
-    func publishStateAsync(_ s: SessionState) { publishState(s) }
+    /// Used by `RecoveryCoordinator.emitStateRecovering` — that hook always
+    /// fires in response to an OS-driven recovery trigger, hence `.event`.
+    func publishStateAsync(_ s: SessionState) {
+        publishState(s, kind: .event)
+    }
     func publishErrorAsync(_ e: CameraError) { publishError(e) }
     func disarmWatchdogsAsync() { watchdogs?.disarmAll() }
 
@@ -1486,7 +1528,7 @@ public actor CameraEngine {
             watchdogs?.disarmAll()
             await recovery?.cancelPendingRetry()
             publishError(err)
-            publishState(.error)
+            publishState(.error, kind: .event)
         case .cameraInUseEnded:
             // D-14 + OQ-04: return to .closed; host must call open() again.
             await resetFromTerminal()
@@ -1499,11 +1541,11 @@ public actor CameraEngine {
                 .engine, "[interruption] entering .interrupted (raw=\(raw))")
             // Phase-2 §2b — abort any in-flight calibration on .interrupted.
             calibrationTask?.cancel()
-            publishState(.interrupted)
+            publishState(.interrupted, kind: .event)
         case .otherInterruptionEnded:
             CameraKitLog.notice(
                 .engine, "[interruption] ended — reverting to .streaming")
-            publishState(.streaming)
+            publishState(.streaming, kind: .event)
         }
     }
 

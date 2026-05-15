@@ -109,6 +109,11 @@ struct Stage13Phase2InterruptedStateTests {
     @Test(".otherInterruption publishes .interrupted; .otherInterruptionEnded reverts to .streaming")
     func otherInterruptionTogglesInterruptedState() async {
         let engine = CameraEngine()
+        // Post-Stage-12: SessionStateMachine treats `.closed → .interrupted
+        // (event)` as off-map (AVF only fires `.otherInterruption` against a
+        // running session; the test was bypassing that precondition). Set the
+        // realistic precondition via the existing test seam.
+        await engine._markOpenForTest()
         let states = await engine.stateStream()
         // Drain in this task; post events from a child task with a tiny stagger
         // so the stream is being consumed when the events fire.
