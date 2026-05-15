@@ -532,7 +532,7 @@ public struct CameraView: View {
                 Spacer()
                 HStack {
                     MTKViewRepresentable(
-                        textureAccessor: { viewModel.display.trackerTex },
+                        textureAccessor: { viewModel.display.trackerTex.latest },
                         label: "tracker"
                     )
                     .frame(width: 160, height: 120)

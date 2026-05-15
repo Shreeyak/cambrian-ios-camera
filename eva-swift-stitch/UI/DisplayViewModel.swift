@@ -35,8 +35,13 @@ final class DisplayViewModel {
     nonisolated var naturalTex: MTLTexture? { engine.currentTexture() }
     nonisolated var processedTex: MTLTexture? { engine.currentProcessedTexture() }
 
+    /// Tracker texture mailbox.
+    ///
+    /// Single writer (engine delivery via the tracker subscription task on
+    /// MainActor), reader from the SwiftUI `MTKView` representable. See
+    /// `Mailbox<T>` (declared in CameraKit).
     @ObservationIgnored
-    nonisolated(unsafe) var trackerTex: MTLTexture?
+    let trackerTex = Mailbox<MTLTexture>()
 
     // MARK: - DEBUG state (auto-stripped in release)
 
@@ -120,14 +125,14 @@ final class DisplayViewModel {
                 guard let self else { return }
                 for await _ in await self.engine.consumers.subscribe(stream: .tracker) {
                     let tex = self.engine.currentTrackerTexture()
-                    await MainActor.run { self.trackerTex = tex }
+                    await MainActor.run { self.trackerTex.store(tex) }
                 }
-                await MainActor.run { self.trackerTex = nil }
+                await MainActor.run { self.trackerTex.store(nil) }
             }
         } else {
             trackerSubscriberTask?.cancel()
             trackerSubscriberTask = nil
-            trackerTex = nil
+            trackerTex.store(nil)
         }
     }
 }
