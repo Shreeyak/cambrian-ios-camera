@@ -24,6 +24,7 @@
 		3543BD01FED4893DD5F89AEF /* CalibrationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F84BFEC7AD76462115AEAB /* CalibrationViewModel.swift */; };
 		3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */; };
 		413C07759C3082622F459861 /* Stage05Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */; };
+		485445463B5196F3BC8A52E3 /* SessionStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EFB03F3C0D7F3BC4CD6085E /* SessionStateMachineTests.swift */; };
 		4B23642524C1D784A1D02ABB /* Stage07Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */; };
 		50F21A27408F311E9A330235 /* OrientationLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BFAE64BECE46F827035CC14 /* OrientationLock.swift */; };
 		5411DD80E5D86868D71B4EF9 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4EFB126527016EEBF27C9B62 /* CameraKit */; };
@@ -31,6 +32,7 @@
 		7E9E0F8C44602E8AF076C381 /* TestProgressLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DABEEEB1238FBD1FD99E0F73 /* TestProgressLog.swift */; };
 		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		845A7A1D18E9CCD89DCD7FB8 /* CameraKitInterop in Frameworks */ = {isa = PBXBuildFile; productRef = 0E55D77F81A3C795C0243955 /* CameraKitInterop */; };
+		87E448810E2CB27D0454D54A /* MailboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D8F6AA0B5F4841A0CD0038 /* MailboxTests.swift */; };
 		887DC67B9E822441EC774F06 /* Stage11UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF10587E507E1048C8C847C /* Stage11UITests.swift */; };
 		8CA3BD56AC695A50EB78C9F4 /* opencv2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FA1F10D5A87499A96772E693 /* opencv2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
@@ -110,6 +112,7 @@
 		4D88C5072FC744614C4BA75E /* ControlEnablement.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlEnablement.swift; sourceTree = "<group>"; };
 		5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage08Tests.swift; sourceTree = "<group>"; };
 		58A316EE7A8B88A4493811AC /* CannyConsumer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = CannyConsumer.h; sourceTree = "<group>"; };
+		5EFB03F3C0D7F3BC4CD6085E /* SessionStateMachineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionStateMachineTests.swift; sourceTree = "<group>"; };
 		6B41F4786693B0AE021B2232 /* Stage13CalibrationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage13CalibrationTests.swift; sourceTree = "<group>"; };
 		6B74220C49CCDE9BFB3F4579 /* AppCxx-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "AppCxx-Bridging-Header.h"; sourceTree = "<group>"; };
 		6BFAE64BECE46F827035CC14 /* OrientationLock.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OrientationLock.swift; sourceTree = "<group>"; };
@@ -124,6 +127,7 @@
 		BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotosLibraryClientTests.swift; sourceTree = "<group>"; };
 		C3CEB8DADD3C9D49E9D2E72C /* RecordingViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingViewModel.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
+		D6D8F6AA0B5F4841A0CD0038 /* MailboxTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MailboxTests.swift; sourceTree = "<group>"; };
 		DABEEEB1238FBD1FD99E0F73 /* TestProgressLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestProgressLog.swift; sourceTree = "<group>"; };
 		DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TestPixelHelpers.swift; path = CameraKit/Tests/CameraKitTests/TestPixelHelpers.swift; sourceTree = "<group>"; };
 		DBF4B8958FFF36C3B92510DB /* SliderDebouncer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SliderDebouncer.swift; sourceTree = "<group>"; };
@@ -201,6 +205,8 @@
 				90F0F0412724352774BCA98D /* Stage12Tests.swift */,
 				92D8458D14C4E5103EDC5C1E /* Stage13Phase2Tests.swift */,
 				6B41F4786693B0AE021B2232 /* Stage13CalibrationTests.swift */,
+				D6D8F6AA0B5F4841A0CD0038 /* MailboxTests.swift */,
+				5EFB03F3C0D7F3BC4CD6085E /* SessionStateMachineTests.swift */,
 			);
 			name = CameraKitTests;
 			path = CameraKit/Tests/CameraKitTests;
@@ -512,6 +518,8 @@
 				C82F8FF22301253C7C29DA32 /* CABIParityTests.swift in Sources */,
 				03BF2B50447F697923BE269A /* Stage13Phase2Tests.swift in Sources */,
 				09ABB819A33A2634300E0FDF /* Stage13CalibrationTests.swift in Sources */,
+				87E448810E2CB27D0454D54A /* MailboxTests.swift in Sources */,
+				485445463B5196F3BC8A52E3 /* SessionStateMachineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
