@@ -10,7 +10,7 @@ extension CameraSettings {
     /// Overlay every non-nil field from `self` onto `prior`.
     ///
     /// Nil fields in `self` preserve `prior`.
-    func merging(onto prior: CameraSettings) -> CameraSettings {
+    public func merging(onto prior: CameraSettings) -> CameraSettings {
         var out = prior
         if let v = isoMode { out.isoMode = v }
         if let v = iso { out.iso = v }
