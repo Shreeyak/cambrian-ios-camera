@@ -1,3 +1,4 @@
+import CameraKit
 import Foundation
 
 /// How long the Calibrate-WB button shows the "Calibrated ✓" confirmation

@@ -1,3 +1,4 @@
+import CameraKit
 import SwiftUI
 
 /// Top-level orchestrator for the SwiftUI camera UI.

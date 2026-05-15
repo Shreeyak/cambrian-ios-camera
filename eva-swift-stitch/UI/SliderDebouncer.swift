@@ -1,3 +1,4 @@
+import CameraKit
 import Foundation
 
 /// Per-control 60 Hz coalescer for high-frequency UI input (sliders).

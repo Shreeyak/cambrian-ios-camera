@@ -1,4 +1,4 @@
-import SwiftUI
+import UIKit
 
 /// Single read path for the declared orientation policy.
 ///

@@ -1,3 +1,4 @@
+import CameraKit
 import MetalKit
 import SwiftUI
 

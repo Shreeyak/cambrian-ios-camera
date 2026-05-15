@@ -1,3 +1,4 @@
+import CameraKit
 import Foundation
 
 /// Recording-state view model: owns `RecordingState` mirror, the wall-clock timer,

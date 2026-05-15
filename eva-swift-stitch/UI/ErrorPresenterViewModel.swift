@@ -1,3 +1,4 @@
+import CameraKit
 import Foundation
 
 /// Routes engine errors to the correct UI surface (toast vs blocking dialog).

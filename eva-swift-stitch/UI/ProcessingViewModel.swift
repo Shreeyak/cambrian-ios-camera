@@ -1,3 +1,4 @@
+import CameraKit
 import Foundation
 
 /// GPU color-pipeline shader-uniform sliders (brightness, contrast, saturation,

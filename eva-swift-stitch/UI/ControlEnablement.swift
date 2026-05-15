@@ -1,3 +1,4 @@
+import CameraKit
 import Foundation
 
 /// Derived UI gating: which controls are enabled and whether the scanning spinner shows.

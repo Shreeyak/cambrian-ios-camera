@@ -1,3 +1,4 @@
+import CameraKit
 import Foundation
 
 /// Hardware-control sliders for ISO / Shutter / Focus / Zoom.
