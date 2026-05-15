@@ -33,6 +33,7 @@ let package = Package(
                 .headerSearchPath("include"),
             ],
             linkerSettings: [
+                .linkedFramework("CoreFoundation"),
                 .linkedFramework("CoreVideo"),
                 .linkedFramework("IOSurface"),
             ]

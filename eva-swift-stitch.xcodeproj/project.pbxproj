@@ -29,6 +29,7 @@
 		7E9E0F8C44602E8AF076C381 /* TestProgressLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DABEEEB1238FBD1FD99E0F73 /* TestProgressLog.swift */; };
 		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		845A7A1D18E9CCD89DCD7FB8 /* CameraKitInterop in Frameworks */ = {isa = PBXBuildFile; productRef = 0E55D77F81A3C795C0243955 /* CameraKitInterop */; };
+		887DC67B9E822441EC774F06 /* Stage11UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF10587E507E1048C8C847C /* Stage11UITests.swift */; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
 		9FB9B178D57D55D1B175CC8B /* ProcessingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDBE6F3956C9C8906E817ED5 /* ProcessingViewModel.swift */; };
 		A29E2F497E8D7BB932CCCE24 /* Stage08Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */; };
@@ -87,6 +88,7 @@
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		A006996C3386DD396979F953 /* DisplayViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DisplayViewModel.swift; sourceTree = "<group>"; };
 		AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage10Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage10Tests.swift; sourceTree = "<group>"; };
+		ABF10587E507E1048C8C847C /* Stage11UITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage11UITests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
 		BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotosLibraryClientTests.swift; sourceTree = "<group>"; };
 		C3CEB8DADD3C9D49E9D2E72C /* RecordingViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingViewModel.swift; sourceTree = "<group>"; };
@@ -215,6 +217,7 @@
 			isa = PBXGroup;
 			children = (
 				14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */,
+				ABF10587E507E1048C8C847C /* Stage11UITests.swift */,
 			);
 			path = "eva-swift-stitchTests";
 			sourceTree = "<group>";
@@ -430,6 +433,7 @@
 				A29E2F497E8D7BB932CCCE24 /* Stage08Tests.swift in Sources */,
 				7E9E0F8C44602E8AF076C381 /* TestProgressLog.swift in Sources */,
 				6C143EC9F558E2F804A06CA5 /* Stage12Tests.swift in Sources */,
+				887DC67B9E822441EC774F06 /* Stage11UITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
