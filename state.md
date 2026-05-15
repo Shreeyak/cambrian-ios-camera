@@ -1,3 +1,73 @@
+# state.md — Post-Stage-12 hardening (2026-05-15)
+
+Standalone hardening effort outside brief discipline. Spec:
+`docs/superpowers/specs/2026-05-15-post-stage-12-hardening-design.md`.
+Plan: `docs/superpowers/plans/2026-05-15-post-stage-12-hardening.md`.
+
+## What's built — Post-Stage-12 (permanent)
+
+- **`Mailbox<T>`** at `CameraKit/Sources/CameraKit/Mailbox.swift` — names
+  the single-writer cross-isolation reference-cell convention. Migration
+  applied to MetalPipeline `latest*Tex` + `latest*Buffer` (6 sites),
+  CameraEngine cached streams + `_metalPipeline` (6 sites), and
+  DisplayViewModel `trackerTex` (1 site). Other `nonisolated(unsafe)`
+  sites (framework-capture, one-shot continuations, log statics,
+  test counters, auth provider injection) are explicitly out of scope.
+- **`SessionStateMachine`** at
+  `CameraKit/Sources/CameraKit/SessionStateMachine.swift` — engine now
+  stores authoritative SessionState; publishState routes through
+  `transition(to:kind:)` with command / event classification.
+  Observability-first off-map policy (log + DEBUG-assert + apply).
+- **`isOpen`** is now a derived computed property over
+  `stateMachine.current != .closed`. Stored Bool removed.
+- **Error routing rule** documented at the top of `Errors.swift` —
+  sync rejections throw `EngineError`; async failures emit `CameraError`
+  on `errorStream()`.
+- **`FrameSet` lifetime contract** documented in `FrameSet.swift` —
+  consumers must not retain across `await`; buffers are pool-backed.
+
+## Scaffolding still live
+
+None added; none retired.
+
+## Public API exposed — Post-Stage-12 additions
+
+`Mailbox<T>` is `public` so it can appear in declarations of public
+types' internal storage (DisplayViewModel's `trackerTex` is one such
+site, in the app target — `public` lets the type cross the module
+boundary cleanly). Mailbox itself is not exposed through any public
+method signature; no public surface change is observable.
+
+## Manual test evidence — Post-Stage-12
+
+- MailboxTests (7 tests) — pass on device.
+- SessionStateMachineTests (7 tests, including two 7×7 parameterized
+  classification matrices) — pass on device.
+- Full regression: 155 tests pass / 0 fail (was 148 before, +7 from
+  the two new suites).
+- **Device golden-path smoke (HITL) — pending.** Task 8 step 8.9
+  requires manual exercise on iPad (open → stream → capture → record
+  → background-resume → relaunch) before the engine-adoption commit.
+  Watch for off-map transition log lines in `camerakit.log` during
+  the run — none is the expected outcome.
+
+## Decisions taken — Post-Stage-12
+
+See `DECISIONS.md` entries dated 2026-05-15.
+
+## Follow-up consumers (out of scope this PR)
+
+After-#3 payoff sites that internal callers can now lean on:
+- `RecoveryCoordinator` could consult `engine.stateMachine.current` via
+  a new hook to detect mid-recovery close instead of relying purely on
+  `attempt` + external `cancelPendingRetry()`.
+- Watchdogs could skip firing during `.paused` / `.recovering` /
+  `.interrupted` based on a direct state read rather than `sessionToken`
+  comparison.
+
+---
+
+
 # state.md — Migration Phase 2
 
 ## Current stage
