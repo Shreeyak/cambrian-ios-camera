@@ -6,6 +6,10 @@ let package = Package(
     platforms: [.iOS(.v26)],
     products: [
         .library(name: "CameraKit", targets: ["CameraKit"]),
+        // TEMPORARY (Phase 1A): exported so the relocated DisplayViewModel
+        // can `import CameraKitInterop` for CppCannyStub. Phase 1B removes
+        // the OpenCV/Canny consumer from the package and unexports this.
+        .library(name: "CameraKitInterop", targets: ["CameraKitInterop"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
