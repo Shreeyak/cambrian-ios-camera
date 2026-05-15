@@ -115,4 +115,66 @@ No subagent entries this stage; coordinator worked inline.
 
 2026-05-15 [migration-2 §2c streamPixelFormat semantics] coordinator — `SessionCapabilities.streamPixelFormat` value changed from `"420f"` → `"RGBA16F"`. The previous value reported the camera *source* format (YUV 420f, what AVF delivers in the sample buffer), but downstream consumers — including Phase-3's zero-copy texture bridge — care about the *lane buffer* format (what `currentPixelBuffer(stream:)` returns). CameraKit converts YUV→RGBA16F in MetalPipeline's Pass-1; the lane buffers are `kCVPixelFormatType_64RGBAHalf` IOSurface-backed, MTLPixelFormat.rgba16Float. RGBA16F is `CVMetalTextureCacheCreateTextureFromImage`-compatible (CameraKit itself uses the cache with this format in `TexturePoolManager.makeIOSurfaceBackedRGBA16F`), so Phase-3's bridge stays zero-copy — but it must wrap as `.rgba16Float`, not the BGRA the spec's §2d.7 mentioned as the safe-default. Updated the Phase-3 handoff implication: the bridge wraps RGBA16F directly; no per-frame CPU copy needed.
 
+## 2026-05-15 — Error routing rule documented (#6)
+
+Documented the long-standing sync-throw vs. async-stream routing contract
+in the `Errors.swift` header. Sync rejections at the command boundary →
+typed `EngineError` throw. Async hardware / session / encoding failures →
+`CameraError` on `errorStream()`. `EngineError.fatal(CameraError)` is the
+bridge. No code change; this codifies what existing throw / emit sites
+already do. Post-Stage-12 hardening per
+`docs/superpowers/specs/2026-05-15-post-stage-12-hardening-design.md`.
+
+## 2026-05-15 — Engine-authoritative SessionState (#3 + #5 + #11)
+
+CameraEngine now stores its own SessionState via SessionStateMachine
+and is the authoritative source. ViewModel holds a downstream
+@Observable mirror updated from stateStream() — used for SwiftUI
+invalidation, not as the canonical answer. Synchronous truth is
+available to actor-isolated callers via the state machine.
+
+The prior stored `isOpen: Bool` is removed; `isOpen` is now a computed
+property (`stateMachine.current != .closed`). sessionToken is unchanged
+and remains the identity mechanism for watchdog / D-10 race detection
+— different concern from lifecycle, explicitly not folded in.
+
+Every publishState site classifies its trigger as `.command` (host /
+engine-self) or `.event` (OS-initiated via onSessionEvent or the
+RecoveryCoordinator hook). The classifier consults an
+expected-transition map that distinguishes the two kinds; off-map
+transitions log + DEBUG-assert + apply (observability-first). The
+state machine is a diagnostic instrument: a `paused → recovering` log
+correlated with a preceding OS notification is the legitimate
+interruption-plus-runtime-error overlap; the same log with no
+preceding event is the watchdog-race bug the retrospective predicted.
+
+Stage13Phase2InterruptedStateTests was updated to call
+`_markOpenForTest()` before posting `.otherInterruption` — the prior
+test bypassed normal lifecycle and would now trip a `.closed →
+.interrupted (event)` off-map assertion (AVF only fires interruption
+notifications against a running session). The seam itself was
+adjusted to drive state without emitting on the state stream, matching
+the original `isOpen = true` semantics.
+
+`commandMap` was widened during plan execution to include `.closed →
+.paused` after the device build surfaced an off-map assertion on every
+app launch: SwiftUI scenePhase fires `.background`/`.inactive` before
+`engine.open()` resolves, and `ViewModel.handleScenePhase` calls
+`engine.notifyScenePhasePaused(true)` unconditionally. D-2P-07 makes
+that pre-open publish intentional (Phase-3 Pigeon adapter and
+ErrorPresenter rely on the pause being visible on `stateStream`), so
+the table accommodates the transition rather than gating the publish
+or silencing the assertion. User-selected via AskUserQuestion
+2026-05-15 from three options: widen map (chosen) vs. gate publish
+vs. drop DEBUG assertionFailure.
+
+Post-Stage-12 hardening per
+docs/superpowers/specs/2026-05-15-post-stage-12-hardening-design.md.
+
+2026-05-15 [migration-2 D-2P-08] coordinator — Calibration host methods adopt Option C: iOS-only Pigeon `@HostApi` declarations, no Android Dart→Kotlin move-down. Amends `docs/superpowers/specs/2026-05-14-camerakit-flutter-migration-design.md` §2d.8 (which originally scoped Phase 3 to move Android's calibration loop from `cambrian_camera_controller.dart` into `CameraController.kt`). Rationale: cross-platform symmetry was a design preference, not a forcing function; Pigeon supports per-platform `@HostApi` method availability; Android's existing Dart calibration loop is working production code that shouldn't be touched without a feature reason. Phase 3's iOS plugin declares + implements `calibrateWhiteBalance` / `calibrateBlackBalance` (routing to the Phase-2 `engine.calibrateWhiteBalance()` / `calibrateBlackBalance()` methods); Android plugin does NOT declare them; the Android Dart caller continues to own the loop unchanged. Engine-divergence (Android: processed-lane sampling + green-pivot math in Dart; iOS: natural-lane sampling + `grayWorldGains` engine-side) is now permanent, not transitional. Pigeon contract asymmetry — methods exist on iOS only — is acceptable; mirrors the existing iOS-specific contract additions (permission helpers, `interrupted` SessionState, photos PHAsset return shape).
+
+2026-05-15 [migration-2 D-2P-09] coordinator — RGBA16F → RGBA8 lane-conversion design Open Q #1 resolved: BGRA8 (`kCVPixelFormatType_32BGRA`) on iOS, Android adds a one-byte-swizzle. iOS stays Metal-cache-canonical (`.bgra8Unorm` zero-copy wrap); Android's `GpuRenderer.cpp` adds a channel-reorder at the eglSwapBuffers boundary (output-channel swizzle in the fragment shader, or `glReadPixels(GL_BGRA, ...)`) to match iOS's wire format byte-for-byte. "Identical outputs" is strict byte-identical, achieved by Android adapting to iOS's canonical pair. Documented in `docs/superpowers/specs/2026-05-15-rgba16f-to-rgba8-conversion-design.md` Open Q #1 (resolved). Phase-3 plan that touches `cambrian_camera/android/` carries this Android-side change.
+
+2026-05-15 [migration-2 D-2P-10] coordinator — `captureNaturalPicture` does NOT use `AVCapturePhotoOutput`. Implementation taps the existing natural lane via `currentPixelBuffer(stream: .natural)` (Phase-2 accessor) and JPEG-encodes the buffer using the existing `StillCapture` encode helper (refactored to accept any `CVPixelBuffer` source). No new `AVCaptureOutput` attached to the session, no new delegate type, no `CaptureAtomic` integration. Rationale: the contract method's purpose is "capture the unprocessed image," not "capture from `AVCapturePhotoOutput` specifically." CameraKit already produces the natural lane as a continuous IOSurface-backed stream; reading the latest frame and encoding it satisfies the contract with ~50 lines of new code instead of a second capture pipeline. RAW/HEIF/DNG/Live Photo/depth-data deferred. Documented in `docs/superpowers/specs/2026-05-15-capture-natural-picture-design.md`.
+
 <!-- new entries go above this line; keep the stage header last -->
