@@ -5,6 +5,7 @@ import CoreVideo
 import Metal
 import Photos
 import Synchronization
+import UniformTypeIdentifiers
 
 /// The public actor that orchestrates the entire camera pipeline.
 /// This is the ONLY type callers interact with at the API layer.
@@ -1181,6 +1182,115 @@ public actor CameraEngine {
                 CameraKitLog.error(
                     .engine,
                     "[still] photos publish failed (destination=\(photosDestination.rawValue)): \(detail)"
+                )
+                publishError(
+                    CameraError(
+                        code: .unknownError,
+                        message: "photos publish failed (destination=\(photosDestination.rawValue)): \(detail)",
+                        isFatal: false
+                    )
+                )
+            }
+        }
+
+        return output
+    }
+
+    /// Captures the current *natural* (unprocessed) frame as a JPEG.
+    ///
+    /// Pre-P3 sibling of `captureImage` for the Pigeon contract's
+    /// `captureNaturalPicture` method. Reads the latest natural-lane buffer
+    /// from `MetalPipeline` (Pass-1 output, RGBA16F, IOSurface-backed),
+    /// JPEG-encodes via the shared `StillCapture.encode` path, and optionally
+    /// publishes to Photos. Does NOT touch `AVCapturePhotoOutput`
+    /// (`DECISIONS.md` D-2P-10).
+    ///
+    /// EXIF carries `"lane": "natural"` inside the `CamPlugin/v1` envelope so
+    /// consumers can distinguish natural-lane stills from processed-lane
+    /// stills written by `captureImage` (`"lane": "processed"`).
+    ///
+    /// Capture during `SessionState.paused` is permitted — the mailbox still
+    /// holds the last frame from before the pause, which is the right
+    /// semantics for "capture the natural picture." Gating is by buffer
+    /// availability, not session state.
+    ///
+    /// - Parameters:
+    ///   - outputURL: Resolved per `PhotosLibraryClient.resolve` (default ext
+    ///     `jpg`). `nil` → `<Documents>/<timestamp>.jpg`.
+    ///   - photosDestination: See `PhotosDestination`. Independent of
+    ///     `outputURL`; defaults to `.none` (no Photos interaction).
+    /// - Returns: A `StillCaptureOutput` with the on-disk file path. With
+    ///   `.move` and a successful Photos publish, that file no longer exists.
+    /// - Throws: `EngineError.notOpen` if the engine is `.closed`.
+    /// - Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves
+    ///   outside the app sandbox.
+    /// - Throws: `EngineError.capture(.bufferUnavailable)` if no natural-lane
+    ///   frame has been delivered yet (engine just opened, no sample fired).
+    /// - Throws: `EngineError.capture(_:)` wrapping any other `StillCaptureError`.
+    public func captureNaturalPicture(
+        outputURL: URL? = nil,
+        photosDestination: PhotosDestination = .none
+    ) async throws -> StillCaptureOutput {
+        guard isOpen, let pipeline = metalPipeline, let capture = stillCapture else {
+            throw EngineError.notOpen
+        }
+        guard let buffer = pipeline.latestNaturalBuffer else {
+            CameraKitLog.warning(.engine, "[natural] no natural-lane buffer available")
+            throw EngineError.capture(.bufferUnavailable)
+        }
+        CameraKitLog.notice(
+            .engine,
+            "[natural] capture start size=\(pipeline.captureSize.width)x\(pipeline.captureSize.height)"
+        )
+
+        let snap = await cameraSession?.device?.lastSnapshot
+        let apertureValue: Double
+        if let device = cameraSession?.device {
+            apertureValue = Double(await device.lensAperture)
+        } else {
+            apertureValue = 0
+        }
+
+        let writeURL: URL
+        do {
+            writeURL = try PhotosLibraryClient.resolve(outputURL: outputURL, defaultExt: "jpg")
+        } catch let e as EngineError {
+            throw e
+        }
+
+        let output: StillCaptureOutput
+        do {
+            output = try await capture.encode(
+                buffer: buffer,
+                captureSize: pipeline.captureSize,
+                deviceSnapshot: snap,
+                focalLengthMm: 0,
+                apertureValue: apertureValue,
+                outputURL: writeURL,
+                format: .jpeg,
+                laneTag: "natural"
+            )
+        } catch let e as StillCaptureError {
+            throw EngineError.capture(e)
+        }
+        CameraKitLog.notice(.engine, "[natural] capture complete path=\(output.filePath)")
+
+        // Optional Photos publish — same non-fatal contract as captureImage.
+        if photosDestination != .none {
+            let url = URL(fileURLWithPath: output.filePath)
+            do {
+                try await PhotosLibraryClient.publish(
+                    url: url, kind: .photo, destination: photosDestination
+                )
+                CameraKitLog.notice(
+                    .engine,
+                    "[natural] published-to-photos path=\(output.filePath) destination=\(photosDestination.rawValue)"
+                )
+            } catch {
+                let detail = PhotosLibraryClient.describe(error)
+                CameraKitLog.error(
+                    .engine,
+                    "[natural] photos publish failed (destination=\(photosDestination.rawValue)): \(detail)"
                 )
                 publishError(
                     CameraError(

@@ -52,34 +52,22 @@ final class StillCapture: @unchecked Sendable {
             pipeline.armCapture(continuation: continuation)
         }
 
-        // 4. Convert RGBA16F → RGBA8 via vImage.
-        let rgbaBytes = try convertRGBA16FtoRGBA8(
+        // 4. Hand off to the shared encode path — vImage convert, build CGImage,
+        //    EXIF, write to disk. Marked `"lane": "processed"` so consumers can
+        //    distinguish from `captureNaturalPicture` output.
+        let output = try await encode(
             buffer: readbackBuffer,
-            width: captureSize.width,
-            height: captureSize.height
-        )
-
-        // 5. Build CGImage.
-        let cgImage = try makeCGImage(rgbaBytes: rgbaBytes, width: captureSize.width, height: captureSize.height)
-
-        // 6. Build EXIF metadata.
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let camPluginJson = buildCamPluginV1Json(deviceSnapshot: deviceSnapshot)
-        let metadata = buildImageProperties(
-            cgImage: cgImage,
+            captureSize: captureSize,
             deviceSnapshot: deviceSnapshot,
             focalLengthMm: focalLengthMm,
             apertureValue: apertureValue,
-            captureSize: captureSize,
-            timestamp: timestamp,
-            camPluginJson: camPluginJson
+            outputURL: writeURL,
+            format: .tiff,
+            laneTag: "processed"
         )
 
-        // 7. Write TIFF.
-        try writeTIFF(cgImage: cgImage, metadata: metadata, to: writeURL)
-
-        CameraKitLog.notice(.engine, "[still] capture complete path=\(writeURL.path)")
-        return StillCaptureOutput(filePath: writeURL.path)
+        CameraKitLog.notice(.engine, "[still] capture complete path=\(output.filePath)")
+        return output
     }
 
     // MARK: - Private helpers
@@ -183,8 +171,14 @@ final class StillCapture: @unchecked Sendable {
         return image
     }
 
-    private func buildCamPluginV1Json(deviceSnapshot: DeviceStateSnapshot?) -> String {
+    private func buildCamPluginV1Json(
+        deviceSnapshot: DeviceStateSnapshot?,
+        laneTag: String?
+    ) -> String {
         var fields: [String: Any] = [:]
+        if let laneTag {
+            fields["lane"] = laneTag
+        }
         if let snap = deviceSnapshot {
             fields["iso"] = snap.iso
             fields["exposureDurationNs"] = snap.exposureDurationNs
@@ -232,10 +226,15 @@ final class StillCapture: @unchecked Sendable {
         ]
     }
 
-    private func writeTIFF(cgImage: CGImage, metadata: [String: Any], to url: URL) throws {
+    private func writeImage(
+        cgImage: CGImage,
+        metadata: [String: Any],
+        format: UTType,
+        to url: URL
+    ) throws {
         guard
             let dest = CGImageDestinationCreateWithURL(
-                url as CFURL, UTType.tiff.identifier as CFString, 1, nil
+                url as CFURL, format.identifier as CFString, 1, nil
             )
         else {
             throw StillCaptureError.fileWriteFailed("CGImageDestinationCreateWithURL failed: \(url.path)")
@@ -246,23 +245,35 @@ final class StillCapture: @unchecked Sendable {
         }
     }
 
-    // MARK: - Test seam
+    // MARK: - Shared encode path
 
-    /// Bypasses the pipeline arm for unit tests — converts buffer directly to TIFF.
-    func encodeToTIFF(
-        readbackBuffer: CVPixelBuffer,
+    /// Encodes a CPU-readable RGBA16F `CVPixelBuffer` to disk in the requested format.
+    ///
+    /// Used by `captureImage` (after a Pass-6 GPU readback) and by
+    /// `CameraEngine.captureNaturalPicture` (latest Pass-1 buffer from the natural-lane
+    /// `Mailbox<CVPixelBuffer>`). Also the seam used by unit tests that skip the
+    /// pipeline-arm continuation.
+    ///
+    /// - Parameter format: `.tiff` for processed-lane stills, `.jpeg` for natural-lane.
+    /// - Parameter laneTag: `"processed"` / `"natural"` / `nil`. When non-nil, written
+    ///   into the `CamPlugin/v1` EXIF envelope under the `"lane"` key so consumers can
+    ///   distinguish the two capture paths post-hoc.
+    func encode(
+        buffer: CVPixelBuffer,
         captureSize: Size,
         deviceSnapshot: DeviceStateSnapshot?,
         focalLengthMm: Double,
         apertureValue: Double,
-        outputURL: URL
+        outputURL: URL,
+        format: UTType,
+        laneTag: String?
     ) async throws -> StillCaptureOutput {
         let rgbaBytes = try convertRGBA16FtoRGBA8(
-            buffer: readbackBuffer, width: captureSize.width, height: captureSize.height)
+            buffer: buffer, width: captureSize.width, height: captureSize.height)
         let cgImage = try makeCGImage(
             rgbaBytes: rgbaBytes, width: captureSize.width, height: captureSize.height)
         let timestamp = ISO8601DateFormatter().string(from: Date())
-        let camPluginJson = buildCamPluginV1Json(deviceSnapshot: deviceSnapshot)
+        let camPluginJson = buildCamPluginV1Json(deviceSnapshot: deviceSnapshot, laneTag: laneTag)
         let metadata = buildImageProperties(
             cgImage: cgImage,
             deviceSnapshot: deviceSnapshot,
@@ -272,7 +283,7 @@ final class StillCapture: @unchecked Sendable {
             timestamp: timestamp,
             camPluginJson: camPluginJson
         )
-        try writeTIFF(cgImage: cgImage, metadata: metadata, to: outputURL)
+        try writeImage(cgImage: cgImage, metadata: metadata, format: format, to: outputURL)
         return StillCaptureOutput(filePath: outputURL.path)
     }
 }
