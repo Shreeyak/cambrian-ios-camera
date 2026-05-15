@@ -38,6 +38,7 @@
 		A3E014673AD8F07BE9D93639 /* HardwareControlsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5A8E98AF2312BB5DA99C5C /* HardwareControlsViewModel.swift */; };
 		B50DA96F146199918095B448 /* RecordingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3CEB8DADD3C9D49E9D2E72C /* RecordingViewModel.swift */; };
 		B8DA959F46CE3AB83631D9F3 /* opencv2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FA1F10D5A87499A96772E693 /* opencv2.xcframework */; };
+		C82F8FF22301253C7C29DA32 /* CABIParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CAE570E5E991D0D48A41E91 /* CABIParityTests.swift */; };
 		CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47509CEAA74698DC7E545FE /* Stage11Tests.swift */; };
 		D2A0B170AB46745B4267B24E /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B518A58555B2ECB69FBF3DC /* CameraView.swift */; };
 		DA1DF80B9D022A083AF98C55 /* CannyConsumer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3CACE9E98EC5AE5B501040FE /* CannyConsumer.cpp */; };
@@ -101,6 +102,7 @@
 		29B3BABBAA97C933F7EC4DCB /* CounterConsumer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = CounterConsumer.h; sourceTree = "<group>"; };
 		3A5A8E98AF2312BB5DA99C5C /* HardwareControlsViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HardwareControlsViewModel.swift; sourceTree = "<group>"; };
 		3CACE9E98EC5AE5B501040FE /* CannyConsumer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; path = CannyConsumer.cpp; sourceTree = "<group>"; };
+		3CAE570E5E991D0D48A41E91 /* CABIParityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CABIParityTests.swift; sourceTree = "<group>"; };
 		41B5C08ABF73F3F47F010206 /* ViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViewModel.swift; sourceTree = "<group>"; };
 		45007E7AF3327300AB0630E3 /* Stage02Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage02Tests.swift; sourceTree = "<group>"; };
 		4D88C5072FC744614C4BA75E /* ControlEnablement.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlEnablement.swift; sourceTree = "<group>"; };
@@ -248,6 +250,7 @@
 				14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */,
 				ABF10587E507E1048C8C847C /* Stage11UITests.swift */,
 				255FA5191553CA836E7A35A8 /* Stage08CannyTests.swift */,
+				3CAE570E5E991D0D48A41E91 /* CABIParityTests.swift */,
 			);
 			path = "eva-swift-stitchTests";
 			sourceTree = "<group>";
@@ -500,6 +503,7 @@
 				6C143EC9F558E2F804A06CA5 /* Stage12Tests.swift in Sources */,
 				887DC67B9E822441EC774F06 /* Stage11UITests.swift in Sources */,
 				9E9526A44F1758E6635C0095 /* Stage08CannyTests.swift in Sources */,
+				C82F8FF22301253C7C29DA32 /* CABIParityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

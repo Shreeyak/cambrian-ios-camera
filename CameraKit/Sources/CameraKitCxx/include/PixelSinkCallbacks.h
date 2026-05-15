@@ -55,14 +55,8 @@ void  capture_atomic_destroy(void* handle);
 bool  capture_atomic_try_acquire(void* handle);
 void  capture_atomic_release(void* handle);
 
-// MARK: - CannyStubConsumer C-ABI (canny_stub_*)
-
-void*    canny_stub_create(void);
-void     canny_stub_destroy(void* handle);
-void     canny_stub_on_frame(void* context, uint32_t stream, uint64_t frameNumber,
-                             int64_t presentationTimeNs, void* surface);
-uint64_t canny_stub_processed_count(void* handle);
-uint32_t canny_stub_edge_count(void* handle, size_t idx);
+// Phase 1B (2026-05-15): the canny_stub_* C-ABI relocated to the
+// eva-swift-stitch app target — see eva-swift-stitch/AppCxx/include/CannyConsumer.h.
 
 #ifdef __cplusplus
 }
