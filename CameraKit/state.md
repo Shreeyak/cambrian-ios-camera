@@ -1,4 +1,53 @@
-# state.md — Stage 12
+# state.md — Migration Phase 1A (post-Stage-12)
+
+## Current stage
+
+Phase 1A complete (Flutter migration — UI decoupling).
+CameraKit package now builds with **zero SwiftUI imports**; 11 UI files
+(CameraView, ViewModel, 6 view models, ControlEnablement, SliderDebouncer,
+OrientationLock) live under `eva-swift-stitch/UI/` in the app target.
+`Stage11Tests.swift` was split — 4 internals suites stayed dual-membered,
+5 UI suites moved to `eva-swift-stitchTests/Stage11UITests.swift`
+(single-target, deliberate exception to CLAUDE.md §8 dual-membership
+default). Full test bundle: **125 passed / 0 failed** on Shreeyak's iPad
+(UDID `00008027-000539EA0184402E`, iOS 26.x), scheme `eva-swift-stitch`,
+via `mcp__XcodeBuildMCP__test_device` — unchanged from the Stage 12 baseline.
+
+Bridge state: `CameraKitInterop` is **temporarily exported as a SwiftPM
+product** so the relocated `DisplayViewModel` can import `CppCannyStub`
+for the DEBUG Canny edge-count overlay. Phase 1B removes the OpenCV
+consumer and un-exports this product.
+
+Public-surface promotions (Phase 1A enabling edits):
+
+- `CameraEngine.dumpDeviceFormats()` → public
+- `CameraEngine.setGate(_:)` → public
+- `CameraEngine.drainSubmittedFrame()` → public
+- `CameraSettings.merging(onto:)` → public (called by relocated
+  `HardwareControlsViewModel`; not foreseen by the plan-of-record but
+  required by the same access-control audit Task 1 performed)
+- `Constants.wbCompletedDisplayMs` removed (inlined into
+  `CalibrationViewModel`)
+
+Build-graph repairs:
+
+- `CameraKitCxx` now explicitly links `CoreFoundation`. `CannyStubConsumer.o`
+  references `_kCFAllocatorDefault`; the app target gets CoreFoundation
+  transitively via UIKit, but once `CameraKitInterop` became a direct
+  test-target dependency (Task 4) the test link surfaced the gap as
+  undefined symbols.
+- `OrientationLock.swift` (moved to app target) had `import SwiftUI` but
+  only needed `UIInterfaceOrientationMask` (UIKit). Swapped on move to
+  satisfy the "zero SwiftUI imports in package" exit gate.
+
+## Scaffolding still live
+
+_None._ Phase 1A added no scaffolds; the post-Stage-12 empty scaffold
+corpus is preserved.
+
+---
+
+# state.md — Stage 12 (historical)
 
 ## Current stage
 Stage 12 complete (MIGRATION). Retired the final scaffold
