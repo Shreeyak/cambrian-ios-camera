@@ -27,11 +27,6 @@ let package = Package(
             cxxSettings: [
                 .define("CPP_POOL_THREAD_COUNT", to: "4"),
                 .headerSearchPath("include"),
-            ],
-            linkerSettings: [
-                .linkedFramework("CoreFoundation"),
-                .linkedFramework("CoreVideo"),
-                .linkedFramework("IOSurface"),
             ]
         ),
         // Thin Swift C++ interop boundary — .interoperabilityMode(.Cxx) confined here (ADR-13).
