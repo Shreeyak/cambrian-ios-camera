@@ -18,6 +18,19 @@ extension CVPixelBuffer: @retroactive @unchecked Sendable {}
 /// `@unchecked Sendable` per G-13: `CVPixelBuffer` is not yet `Sendable` on
 /// iOS 26; IOSurface backing plus the GPU-completion-before-construction
 /// ordering in the completion handler make cross-thread use safe.
+///
+/// # Lifetime contract
+///
+/// Consumers must not retain a `FrameSet` (or its `natural` / `processed` /
+/// `tracker` `CVPixelBuffer`s) across an `await` or beyond the next stream
+/// yield. The buffers are pool-backed (POOL_CAP_RULE); retention exhausts
+/// the pool, starves frame delivery, and surfaces three hops away as
+/// `frameStall` / watchdog recovery — root cause invisible from the symptom.
+///
+/// Snapshot any fields you need (`frameNumber`, `captureTime`, `capture`,
+/// `processing`, `blurScore`, `trackerQuality`) into your own storage before
+/// yielding control. If you need the pixel data itself, copy it under
+/// `CVPixelBufferLockBaseAddress` (ADR-06) into your own backing store.
 public struct FrameSet: @unchecked Sendable, Hashable {
     public let frameNumber: UInt64
     public let captureTime: CMTime

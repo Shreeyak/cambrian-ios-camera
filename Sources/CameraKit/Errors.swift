@@ -1,5 +1,28 @@
 import Foundation
 
+// MARK: - Error routing contract
+//
+// CameraKit has two parallel error surfaces. Route by phase:
+//
+// 1. Synchronous rejections at the command boundary — caller precondition
+//    violations, invalid arguments, .alreadyOpen / .notOpen, alreadyInFlight,
+//    invalidOutputPath — surface as typed `EngineError` throws on the
+//    suspension point. Caller code handles via `try` / `catch`.
+//
+// 2. Asynchronous hardware / session / encoding failures — capture device
+//    errors, AVCaptureSession runtime errors, AVAssetWriter failures,
+//    watchdog firings, max-retries-exceeded — surface as `CameraError` on
+//    `errorStream()`. UI subscribes to the stream and routes by `isFatal`.
+//
+// `EngineError.fatal(CameraError)` bridges (1) → (2) when a synchronous
+// path discovers an async-origin fatal condition that already exists as a
+// `CameraError` value.
+//
+// Rationale: synchronous APIs cannot block on future hardware state; async
+// failures cannot be observed by a caller that has already returned. The
+// surfaces are not interchangeable. Each throw / emit site picks one
+// according to its phase, not its severity.
+
 /// Domain-public error-code taxonomy per domain-revised/10-api-contract.md §ErrorCode.
 public enum ErrorCode: String, Sendable, Hashable {
     case cameraNotFound = "CAMERA_NOT_FOUND"
