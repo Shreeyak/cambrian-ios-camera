@@ -1,5 +1,4 @@
 import CameraKit
-import CameraKitInterop
 import CoreMedia
 import Metal
 import SwiftUI

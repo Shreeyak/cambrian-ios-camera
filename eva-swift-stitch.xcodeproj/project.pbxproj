@@ -10,7 +10,6 @@
 		02414E067C405CFBDAEF4EEE /* PhotosLibraryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */; };
 		04C0DE71181BCBB1E76DD4FA /* SliderDebouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBF4B8958FFF36C3B92510DB /* SliderDebouncer.swift */; };
 		05EBAEEEA7E3802F0248BCA1 /* DisplayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A006996C3386DD396979F953 /* DisplayViewModel.swift */; };
-		0B54F1AD60702E16D931B680 /* CameraKitInterop in Frameworks */ = {isa = PBXBuildFile; productRef = B30F50A13AE80ADB49A82940 /* CameraKitInterop */; };
 		0D564774D754090505282403 /* ViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B5C08ABF73F3F47F010206 /* ViewModel.swift */; };
 		14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */; };
 		14E07E1E2F8E513F00E9F7FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */; };
@@ -19,6 +18,7 @@
 		14E07E352F8E513F00E9F7FC /* eva_swift_stitchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */; };
 		14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */; };
 		1597FE0511AFD9C0406D7498 /* Stage09Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE72B917051A958CCDA6299B /* Stage09Tests.swift */; };
+		2408C79007473C6B21EF6DFA /* CppCannyStub.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F42AF85980B2337113CF89 /* CppCannyStub.swift */; };
 		3543BD01FED4893DD5F89AEF /* CalibrationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F84BFEC7AD76462115AEAB /* CalibrationViewModel.swift */; };
 		3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */; };
 		413C07759C3082622F459861 /* Stage05Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */; };
@@ -30,18 +30,23 @@
 		7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */; };
 		845A7A1D18E9CCD89DCD7FB8 /* CameraKitInterop in Frameworks */ = {isa = PBXBuildFile; productRef = 0E55D77F81A3C795C0243955 /* CameraKitInterop */; };
 		887DC67B9E822441EC774F06 /* Stage11UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF10587E507E1048C8C847C /* Stage11UITests.swift */; };
+		8CA3BD56AC695A50EB78C9F4 /* opencv2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FA1F10D5A87499A96772E693 /* opencv2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8F4E4CFF052C7872282FBC18 /* CameraKit in Frameworks */ = {isa = PBXBuildFile; productRef = 774759B7C7A55D0C56E89D14 /* CameraKit */; };
+		9E9526A44F1758E6635C0095 /* Stage08CannyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 255FA5191553CA836E7A35A8 /* Stage08CannyTests.swift */; };
 		9FB9B178D57D55D1B175CC8B /* ProcessingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDBE6F3956C9C8906E817ED5 /* ProcessingViewModel.swift */; };
 		A29E2F497E8D7BB932CCCE24 /* Stage08Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */; };
 		A3E014673AD8F07BE9D93639 /* HardwareControlsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5A8E98AF2312BB5DA99C5C /* HardwareControlsViewModel.swift */; };
 		B50DA96F146199918095B448 /* RecordingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3CEB8DADD3C9D49E9D2E72C /* RecordingViewModel.swift */; };
+		B8DA959F46CE3AB83631D9F3 /* opencv2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FA1F10D5A87499A96772E693 /* opencv2.xcframework */; };
 		CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47509CEAA74698DC7E545FE /* Stage11Tests.swift */; };
 		D2A0B170AB46745B4267B24E /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B518A58555B2ECB69FBF3DC /* CameraView.swift */; };
+		DA1DF80B9D022A083AF98C55 /* CannyConsumer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3CACE9E98EC5AE5B501040FE /* CannyConsumer.cpp */; };
 		E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */; };
 		E3DA5760A785849A4323F68B /* TestPixelHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */; };
 		ED5858F17D15B3DA74966D87 /* ControlEnablement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D88C5072FC744614C4BA75E /* ControlEnablement.swift */; };
 		EF7D1E9BCC587010E9370BC2 /* ErrorPresenterViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4F5E261160C019501B76D6 /* ErrorPresenterViewModel.swift */; };
 		F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45007E7AF3327300AB0630E3 /* Stage02Tests.swift */; };
+		F648DA6FD715306F6F098DA8 /* CounterConsumer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A499A435F949C833F11A2B43 /* CounterConsumer.cpp */; };
 		F86D7E2444D241B1A4411FBA /* Stage04Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */; };
 		FEB5776E21A1294A5CA6ED39 /* Stage06Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40574632638223EEF0762DC /* Stage06Tests.swift */; };
 /* End PBXBuildFile section */
@@ -63,6 +68,20 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		3D62D25A99F93DE7F6B95347 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				8CA3BD56AC695A50EB78C9F4 /* opencv2.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		008B24B2F2D3F9C7627EFCB9 /* Stage03Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage03Tests.swift; sourceTree = "<group>"; };
 		02F84BFEC7AD76462115AEAB /* CalibrationViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CalibrationViewModel.swift; sourceTree = "<group>"; };
@@ -78,15 +97,21 @@
 		14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITests.swift; sourceTree = "<group>"; };
 		14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		14E07E432F8E51EC00E9F7FC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		255FA5191553CA836E7A35A8 /* Stage08CannyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage08CannyTests.swift; sourceTree = "<group>"; };
+		29B3BABBAA97C933F7EC4DCB /* CounterConsumer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = CounterConsumer.h; sourceTree = "<group>"; };
 		3A5A8E98AF2312BB5DA99C5C /* HardwareControlsViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HardwareControlsViewModel.swift; sourceTree = "<group>"; };
+		3CACE9E98EC5AE5B501040FE /* CannyConsumer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; path = CannyConsumer.cpp; sourceTree = "<group>"; };
 		41B5C08ABF73F3F47F010206 /* ViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViewModel.swift; sourceTree = "<group>"; };
 		45007E7AF3327300AB0630E3 /* Stage02Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage02Tests.swift; sourceTree = "<group>"; };
 		4D88C5072FC744614C4BA75E /* ControlEnablement.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlEnablement.swift; sourceTree = "<group>"; };
 		5225EDA92E5DE07E4F3D573B /* Stage08Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage08Tests.swift; sourceTree = "<group>"; };
+		58A316EE7A8B88A4493811AC /* CannyConsumer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = CannyConsumer.h; sourceTree = "<group>"; };
+		6B74220C49CCDE9BFB3F4579 /* AppCxx-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "AppCxx-Bridging-Header.h"; sourceTree = "<group>"; };
 		6BFAE64BECE46F827035CC14 /* OrientationLock.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OrientationLock.swift; sourceTree = "<group>"; };
 		90F0F0412724352774BCA98D /* Stage12Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage12Tests.swift; sourceTree = "<group>"; };
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		A006996C3386DD396979F953 /* DisplayViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DisplayViewModel.swift; sourceTree = "<group>"; };
+		A499A435F949C833F11A2B43 /* CounterConsumer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; path = CounterConsumer.cpp; sourceTree = "<group>"; };
 		AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage10Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage10Tests.swift; sourceTree = "<group>"; };
 		ABF10587E507E1048C8C847C /* Stage11UITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage11UITests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
@@ -99,8 +124,10 @@
 		DE72B917051A958CCDA6299B /* Stage09Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage09Tests.swift; sourceTree = "<group>"; };
 		E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage07Tests.swift; sourceTree = "<group>"; };
 		E47509CEAA74698DC7E545FE /* Stage11Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage11Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage11Tests.swift; sourceTree = "<group>"; };
+		E8F42AF85980B2337113CF89 /* CppCannyStub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CppCannyStub.swift; sourceTree = "<group>"; };
 		ED4F5E261160C019501B76D6 /* ErrorPresenterViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErrorPresenterViewModel.swift; sourceTree = "<group>"; };
 		EDBE6F3956C9C8906E817ED5 /* ProcessingViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProcessingViewModel.swift; sourceTree = "<group>"; };
+		FA1F10D5A87499A96772E693 /* opencv2.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; path = opencv2.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -109,7 +136,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5411DD80E5D86868D71B4EF9 /* CameraKit in Frameworks */,
-				0B54F1AD60702E16D931B680 /* CameraKitInterop in Frameworks */,
+				B8DA959F46CE3AB83631D9F3 /* opencv2.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -180,6 +207,7 @@
 				14E07E172F8E513D00E9F7FC /* Products */,
 				06A512ED5FC2EDE614E14D0D /* CameraKitTests */,
 				66178965FC79084512BA4BD9 /* CameraKit */,
+				6E718DC6EF4297D208B2925C /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -201,6 +229,7 @@
 				14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */,
 				14E07E1F2F8E513F00E9F7FC /* Preview Content */,
 				0180F31D54B458CEB93EF6B1 /* UI */,
+				74088CABCBA2F09A99F67F53 /* AppCxx */,
 			);
 			path = "eva-swift-stitch";
 			sourceTree = "<group>";
@@ -218,6 +247,7 @@
 			children = (
 				14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */,
 				ABF10587E507E1048C8C847C /* Stage11UITests.swift */,
+				255FA5191553CA836E7A35A8 /* Stage08CannyTests.swift */,
 			);
 			path = "eva-swift-stitchTests";
 			sourceTree = "<group>";
@@ -231,12 +261,44 @@
 			path = "eva-swift-stitchUITests";
 			sourceTree = "<group>";
 		};
+		55B96687A8A946447581150F /* include */ = {
+			isa = PBXGroup;
+			children = (
+				58A316EE7A8B88A4493811AC /* CannyConsumer.h */,
+				29B3BABBAA97C933F7EC4DCB /* CounterConsumer.h */,
+			);
+			name = include;
+			path = include;
+			sourceTree = "<group>";
+		};
 		66178965FC79084512BA4BD9 /* CameraKit */ = {
 			isa = PBXGroup;
 			children = (
 				75D38A4609A01340EE7B3E76 /* Tests */,
 			);
 			name = CameraKit;
+			sourceTree = "<group>";
+		};
+		6E718DC6EF4297D208B2925C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				FA1F10D5A87499A96772E693 /* opencv2.xcframework */,
+			);
+			name = Frameworks;
+			path = Frameworks;
+			sourceTree = "<group>";
+		};
+		74088CABCBA2F09A99F67F53 /* AppCxx */ = {
+			isa = PBXGroup;
+			children = (
+				55B96687A8A946447581150F /* include */,
+				3CACE9E98EC5AE5B501040FE /* CannyConsumer.cpp */,
+				A499A435F949C833F11A2B43 /* CounterConsumer.cpp */,
+				E8F42AF85980B2337113CF89 /* CppCannyStub.swift */,
+				6B74220C49CCDE9BFB3F4579 /* AppCxx-Bridging-Header.h */,
+			);
+			name = AppCxx;
+			path = AppCxx;
 			sourceTree = "<group>";
 		};
 		75D38A4609A01340EE7B3E76 /* Tests */ = {
@@ -267,6 +329,7 @@
 				14E07E122F8E513D00E9F7FC /* Sources */,
 				14E07E132F8E513D00E9F7FC /* Frameworks */,
 				14E07E142F8E513D00E9F7FC /* Resources */,
+				3D62D25A99F93DE7F6B95347 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -275,7 +338,6 @@
 			name = "eva-swift-stitch";
 			packageProductDependencies = (
 				4EFB126527016EEBF27C9B62 /* CameraKit */,
-				B30F50A13AE80ADB49A82940 /* CameraKitInterop */,
 			);
 			productName = "eva-swift-stitch";
 			productReference = 14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */;
@@ -410,6 +472,9 @@
 				04C0DE71181BCBB1E76DD4FA /* SliderDebouncer.swift in Sources */,
 				0D564774D754090505282403 /* ViewModel.swift in Sources */,
 				50F21A27408F311E9A330235 /* OrientationLock.swift in Sources */,
+				DA1DF80B9D022A083AF98C55 /* CannyConsumer.cpp in Sources */,
+				F648DA6FD715306F6F098DA8 /* CounterConsumer.cpp in Sources */,
+				2408C79007473C6B21EF6DFA /* CppCannyStub.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -434,6 +499,7 @@
 				7E9E0F8C44602E8AF076C381 /* TestProgressLog.swift in Sources */,
 				6C143EC9F558E2F804A06CA5 /* Stage12Tests.swift in Sources */,
 				887DC67B9E822441EC774F06 /* Stage11UITests.swift in Sources */,
+				9E9526A44F1758E6635C0095 /* Stage08CannyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -590,11 +656,20 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"eva-swift-stitch/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+				);
 				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
@@ -614,6 +689,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -625,11 +701,20 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"eva-swift-stitch/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+				);
 				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
@@ -649,6 +734,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -659,16 +745,26 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_TESTABILITY = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+				);
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "-cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -680,16 +776,26 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_TESTABILITY = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+				);
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "-cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -794,11 +900,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */;
 			productName = CameraKit;
-		};
-		B30F50A13AE80ADB49A82940 /* CameraKitInterop */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */;
-			productName = CameraKitInterop;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,11 +1,18 @@
-// CannyStubConsumer — OpenCV-backed Canny edge detection per ADR-29.
-// Incoming frames come as IOSurfaceRef (void*) from the tracker stream.
-// We wrap via CVPixelBufferRef for safe, lockable pixel base address access,
-// run cv::Canny, and write (frameNumber, edgePixelCount) tuples into a
-// fixed-size ring buffer that the debug overlay reads back via C-ABI.
-// OpenCV is confined to CameraKitCxx; no OpenCV symbol escapes (ADR-11).
-#include "PixelSink.hpp"
-#include "PixelSinkCallbacks.h"
+// CannyConsumer — OpenCV-backed Canny edge detection per ADR-29.
+// Phase 1B (2026-05-15) — relocated from CameraKit/Sources/CameraKitCxx/
+// CannyStubConsumer.cpp into the eva-swift-stitch app target so the
+// CameraKit package becomes OpenCV-free.
+//
+// Receives tracker-stream frames via the C-ABI canny_stub_on_frame entrypoint
+// (the C++ pool calls it through a PixelSinkCallbacks function pointer).
+// Stores (frameNumber, edgePixelCount) tuples into a fixed-size ring buffer
+// the debug overlay reads back via canny_stub_processed_count / _edge_count.
+//
+// Self-contained: does NOT inherit from PixelSink. The C-ABI thunk was the
+// only caller of the virtual onFrame override; the inheritance was structurally
+// dead. Dropping it removed the PixelSink.hpp / PixelFrame dependency, which
+// is what makes this file's relocation a clean byte-move.
+#include "include/CannyConsumer.h"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/core.hpp>
 #include <CoreVideo/CoreVideo.h>
@@ -30,23 +37,21 @@ struct CannyRingEntry {
     uint32_t edgePixelCount;
 };
 
-class CannyStubConsumer : public PixelSink {
+class CannyStubConsumer {
 public:
-    void onFrame(const PixelFrame& f) override {
+    void onFrame(uint32_t stream, uint64_t frameNumber, void* surface) {
         uint32_t edgeCount = 0;
-        if (f.surface != nullptr) {
-            edgeCount = runCanny(static_cast<IOSurfaceRef>(f.surface));
+        if (surface != nullptr) {
+            edgeCount = runCanny(static_cast<IOSurfaceRef>(surface));
         }
         uint64_t idx = writeIdx_.fetch_add(1, std::memory_order_relaxed);
-        ring_[idx % kRingSize] = {f.frameNumber, f.stream, edgeCount};
+        ring_[idx % kRingSize] = {frameNumber, stream, edgeCount};
         // Log every 30 frames (~1 s at 30 fps) — gated by os_log level at runtime.
         if (idx % 30 == 0) {
             os_log(cannyLog(), "frame=%llu stream=%u edges=%u total=%llu",
-                   f.frameNumber, f.stream, edgeCount, idx + 1);
+                   frameNumber, stream, edgeCount, idx + 1);
         }
     }
-
-    void onOverwrite(const OverwriteEvent&) override {}
 
     uint64_t processedCount() const {
         return writeIdx_.load(std::memory_order_relaxed);
@@ -121,9 +126,8 @@ void canny_stub_destroy(void* handle) {
 }
 
 void canny_stub_on_frame(void* context, uint32_t stream, uint64_t frameNumber,
-                         int64_t presentationTimeNs, void* surface) {
-    PixelFrame f{stream, frameNumber, presentationTimeNs, surface};
-    static_cast<CannyStubConsumer*>(context)->onFrame(f);
+                         int64_t /*presentationTimeNs*/, void* surface) {
+    static_cast<CannyStubConsumer*>(context)->onFrame(stream, frameNumber, surface);
 }
 
 uint64_t canny_stub_processed_count(void* handle) {
