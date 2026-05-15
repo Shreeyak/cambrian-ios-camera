@@ -141,4 +141,13 @@ public enum StillCaptureError: Error, Sendable {
     case alreadyInFlight
     case metalReadbackFailed
     case fileWriteFailed(String)
+    /// `captureNaturalPicture` was called before any natural-lane frame
+    /// reached the pipeline's mailbox.
+    ///
+    /// Engine is open but `MetalPipeline.latestNaturalBuffer` is `nil` —
+    /// caller raced the first sample-buffer-delegate fire. Try again after
+    /// the first frame arrives. Distinct from `metalReadbackFailed`, which
+    /// covers GPU-readback failures on the processed lane (vImage, CGImage
+    /// build, IOSurface lock).
+    case bufferUnavailable
 }

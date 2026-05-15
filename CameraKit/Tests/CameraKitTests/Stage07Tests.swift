@@ -3,6 +3,7 @@ import CoreVideo
 import Foundation
 import ImageIO
 import Testing
+import UniformTypeIdentifiers
 
 @testable import CameraKit
 
@@ -72,13 +73,15 @@ struct Stage07Tests {
         let capture = StillCapture()
         let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".tif")
-        _ = try await capture.encodeToTIFF(
-            readbackBuffer: buf,
+        _ = try await capture.encode(
+            buffer: buf,
             captureSize: size,
             deviceSnapshot: nil,
             focalLengthMm: 0,
             apertureValue: 0,
-            outputURL: outURL
+            outputURL: outURL,
+            format: .tiff,
+            laneTag: nil
         )
         guard let src = CGImageSourceCreateWithURL(outURL as CFURL, nil),
             let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil)
@@ -120,13 +123,15 @@ struct Stage07Tests {
         )
         let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".tif")
-        _ = try await capture.encodeToTIFF(
-            readbackBuffer: buf,
+        _ = try await capture.encode(
+            buffer: buf,
             captureSize: size,
             deviceSnapshot: snap,
             focalLengthMm: 4.25,
             apertureValue: 1.8,
-            outputURL: outURL
+            outputURL: outURL,
+            format: .tiff,
+            laneTag: nil
         )
         guard let src = CGImageSourceCreateWithURL(outURL as CFURL, nil),
             let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
@@ -201,13 +206,15 @@ struct Stage07Tests {
         )
         let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".tif")
-        _ = try await capture.encodeToTIFF(
-            readbackBuffer: buf,
+        _ = try await capture.encode(
+            buffer: buf,
             captureSize: size,
             deviceSnapshot: snap,
             focalLengthMm: 4.25,
             apertureValue: 1.8,
-            outputURL: outURL
+            outputURL: outURL,
+            format: .tiff,
+            laneTag: nil
         )
         guard let src = CGImageSourceCreateWithURL(outURL as CFURL, nil),
             let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
