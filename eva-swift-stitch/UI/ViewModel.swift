@@ -295,7 +295,10 @@ final class ViewModel {
                         activeCropRegion: caps.activeCropRegion,
                         streamPixelFormat: caps.streamPixelFormat,
                         isoRange: caps.isoRange,
-                        exposureDurationRangeNs: caps.exposureDurationRangeNs
+                        exposureDurationRangeNs: caps.exposureDurationRangeNs,
+                        focusRange: caps.focusRange,
+                        zoomRange: caps.zoomRange,
+                        evCompensationRange: caps.evCompensationRange
                     )
                 }
                 CameraKitLog.notice(.engine, "[resolution] applied \(size.width)x\(size.height)")
@@ -323,12 +326,16 @@ final class ViewModel {
         case .inactive:
             await engine.setGate(false)
             await engine.drainSubmittedFrame()
-            CameraKitLog.notice(.scenePhase, "scenePhase inactive: gate closed, drain complete")
+            await engine.notifyScenePhasePaused(true)
+            CameraKitLog.notice(
+                .scenePhase, "scenePhase inactive: gate closed, drain complete, state=.paused")
 
         case .background:
             cameFromBackground = true
             await engine.backgroundSuspend()
-            CameraKitLog.notice(.scenePhase, "scenePhase background: backgroundSuspend complete")
+            await engine.notifyScenePhasePaused(true)
+            CameraKitLog.notice(
+                .scenePhase, "scenePhase background: backgroundSuspend complete, state=.paused")
 
         case .active:
             if cameFromBackground {
@@ -336,7 +343,9 @@ final class ViewModel {
                 await engine.backgroundResume()
             }
             await engine.setGate(true)
-            CameraKitLog.notice(.scenePhase, "scenePhase active: gate open (prevPhase=\(prev))")
+            await engine.notifyScenePhasePaused(false)
+            CameraKitLog.notice(
+                .scenePhase, "scenePhase active: gate open, state=.streaming (prevPhase=\(prev))")
 
         @unknown default:
             break

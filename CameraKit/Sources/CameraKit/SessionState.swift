@@ -7,6 +7,10 @@ public enum SessionState: String, Sendable, Hashable {
     case paused
     case error
     case closed
+    /// Routine `AVCaptureSession` interruption (Control Center, Split View /
+    /// Stage Manager, phone call). Distinct from `.error` — auto-resumes on
+    /// `interruptionEndedNotification`. Phase-2 design §2d.5.
+    case interrupted
 }
 
 public enum RecordingState: Sendable, Hashable {

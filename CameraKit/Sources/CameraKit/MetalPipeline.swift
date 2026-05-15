@@ -88,9 +88,13 @@ final class MetalPipeline: @unchecked Sendable {
     nonisolated(unsafe) private(set) var latestProcessedTex: MTLTexture?
     nonisolated(unsafe) private(set) var latestTrackerTex: MTLTexture?
 
-    nonisolated(unsafe) private var latestNaturalBuffer: CVPixelBuffer?
-    nonisolated(unsafe) private var latestProcessedBuffer: CVPixelBuffer?
-    nonisolated(unsafe) private var latestTrackerBuffer: CVPixelBuffer?
+    // Phase-2 §2c: lane CVPixelBuffer mailboxes — read by
+    // `CameraEngine.currentPixelBuffer(stream:)` for the Phase-3 zero-copy
+    // FlutterTexture bridge. Same single-writer-on-delivery-queue contract
+    // as the MTLTexture mailboxes above.
+    nonisolated(unsafe) private(set) var latestNaturalBuffer: CVPixelBuffer?
+    nonisolated(unsafe) private(set) var latestProcessedBuffer: CVPixelBuffer?
+    nonisolated(unsafe) private(set) var latestTrackerBuffer: CVPixelBuffer?
 
     /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex`.
     ///
@@ -897,7 +901,7 @@ final class MetalPipeline: @unchecked Sendable {
     /// Writes color uniforms directly into the pipeline's uniforms Mutex.
     ///
     /// Mirrors the `uniforms.color` slice of the production path
-    /// `CameraEngine.setProcessingParameters` (which also routes through the
+    /// `CameraEngine.setProcessingParams` (which also routes through the
     /// session queue and KVO ingest). Used by Stage11Tests to inject known
     /// BCSG+BB state without needing a full engine. Crop uniforms are untouched.
     func setColorUniformsForTest(_ params: ProcessingParameters) {

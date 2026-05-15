@@ -14,31 +14,17 @@ private let wbCompletedDisplayMs: Int = 1500
 /// Test-injection seam: production wires `CameraEngine` directly via the
 /// extension below. Tests substitute a stub that records inputs/outputs without
 /// requiring an `AVCaptureSession`.
+///
+/// **Phase-2 §2b shrink** — the VM no longer drives the multi-step calibration
+/// algorithm itself; it just calls the engine's high-level
+/// `calibrateWhiteBalance()` / `calibrateBlackBalance()` and writes WB-mode
+/// deltas via `updateSettings`. After BB calibration the VM resyncs its
+/// processing-params mirror via `currentProcessingParametersSnapshot()`.
 protocol CalibrationEngineProtocol: Sendable {
-    /// WB-calibration sample: naturalTex (no BCSG, no BB).
-    func sampleCenterPatchOnNatural() async throws -> RgbSample
-    /// BB-calibration sample: scratch render with current BCSG and BB zeroed.
-    func sampleCenterPatchForBBCalibration() async throws -> RgbSample
+    func calibrateWhiteBalance() async throws -> CalibrationResult
+    func calibrateBlackBalance() async throws -> CalibrationResult
     func updateSettings(_ settings: CameraSettings) async throws
-    func currentDeviceWBGains() async throws -> WhiteBalanceGains
-    func maxWhiteBalanceGain() async throws -> Float
-    func awaitWBSettled() async
-    /// Apple's `grayWorldDeviceWhiteBalanceGains` — neutralizing gains for the
-    /// center 50% of the frame, computed by AVF.
-    func grayWorldDeviceWBGains() async throws -> WhiteBalanceGains
-    /// Switches WB to continuous auto, awaits AWB convergence, then reads
-    /// `grayWorldDeviceWhiteBalanceGains` for the freshly-settled scene.
-    /// Used as `calibrateWB`'s iter-0 seed.
-    func freshGrayWorldDeviceWBGains() async throws -> WhiteBalanceGains
-    /// Locks WB to one of Apple's named presets, awaits AVF buffer-with-gains
-    /// confirmation, then awaits the natural pipeline catching up to that
-    /// buffer's PTS — natural texture is fresh on return.
-    func setWBPreset(_ preset: WhiteBalancePreset) async throws
-    /// Locks WB to explicit gains, awaits handler + natural-PTS catchup.
-    /// Used inside the calibrate-WB iterative loop.
-    func applyManualGainsAndAwait(_ gains: WhiteBalanceGains) async throws
-    /// Awaits `isAdjustingExposure == false` (KVO, 2 s timeout).
-    func awaitAESettled() async
+    func currentProcessingParametersSnapshot() async -> ProcessingParameters?
 }
 
 extension CameraEngine: CalibrationEngineProtocol {}
@@ -55,15 +41,22 @@ public enum WBCalibrationStatus: Sendable, Equatable {
 
 /// White-balance + black-balance calibrate / reset / lock actions.
 ///
-/// Five user-facing actions:
-///   1. `calibrateWB()`     — sample-and-compute (resolution-scaled center patch (96 px at default 4160×3120; floor of 16) on naturalTex)
-///   2. `resetToAutoWB()`   — return to AVFoundation continuous AWB
-///   3. `lockCurrentWB()`   — freeze whatever AVF currently has (`.locked` mode)
-///   4. `calibrateBB()`     — sample dark patch on naturalTex; write per-channel pedestal
-///   5. `resetBlackBalance()` — zero the BB pedestal
+/// **Phase-2 §2b move-down:** the engine now owns the calibration algorithms
+/// (`CameraEngine.calibrateWhiteBalance()` / `calibrateBlackBalance()`).
+/// This VM is a thin caller — it triggers the engine method, surfaces
+/// in-progress / completed UI feedback for WB, and resyncs the
+/// `ProcessingViewModel` mirror after BB completes (via
+/// `engine.currentProcessingParametersSnapshot()`).
 ///
-/// Holds a reference to `ProcessingViewModel` so BB writes the per-channel
-/// pedestal into the same `currentProcessing` source the sliders read from
+/// Five user-facing actions:
+///   1. `calibrateWB()`        — invoke `engine.calibrateWhiteBalance()`; status feedback
+///   2. `resetToAutoWB()`      — return to AVFoundation continuous AWB
+///   3. `lockCurrentWB()`      — freeze whatever AVF currently has (`.locked` mode)
+///   4. `calibrateBB()`        — invoke `engine.calibrateBlackBalance()`; refresh VM mirror
+///   5. `resetBlackBalance()`  — zero the BB pedestal
+///
+/// Holds a reference to `ProcessingViewModel` so the BB-result mirror sync
+/// writes into the same `currentProcessing` source the sliders read from
 /// (single owner per the MVVM-decomposition ownership rules).
 @Observable @MainActor
 final class CalibrationViewModel {
@@ -90,43 +83,17 @@ final class CalibrationViewModel {
         self.processingVM = processingVM
     }
 
-    /// Single-shot WB calibration via Apple's `grayWorldDeviceWhiteBalanceGains`.
+    /// Triggers single-shot WB calibration via the engine's `calibrateWhiteBalance()`.
     ///
-    /// Switches WB to continuous auto so AVF's hardware statistics engine
-    /// recomputes against the current scene, awaits convergence, reads the
-    /// hardware gray-world gains (Bayer-domain, pre-CCM, pre-gamma), clamps
-    /// to `[1.0, maxGain]`, locks the device to those gains. No iteration,
-    /// no patch sampling, no log-cap damping — Apple does the math; we apply
-    /// the result.
-    ///
-    /// Sets `wbCalibrationStatus` to `.calibrating` on entry and
-    /// `.completed` on success so the sidebar button can render in-progress
-    /// and confirmation feedback. The completed state auto-reverts to
-    /// `.idle` after `wbCompletedDisplayMs`.
+    /// Phase-2 §2b move-down: the algorithm now lives engine-side. The VM
+    /// becomes a thin caller that sets `wbCalibrationStatus` for in-progress /
+    /// completed feedback and updates the locally-mirrored `wbMode`.
     func calibrateWB() {
         let engine = self.engine
         Task { @MainActor in
             self.wbCalibrationStatus = .calibrating
             do {
-                let maxGain = try await engine.maxWhiteBalanceGain()
-                let raw = try await engine.freshGrayWorldDeviceWBGains()
-                let gains = WhiteBalanceGains(
-                    red: min(maxGain, max(1.0, raw.red)),
-                    green: min(maxGain, max(1.0, raw.green)),
-                    blue: min(maxGain, max(1.0, raw.blue)))
-                CameraKitLog.notice(
-                    .engine,
-                    "[wb] start max-gain=\(fmtF(maxGain)) | apple-gray-world raw=\(fmtG(raw)) clamped=\(fmtG(gains))")
-                try await engine.applyManualGainsAndAwait(gains)
-                CameraKitLog.notice(.engine, "[wb] done gains=\(fmtG(gains))")
-
-                var manual = CameraSettings()
-                manual.wbMode = .manual
-                manual.wbGainR = Double(gains.red)
-                manual.wbGainG = Double(gains.green)
-                manual.wbGainB = Double(gains.blue)
-                try await engine.updateSettings(manual)
-
+                _ = try await engine.calibrateWhiteBalance()
                 self.wbMode = .manual
                 self.wbCalibrationStatus = .completed
                 try? await Task.sleep(for: .milliseconds(wbCompletedDisplayMs))
@@ -163,23 +130,19 @@ final class CalibrationViewModel {
         }
     }
 
-    /// Black balance: sample a dark patch through the current BCSG with BB
-    /// temporarily zeroed, write per-channel pedestal into
-    /// `ProcessingParameters.blackR/G/B`.
+    /// Triggers BB calibration via the engine's `calibrateBlackBalance()`.
     ///
-    /// The pedestal is subtracted at the
-    /// *end* of the GPU color pipeline (after BCSG) per `ColorShaders.metal`.
-    /// The sampling path mirrors that order: BCSG applied (so the sample is
-    /// in the same color space the pedestal will subtract from), BB zeroed
-    /// (so the sample isn't biased by the previously-applied pedestal). See
-    /// `MetalPipeline.dispatchBBCalibrationSample` for the implementation.
+    /// Resyncs the local `ProcessingViewModel` mirror from the engine's
+    /// authoritative snapshot. Phase-2 §2b.
     func calibrateBB() {
         let engine = self.engine
         let processingVM = self.processingVM
         Task {
             do {
-                let sample = try await engine.sampleCenterPatchForBBCalibration()
-                await processingVM.applyBlackBalance(sample: sample)
+                _ = try await engine.calibrateBlackBalance()
+                if let snap = await engine.currentProcessingParametersSnapshot() {
+                    await MainActor.run { processingVM.refreshFromEngineSnapshot(snap) }
+                }
             } catch {
                 // Errors surface through errorStream → ErrorPresenterViewModel.
             }
@@ -193,21 +156,4 @@ final class CalibrationViewModel {
             await processingVM.applyBlackBalance(sample: RgbSample(r: 0, g: 0, b: 0))
         }
     }
-}
-
-// MARK: - Calibrate-WB log formatters
-//
-// File-private helpers so the per-iteration log line stays readable without
-// inline `String(format:)` clutter. All width-fixed (3 dp for sample/gains,
-// 4 dp for residuals) so columns align in Console.
-
-private func fmt3(_ d: Double) -> String { String(format: "%.3f", d) }
-private func fmtF(_ f: Float) -> String { String(format: "%.3f", Double(f)) }
-private func fmtD4(_ d: Double) -> String { String(format: "%.4f", d) }
-private func fmtD4Signed(_ d: Double) -> String { String(format: "%+.4f", d) }
-private func fmtS(_ s: RgbSample) -> String {
-    "(\(fmt3(s.r)), \(fmt3(s.g)), \(fmt3(s.b)))"
-}
-private func fmtG(_ g: WhiteBalanceGains) -> String {
-    "(\(fmt3(Double(g.red))), \(fmt3(Double(g.green))), \(fmt3(Double(g.blue))))"
 }

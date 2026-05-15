@@ -37,6 +37,11 @@ final class CameraSession: @unchecked Sendable {
         case cameraInUseEnded
         case runtimeError(String)
         case otherInterruption(reasonRawValue: Int)
+        /// Counterpart to `.otherInterruption` — fired by AVF's
+        /// `interruptionEndedNotification` for any non-cameraInUse reason.
+        /// Phase-2 §2d.5: lets the engine revert from `.interrupted` to
+        /// `.streaming` without conflating with the cameraInUse self-heal path.
+        case otherInterruptionEnded
     }
 
     // Set by CameraEngine at open(). Routes interruption/runtime-error events up.
@@ -345,6 +350,8 @@ final class CameraSession: @unchecked Sendable {
         let reason = AVCaptureSession.InterruptionReason(rawValue: rawReason)
         if reason == .videoDeviceInUseByAnotherClient {
             onSessionEvent?(ended ? .cameraInUseEnded : .cameraInUseBegan)
+        } else if ended {
+            onSessionEvent?(.otherInterruptionEnded)
         } else {
             onSessionEvent?(.otherInterruption(reasonRawValue: rawReason))
         }

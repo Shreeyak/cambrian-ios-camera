@@ -6,7 +6,6 @@ import Testing
 @testable import CameraKit
 @testable import eva_swift_stitch
 
-
 @Suite("Stage 11 — control enablement matrix", .progressLogged)
 struct Stage11ControlEnablementTests {
 
@@ -157,44 +156,67 @@ struct Stage11SliderDebouncerTests {
 
 // MARK: - Stage 11 — Calibration view model
 
+/// Test stub for the **Phase-2 shrunk** `CalibrationEngineProtocol` (§2b).
+///
+/// Records what the VM asks the engine for. Calibrate calls return canned
+/// `CalibrationResult`s; `currentProcessingParametersSnapshot()` returns
+/// whatever the test pre-set via `setProcessingSnapshot(_:)`.
 actor CalibrationEngineStub: CalibrationEngineProtocol {
-    let sample: RgbSample
-    let bbSample: RgbSample
-    var currentGains: WhiteBalanceGains
-    let stubMaxGain: Float
+    let canonicalSample: RgbSample
     var recordedDeltas: [CameraSettings] = []
-    var appliedGainsLog: [WhiteBalanceGains] = []
+    var calibrateWBCount: Int = 0
+    var calibrateBBCount: Int = 0
+    private var processingSnapshot: ProcessingParameters?
 
     init(
         sample: RgbSample,
-        bbSample: RgbSample? = nil,
-        currentGains: WhiteBalanceGains = WhiteBalanceGains(red: 1.0, green: 1.0, blue: 1.0),
-        maxGain: Float = 4.0
+        processingSnapshot: ProcessingParameters? = nil
     ) {
-        self.sample = sample
-        // Default: BB sample == WB sample. Tests that need divergent values
-        // pass an explicit `bbSample`.
-        self.bbSample = bbSample ?? sample
-        self.currentGains = currentGains
-        self.stubMaxGain = maxGain
+        self.canonicalSample = sample
+        self.processingSnapshot = processingSnapshot
     }
 
-    func sampleCenterPatchOnNatural() async throws -> RgbSample { sample }
-    func sampleCenterPatchForBBCalibration() async throws -> RgbSample { bbSample }
+    func setProcessingSnapshot(_ snap: ProcessingParameters?) {
+        processingSnapshot = snap
+    }
+
+    // MARK: - CalibrationEngineProtocol
+
+    func calibrateWhiteBalance() async throws -> CalibrationResult {
+        calibrateWBCount += 1
+        // Record the .manual delta as the engine would after a real apply.
+        var delta = CameraSettings()
+        delta.wbMode = .manual
+        delta.wbGainR = 1.0
+        delta.wbGainG = 1.0
+        delta.wbGainB = 1.0
+        recordedDeltas.append(delta)
+        return CalibrationResult(
+            before: canonicalSample, after: canonicalSample,
+            converged: true, iterations: 1)
+    }
+
+    func calibrateBlackBalance() async throws -> CalibrationResult {
+        calibrateBBCount += 1
+        // Mimic the engine writing the pedestal via setProcessingParams.
+        let offsets = CalibrationCompute.blackBalanceOffsets(sample: canonicalSample)
+        var snap = processingSnapshot ?? .identity
+        snap.blackR = offsets.r
+        snap.blackG = offsets.g
+        snap.blackB = offsets.b
+        processingSnapshot = snap
+        return CalibrationResult(
+            before: canonicalSample, after: canonicalSample,
+            converged: true, iterations: 1)
+    }
+
     func updateSettings(_ settings: CameraSettings) async throws {
         recordedDeltas.append(settings)
     }
-    func currentDeviceWBGains() async throws -> WhiteBalanceGains { currentGains }
-    func maxWhiteBalanceGain() async throws -> Float { stubMaxGain }
-    func awaitWBSettled() async { /* no-op for tests */ }
-    func grayWorldDeviceWBGains() async throws -> WhiteBalanceGains { currentGains }
-    func freshGrayWorldDeviceWBGains() async throws -> WhiteBalanceGains { currentGains }
-    func setWBPreset(_ preset: WhiteBalancePreset) async throws { /* no-op for tests */ }
-    func applyManualGainsAndAwait(_ gains: WhiteBalanceGains) async throws {
-        currentGains = gains
-        appliedGainsLog.append(gains)
+
+    func currentProcessingParametersSnapshot() async -> ProcessingParameters? {
+        processingSnapshot
     }
-    func awaitAESettled() async { /* no-op for tests */ }
 }
 
 @Suite("Stage 11 — calibration view model", .progressLogged)
@@ -213,33 +235,23 @@ struct Stage11CalibrationVMTests {
         return deltas
     }
 
-    @Test("calibrateWB applies Apple gray-world (single-shot) and writes one .manual delta")
+    @Test("calibrateWB invokes engine.calibrateWhiteBalance and records a .manual delta")
     @MainActor
-    func wbCalibrateAppliesAppleGrayWorld() async {
-        // Stub returns currentGains (default unity) from grayWorldDeviceWBGains.
-        // calibrateWB clamps to [1, maxGain] and applies once.
+    func wbCalibrateInvokesEngineAndWritesManualDelta() async {
+        // Phase-2 §2b: VM is a thin caller. The stub's calibrateWhiteBalance()
+        // appends a `.manual` delta as a real engine apply would. The VM
+        // doesn't drive the algorithm itself any more.
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
         let processingVM = ProcessingViewModel(engine: CameraEngine())
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
 
         vm.calibrateWB()
         let deltas = await awaitDeltas(stub, count: 1)
+        let calibrateCount = await stub.calibrateWBCount
 
-        #expect(deltas.count == 1, "expected single .manual write")
+        #expect(calibrateCount == 1, "engine.calibrateWhiteBalance should be called once; got \(calibrateCount)")
+        #expect(deltas.count == 1, "expected one .manual delta from the engine apply")
         #expect(deltas.last?.wbMode == .manual)
-
-        // Single-shot: exactly one apply (no iteration).
-        let applies = await stub.appliedGainsLog.count
-        #expect(applies == 1, "expected single apply (single-shot); got \(applies)")
-
-        // Final delta gains equal Apple's gray-world reading clamped — for the
-        // unity-default stub, that's unity, all in [1, 4].
-        let r = deltas.last?.wbGainR ?? 0
-        let g = deltas.last?.wbGainG ?? 0
-        let b = deltas.last?.wbGainB ?? 0
-        #expect((1.0...4.0).contains(r))
-        #expect((1.0...4.0).contains(g))
-        #expect((1.0...4.0).contains(b))
     }
 
     @Test("calibrateWB sets wbCalibrationStatus to .completed after success")
@@ -255,7 +267,8 @@ struct Stage11CalibrationVMTests {
         // The status should be .completed (or already auto-reverted to .idle
         // if the test hung on scheduling — accept either).
         let status = vm.wbCalibrationStatus
-        #expect(status == .completed || status == .idle,
+        #expect(
+            status == .completed || status == .idle,
             "expected .completed or .idle (auto-reverted); got \(status)")
     }
 
@@ -287,9 +300,13 @@ struct Stage11CalibrationVMTests {
         #expect(deltas.last?.wbGainR == nil)
     }
 
-    @Test("calibrateBB writes per-channel BB pedestal from natural-lane sample")
+    @Test("calibrateBB invokes engine.calibrateBlackBalance and refreshes the VM mirror")
     @MainActor
     func bbCalibrateUpdatesProcessingParams() async {
+        // Phase-2 §2b: engine owns the algorithm. The stub mirrors the
+        // engine's apply (CalibrationCompute.blackBalanceOffsets → snapshot);
+        // the VM resyncs `processingVM.currentProcessing` via
+        // `currentProcessingParametersSnapshot()`.
         let sample = RgbSample(r: 0.02, g: 0.03, b: 0.05)
         let stub = CalibrationEngineStub(sample: sample)
         let processingVM = ProcessingViewModel(engine: CameraEngine())
@@ -305,6 +322,8 @@ struct Stage11CalibrationVMTests {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
+        let calibrateCount = await stub.calibrateBBCount
+        #expect(calibrateCount == 1, "engine.calibrateBlackBalance should be called once")
         #expect(abs(processingVM.currentProcessing.blackR - 0.02 * k) < 1e-9)
         #expect(abs(processingVM.currentProcessing.blackG - 0.03 * k) < 1e-9)
         #expect(abs(processingVM.currentProcessing.blackB - 0.05 * k) < 1e-9)
