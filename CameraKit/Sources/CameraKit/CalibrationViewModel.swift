@@ -1,5 +1,13 @@
 import Foundation
 
+/// How long the Calibrate-WB button shows the "Calibrated ✓" confirmation
+/// before the sidebar button reverts to its idle label.
+///
+/// UI display timing — kept here so `Constants` (a package-internal grab-bag)
+/// does not need to become public for this one UI value. Phase 1A migration:
+/// moved from `Constants.wbCompletedDisplayMs`.
+private let wbCompletedDisplayMs: Int = 1500
+
 /// Engine surface used by `CalibrationViewModel`.
 ///
 /// Test-injection seam: production wires `CameraEngine` directly via the
@@ -120,7 +128,7 @@ final class CalibrationViewModel {
 
                 self.wbMode = .manual
                 self.wbCalibrationStatus = .completed
-                try? await Task.sleep(for: .milliseconds(Constants.wbCompletedDisplayMs))
+                try? await Task.sleep(for: .milliseconds(wbCompletedDisplayMs))
                 if self.wbCalibrationStatus == .completed {
                     self.wbCalibrationStatus = .idle
                 }

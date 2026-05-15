@@ -36,9 +36,6 @@ enum Constants {
     /// for unit-test stability. `calibrateWB` itself no longer iterates —
     /// the helper is kept as a pure utility but isn't in the live path.
     static let wbGrayWorldLogCap: Float = 0.25
-    /// How long the Calibrate-WB button shows the "Calibrated ✓" confirmation
-    /// before the sidebar button reverts to its idle label.
-    static let wbCompletedDisplayMs: Int = 1500
     /// Per-frame wall-clock budget at 30fps (constants.md line 15).
     static let frameLatencyBudgetMs: Int = 33
     /// IOSurface-backed working-texture pixel format — pairs with .rgba16Float MTLTexture views.
