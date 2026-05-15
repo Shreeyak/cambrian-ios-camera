@@ -59,6 +59,10 @@ public enum EngineError: Error, Sendable {
     ///
     /// See `PhotosLibraryClient.resolve` for the valid-locations list.
     case invalidOutputPath(URL)
+    /// A `calibrate*()` call is in flight; conflicting mutating ops
+    /// (`updateSettings(...)` touching white balance, `setResolution(...)`)
+    /// must not race with it. Phase-2 design §2b concurrency contract.
+    case calibrationInProgress
 }
 
 public enum MetalError: Error, Sendable, Equatable {

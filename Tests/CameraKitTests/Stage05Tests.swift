@@ -49,7 +49,7 @@ struct Stage05Tests {
 
     // MARK: - Test 2 — 05:processing-metadata-snapshot-matches-lock
 
-    /// `setProcessingParameters(brightness: 0.3)` followed by an immediate snapshot;
+    /// `setProcessingParams(brightness: 0.3)` followed by an immediate snapshot;
     /// the snapshot's brightness equals 0.3 — no partially-written storage.
     @Test func processingMetadataSnapshotMatchesLock() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())

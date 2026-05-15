@@ -215,6 +215,10 @@ final class FakeCaptureDeviceProviding: CaptureDeviceProviding, @unchecked Senda
     var isoRange: ClosedRange<Float> { 30...3200 }
     var exposureDurationRangeNs: ClosedRange<Int64> { 1_000_000...33_333_333 }
     var maxWhiteBalanceGain: Float { 4.0 }
+    var minAvailableVideoZoomFactor: Double { 1.0 }
+    var maxAvailableVideoZoomFactor: Double { 8.0 }
+    var minExposureTargetBias: Float { -3.0 }
+    var maxExposureTargetBias: Float { 3.0 }
     var lensAperture: Float { 0 }
     var lastSnapshot: DeviceStateSnapshot? { stubbedSnapshot }
 
