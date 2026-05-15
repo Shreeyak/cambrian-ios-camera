@@ -1,3 +1,65 @@
+# state.md — `captureNaturalPicture` (2026-05-15)
+
+Pre-Phase-3 additive feature outside brief discipline. Spec:
+`docs/superpowers/specs/2026-05-15-capture-natural-picture-design.md`.
+Plan: `docs/superpowers/plans/2026-05-15-capture-natural-picture.md`.
+Rationale: `DECISIONS.md` D-2P-10.
+
+## What's built — `captureNaturalPicture` (permanent)
+
+- **`CameraEngine.captureNaturalPicture(outputURL:photosDestination:)`** —
+  one new public async-throws method on the engine actor. Mirrors
+  `captureImage` parameter shape and error contract. Reads the latest
+  natural-lane buffer from `MetalPipeline.latestNaturalBuffer`
+  (`Mailbox<CVPixelBuffer>`, Pass-1 RGBA16F, IOSurface-backed),
+  JPEG-encodes via the shared `StillCapture.encode` path, optionally
+  publishes to Photos. No `AVCapturePhotoOutput`, no new
+  `AVCaptureOutput` on the session, no new `MetalPipeline` pass,
+  no new `CaptureAtomic` integration.
+- **Encode helper widened** in `StillCapture.swift` — promoted internal
+  test seam `encodeToTIFF(readbackBuffer:...)` to production helper
+  `encode(buffer:..., format: UTType, laneTag: String?)`. Private
+  `writeTIFF` renamed to `writeImage(format:)`. `captureImage(pipeline:)`
+  re-threaded to delegate after Pass-6 readback. JPEG / TIFF chosen
+  via `format` parameter; `"lane"` marker plumbed through `laneTag`
+  into the `CamPlugin/v1` EXIF envelope.
+- **`StillCaptureError.bufferUnavailable`** — additive error case for
+  "engine open but no natural-lane frame delivered yet." Distinct from
+  `metalReadbackFailed` (which covers GPU-readback failures on the
+  processed lane).
+
+## Scaffolding still live
+
+None added; none retired.
+
+## Public API exposed — `captureNaturalPicture` additions
+
+- `CameraEngine.captureNaturalPicture(outputURL:photosDestination:) async throws -> StillCaptureOutput`
+- `StillCaptureError.bufferUnavailable`
+
+## Manual test evidence — `captureNaturalPicture`
+
+- New suite `CaptureNaturalPictureTests` (5 tests) — pass on device
+  (iPad Pro 11" 2nd-gen, iPad8,9).
+- Stage07Tests (5 tests, regression check after the encode-helper
+  refactor) — pass on device.
+- **HITL on iPad — pending.** User-driven: capture both `captureImage`
+  and `captureNaturalPicture` of the same scene, save to Photos,
+  visually confirm the natural output is unprocessed (no CameraKit
+  color transform) and the processed output is transformed; EXIF
+  carries `"lane": "natural"` vs `"lane": "processed"` inside
+  `CamPlugin/v1`. Evidence under
+  `measurements/capture-natural-picture/2026-05-15/`.
+
+## Decisions taken — `captureNaturalPicture`
+
+- D-2P-10 (already logged 2026-05-15) — natural lane uses the existing
+  Pass-1 buffer tap; no `AVCapturePhotoOutput`.
+- Plan §Open Questions 1–5 — resolved inline in
+  `docs/superpowers/plans/2026-05-15-capture-natural-picture.md`.
+
+---
+
 # state.md — Post-Stage-12 hardening (2026-05-15)
 
 Standalone hardening effort outside brief discipline. Spec:
