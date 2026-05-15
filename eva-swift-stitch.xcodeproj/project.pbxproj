@@ -108,6 +108,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0180F31D54B458CEB93EF6B1 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = UI;
+			path = UI;
+			sourceTree = "<group>";
+		};
 		06A512ED5FC2EDE614E14D0D /* CameraKitTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -157,6 +165,7 @@
 				14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */,
 				14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */,
 				14E07E1F2F8E513F00E9F7FC /* Preview Content */,
+				0180F31D54B458CEB93EF6B1 /* UI */,
 			);
 			path = "eva-swift-stitch";
 			sourceTree = "<group>";
