@@ -1,6 +1,6 @@
 # CameraKit → Flutter Migration — Design (Phases 1–2)
 
-**Status:** Approved 2026-05-14 · amended 2026-05-14 (Phase 1 split into 1A/1B — OpenCV consumer decoupling) · amended 2026-05-15 (advisor critique — flaws #1/#2/#3 resolved) · amended 2026-05-15 (open() initial-settings conformance + Phase 3 texture-bridge handoff; §2d.8 calibration host methods; WB iterative Dart port deferred to a future-work plan)
+**Status:** Approved 2026-05-14 · amended 2026-05-14 (Phase 1 split into 1A/1B — OpenCV consumer decoupling) · amended 2026-05-15 (advisor critique — flaws #1/#2/#3 resolved) · amended 2026-05-15 (open() initial-settings conformance + Phase 3 texture-bridge handoff; §2d.8 calibration host methods; WB iterative Dart port deferred to a future-work plan) · amended 2026-05-15 (§2d.8 calibration: Option C — iOS-only Pigeon host methods, no Android Dart→Kotlin move-down)
 **Date:** 2026-05-14
 **Scope:** Phases 1–2 only (all work stays inside `eva-swift-stitch`). Phase 3 is a separate spec→plan cycle.
 
@@ -464,13 +464,29 @@ no contract surface.
    calibrateBlackBalance(int handle)`, with a new `CamCalibrationResult { CamRgbSample
    before; CamRgbSample after; bool converged; int iterations; }` (modelled on Android's
    existing `WbCalibrationResult` / `BbCalibrationResult` shapes). `sampleCenterPatch` stays
-   as the low-level primitive for callers who want their own loop. **Cross-platform
-   consequence:** Android's calibration loop today lives in Dart
+   as the low-level primitive for callers who want their own loop.
+
+   **Amendment (2026-05-15) — Option C: iOS-only Pigeon host methods; Android keeps Dart
+   loop unchanged.** The original framing said Phase 3 moves Android's Dart loop down
+   into `CameraController.kt` "so the host method owns the orchestration on both
+   platforms." That cross-platform-symmetry framing was a preference, not a forcing
+   function. Pigeon supports per-platform `@HostApi` method availability; the iOS plugin
+   declares and implements `calibrateWhiteBalance` / `calibrateBlackBalance` as host
+   methods routing to the Phase-2 engine methods (`engine.calibrateWhiteBalance()` /
+   `calibrateBlackBalance()`); the Android plugin does **not** declare the methods, and
+   the existing Android Dart caller in `cambrian_camera_controller.dart` continues to
+   own the calibration loop unchanged. Phase 3 does not touch Android calibration code.
+   The two engines remain non-bit-identical (Android: processed-lane sampling +
+   green-pivot math in Dart; iOS: natural-lane sampling + `grayWorldGains` engine-side)
+   — that divergence is now permanent, not transitional. `CameraKit/DECISIONS.md` entry
+   `D-2P-08` records this amendment.
+
+   ~~**Cross-platform consequence:** Android's calibration loop today lives in Dart
    (`cambrian_camera_controller.dart`); Phase 3 moves it down into `CameraController.kt` so
    the host method owns the orchestration on both platforms. The two engines will *not* be
    bit-identical (Android: processed-lane sampling + green-pivot math; iOS: natural-lane
    sampling + `grayWorldGains`) — the contract method is mechanism-agnostic; a
-   `CameraKit/DECISIONS.md` entry records the divergence.
+   `CameraKit/DECISIONS.md` entry records the divergence.~~ (Superseded by amendment above.)
 
 ### 2e. "Cleanly extractable" — Phase 2 exit criteria
 
