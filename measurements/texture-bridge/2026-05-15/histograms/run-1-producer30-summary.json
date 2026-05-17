@@ -1,0 +1,37 @@
+{
+  "run_dir": "measurements/texture-bridge/2026-05-15/raw/run-1-producer30",
+  "n_seconds": 60,
+  "n_pulls": 1799,
+  "avg_produced_per_sec": 30.02,
+  "avg_signal_per_sec": 30.0,
+  "avg_pull_per_sec": 29.98,
+  "avg_widget_per_sec": 0.82,
+  "histogram": {
+    "same": 0,
+    "+1": 1797,
+    "skip_total": 1,
+    "skip_max_jump": 2,
+    "all_buckets": {
+      "+1": 1797,
+      "+2": 1
+    }
+  },
+  "ratios": {
+    "produced:signal": 0.9994,
+    "signal:pull": 0.9994,
+    "pull:widget": 36.7143
+  },
+  "latency_ns": {
+    "p50": 5625541.0,
+    "p95": 9019970.5,
+    "p99": 9512940.5,
+    "max": 30603583
+  },
+  "latency_ms": {
+    "p50": 5.626,
+    "p95": 9.02,
+    "p99": 9.513,
+    "max": 30.604
+  },
+  "heuristic_notes": []
+}

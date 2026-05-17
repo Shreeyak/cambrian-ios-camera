@@ -24,3 +24,6 @@ buildServer.json
 
 # Upstream symlinks (machine-specific; recreated per-checkout)
 # implementation/
+
+# Throwaway experiment trees (live until results recorded under measurements/)
+experiments/
