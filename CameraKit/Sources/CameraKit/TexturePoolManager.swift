@@ -163,6 +163,77 @@ final class TexturePoolManager: @unchecked Sendable {
         return pool
     }
 
+    /// Creates a `CVPixelBufferPool` that vends IOSurface-backed, Metal-compatible
+    /// **BGRA8** `CVPixelBuffer`s for the pre-Phase-3 RGBA8 conversion path.
+    ///
+    /// Parallel to `makeWorkingFormatPool` but emits
+    /// `kCVPixelFormatType_32BGRA` instead of `_64RGBAHalf`. Same pool
+    /// attributes (`POOL_MIN_BUFFER_COUNT`, `POOL_MAX_BUFFER_AGE_SECONDS`,
+    /// IOSurface + Metal compatibility). Used only when
+    /// `OpenConfiguration.lanesEightBit == true`.
+    func makeBgra8LanePool(size: Size) throws -> CVPixelBufferPool {
+        let poolAttrs: [CFString: Any] = [
+            kCVPixelBufferPoolMinimumBufferCountKey: Constants.poolMinBufferCount,
+            kCVPixelBufferPoolMaximumBufferAgeKey: Constants.poolMaxBufferAgeSeconds,
+        ]
+        let bufferAttrs: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: Constants.eightBitLanePixelFormat,
+            kCVPixelBufferWidthKey: size.width,
+            kCVPixelBufferHeightKey: size.height,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferMetalCompatibilityKey: true,
+        ]
+        var pool: CVPixelBufferPool?
+        let status = CVPixelBufferPoolCreate(
+            kCFAllocatorDefault,
+            poolAttrs as CFDictionary,
+            bufferAttrs as CFDictionary,
+            &pool
+        )
+        guard status == kCVReturnSuccess, let pool else {
+            throw MetalError.unsupportedFormat
+        }
+        return pool
+    }
+
+    /// Dequeues a BGRA8 buffer and wraps it as a writeable
+    /// `MTLPixelFormat.bgra8Unorm` texture through the shared
+    /// `CVMetalTextureCache`.
+    ///
+    /// Parallel to `dequeuePoolTexture` but pairs the 8-bit pool with a
+    /// `.bgra8Unorm` texture view. Pass-7 kernel writes through this view.
+    /// Zero-copy; the caller retains `buffer` until the GPU completion
+    /// handler fires (Apple CoreVideo contract).
+    func dequeueEightBitPoolTexture(
+        pool: CVPixelBufferPool,
+        width: Int,
+        height: Int
+    ) throws -> (buffer: CVPixelBuffer, texture: MTLTexture) {
+        var buf: CVPixelBuffer?
+        let s = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buf)
+        guard s == kCVReturnSuccess, let buffer = buf else {
+            throw MetalError.unsupportedFormat
+        }
+        var cvTexOut: CVMetalTexture?
+        let wrap = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault,
+            textureCache!,
+            buffer,
+            nil,
+            Constants.eightBitLaneMetalFormat,
+            width,
+            height,
+            0,
+            &cvTexOut
+        )
+        guard wrap == kCVReturnSuccess, let cvTex = cvTexOut,
+            let mtlTex = CVMetalTextureGetTexture(cvTex)
+        else {
+            throw MetalError.textureWrapFailed(code: wrap)
+        }
+        return (buffer, mtlTex)
+    }
+
     /// Creates a 1-slot CPU-readable pool for still capture readback.
     ///
     /// Buffers are IOSurface-backed (Metal-writable via Pass 6 blit) and CPU-readable
