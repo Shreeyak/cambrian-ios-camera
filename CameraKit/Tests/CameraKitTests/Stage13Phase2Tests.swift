@@ -35,29 +35,44 @@ struct Stage13Phase2StreamConfigurationStreamTests {
     }
 }
 
-// MARK: - §2d.7 — Lane pixel-format regression
+// MARK: - §2d.7 — Lane pixel-format regression (pre-Phase-3 RGBA8 split)
 
 @Suite("Stage 13 Phase 2 — Lane pixel format")
 struct Stage13Phase2PixelFormatTests {
 
-    /// Phase-3's zero-copy `FlutterTexture` bridge wraps the lane CVPixelBuffer.
-    ///
-    /// CameraKit emits lane buffers as `kCVPixelFormatType_64RGBAHalf`
-    /// (RGBA16F) — IOSurface-backed and Metal-cache compatible (CameraKit
-    /// itself uses the same cache —
-    /// `TexturePoolManager.makeIOSurfaceBackedRGBA16F`). Asserting the
-    /// reported `streamPixelFormat` here so a future change away from RGBA16F
-    /// without updating the format string fails this regression rather than
-    /// silently breaking Phase-3's bridge.
-    @Test("SessionCapabilities reports RGBA16F lane format (Phase-3 zero-copy invariant)")
-    func laneFormatIsRGBA16F() {
+    /// Phase-3's zero-copy `FlutterTexture` bridge wraps the lane
+    /// `CVPixelBuffer`. As of pre-Phase-3 RGBA8 conversion, the default-on
+    /// path emits BGRA8 (`kCVPixelFormatType_32BGRA`) on
+    /// `currentPixelBuffer(stream:)`; the flag-off path keeps RGBA16F. Both
+    /// string values are pinned here so a future format change without
+    /// updating the constant fails this regression rather than silently
+    /// breaking Phase-3.
+    @Test("SessionCapabilities reports BGRA8 lane format under default-on flag")
+    func defaultLaneFormatIsBgra8() {
         let cap = SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
             previewTextureId: 0,
             naturalTextureId: 0,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
-            streamPixelFormat: "RGBA16F",
+            streamPixelFormat: Constants.streamPixelFormatStringEightBit,
+            isoRange: 25...3200,
+            exposureDurationRangeNs: 1_000_000...100_000_000,
+            focusRange: 0.0...1.0,
+            zoomRange: 1.0...1.0,
+            evCompensationRange: -3.0...3.0)
+        #expect(cap.streamPixelFormat == "BGRA8")
+    }
+
+    @Test("SessionCapabilities reports RGBA16F when opted out (lanesEightBit=false)")
+    func optOutLaneFormatIsRgba16f() {
+        let cap = SessionCapabilities(
+            supportedSizes: [Size(width: 1920, height: 1080)],
+            previewTextureId: 0,
+            naturalTextureId: 0,
+            activeCaptureResolution: Size(width: 1920, height: 1080),
+            activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
+            streamPixelFormat: Constants.streamPixelFormatStringSixteenBit,
             isoRange: 25...3200,
             exposureDurationRangeNs: 1_000_000...100_000_000,
             focusRange: 0.0...1.0,

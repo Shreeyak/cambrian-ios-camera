@@ -75,6 +75,20 @@ final class MetalPipeline: @unchecked Sendable {
     private let processedPool: CVPixelBufferPool
     private let trackerPool: CVPixelBufferPool
 
+    // Pre-Phase-3 — RGBA8 lane conversion (default-on session flag).
+    //
+    // When `lanesEightBit` is true, Pass-7 dispatches per-frame for natural +
+    // processed (NOT tracker) and writes into these IOSurface-backed BGRA8
+    // pools. The buffer mailboxes (`_latestNaturalBuffer` /
+    // `_latestProcessedBuffer`) point at the converted buffer, so
+    // `CameraEngine.currentPixelBuffer(stream:)` returns BGRA8 for the
+    // Phase-3 bridge. See
+    // `docs/superpowers/specs/2026-05-15-rgba16f-to-rgba8-conversion-design.md`.
+    private let lanesEightBit: Bool
+    private let eightBitNaturalPool: CVPixelBufferPool?
+    private let eightBitProcessedPool: CVPixelBufferPool?
+    private let rgba16fToBgra8PSO: MTLComputePipelineState?
+
     private(set) var captureSize: Size
     private let trackerSize: Size
 
@@ -109,6 +123,16 @@ final class MetalPipeline: @unchecked Sendable {
     var latestNaturalBuffer: CVPixelBuffer? { _latestNaturalBuffer.latest }
     var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
     var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
+
+    // Pre-Phase-3 — parallel RGBA16F mailbox for the natural-lane buffer,
+    // populated unconditionally (independent of `lanesEightBit`). Read by
+    // `CameraEngine.captureNaturalPicture` so HDR-grade still capture
+    // continues to source the precise RGBA16F lane buffer even when the
+    // bridge-facing `currentPixelBuffer(stream: .natural)` is BGRA8.
+    // Single writer on the AVF delivery queue; same `Mailbox<T>` contract
+    // as the other lane mailboxes.
+    private let _latestNaturalBufferRGBA16F = Mailbox<CVPixelBuffer>()
+    var latestNaturalBufferRGBA16F: CVPixelBuffer? { _latestNaturalBufferRGBA16F.latest }
 
     /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex`.
     ///
@@ -216,7 +240,8 @@ final class MetalPipeline: @unchecked Sendable {
         captureSize: Size,
         gate: ManagedAtomic<Bool>,
         consumers: ConsumerRegistry,
-        engineSessionToken: ManagedAtomic<UInt64>
+        engineSessionToken: ManagedAtomic<UInt64>,
+        lanesEightBit: Bool
     ) throws {
         submissionGate = gate
         self.engineSessionToken = engineSessionToken
@@ -301,6 +326,23 @@ final class MetalPipeline: @unchecked Sendable {
         naturalPool = try texturePool.makeWorkingFormatPool(size: captureSize)
         processedPool = try texturePool.makeWorkingFormatPool(size: captureSize)
         trackerPool = try texturePool.makeWorkingFormatPool(size: trackerSize)
+
+        // 6b. Pre-Phase-3 — RGBA8 conversion flag stored; pools + PSO lazy when on.
+        //     Tracker lane is intentionally not converted (Plan OQ #4) — no Phase-3
+        //     Pigeon counterpart for the tracker lane; saves one Metal pass/frame.
+        self.lanesEightBit = lanesEightBit
+        if lanesEightBit {
+            self.eightBitNaturalPool = try texturePool.makeBgra8LanePool(size: captureSize)
+            self.eightBitProcessedPool = try texturePool.makeBgra8LanePool(size: captureSize)
+            guard let fnConvert = library.makeFunction(name: "rgba16fToBgra8") else {
+                throw MetalError.pipelineStateCompilation("rgba16fToBgra8 missing")
+            }
+            self.rgba16fToBgra8PSO = try device.makeComputePipelineState(function: fnConvert)
+        } else {
+            self.eightBitNaturalPool = nil
+            self.eightBitProcessedPool = nil
+            self.rgba16fToBgra8PSO = nil
+        }
 
         // 8. Still-capture pool — 1-slot, CPU-readable, RGBA16F (Stage 07).
         let sPool = try texturePool.makeStillCapturePool(size: captureSize)
@@ -489,6 +531,45 @@ final class MetalPipeline: @unchecked Sendable {
             }
         }
 
+        // Pass 7 (pre-Phase-3): RGBA16F → BGRA8 conversion for the lane-buffer
+        // mailboxes when `lanesEightBit` is on. Tracker is not converted
+        // (Plan §OQ #4). Runs unconditionally when on — not subscriber-gated
+        // in v1, so HITL measures the real cost (Plan §OQ #2). Pass-7 reads
+        // the RGBA16F lane texture and writes into a fresh BGRA8 pool buffer's
+        // .bgra8Unorm view; the buffer mailbox below points at the new buffer.
+        var naturalEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
+        var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
+        if lanesEightBit,
+            let convertPSO = rgba16fToBgra8PSO,
+            let natPool = eightBitNaturalPool,
+            let procPool = eightBitProcessedPool
+        {
+            if let pair = try? texturePool.dequeueEightBitPoolTexture(
+                pool: natPool, width: captureSize.width, height: captureSize.height
+            ) {
+                let pass7n = commandBuffer.makeComputeCommandEncoder()!
+                pass7n.setComputePipelineState(convertPSO)
+                pass7n.setTexture(naturalTexI, index: 0)
+                pass7n.setTexture(pair.texture, index: 1)
+                pass7n.dispatchThreadgroups(
+                    threadGroups, threadsPerThreadgroup: threadGroupSize)
+                pass7n.endEncoding()
+                naturalEightBitPair = pair
+            }
+            if let pair = try? texturePool.dequeueEightBitPoolTexture(
+                pool: procPool, width: captureSize.width, height: captureSize.height
+            ) {
+                let pass7p = commandBuffer.makeComputeCommandEncoder()!
+                pass7p.setComputePipelineState(convertPSO)
+                pass7p.setTexture(processedTexI, index: 0)
+                pass7p.setTexture(pair.texture, index: 1)
+                pass7p.dispatchThreadgroups(
+                    threadGroups, threadsPerThreadgroup: threadGroupSize)
+                pass7p.endEncoding()
+                processedEightBitPair = pair
+            }
+        }
+
         // 9. Gate check (ADR-09, D-06). Strict policy: every .inactive gates.
         guard submissionGate.load(ordering: .acquiring) else { return }
 
@@ -507,6 +588,9 @@ final class MetalPipeline: @unchecked Sendable {
         let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
         // Stage 10: extract NV12 buffer for delivery in completion handler.
         let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
+        // Pre-Phase-3 — capture converted buffers for mailbox store in handler.
+        let naturalEightBitBuf: CVPixelBuffer? = naturalEightBitPair?.buffer
+        let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
         // advanced (close() / recovery ran) — prevents use-after-free on readback
@@ -563,7 +647,13 @@ final class MetalPipeline: @unchecked Sendable {
                 consumers.yield(fs, stream: .tracker)
             }
             // Update preview mailboxes for MTKView draw pass.
-            self._latestNaturalBuffer.store(naturalBuf)
+            // Pre-Phase-3 — buffer mailbox stores converted BGRA8 buffer when
+            // flag is on; texture mailbox always stores RGBA16F. The parallel
+            // `_latestNaturalBufferRGBA16F` mailbox always stores the
+            // RGBA16F pool buffer so `captureNaturalPicture` keeps HDR-grade
+            // precision regardless of the flag.
+            self._latestNaturalBuffer.store(naturalEightBitBuf ?? naturalBuf)
+            self._latestNaturalBufferRGBA16F.store(naturalBuf)
             self._latestNaturalTex.store(naturalTexI)
             // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` can
             // confirm naturalTex has been refreshed past a given timestamp. CAS
@@ -578,7 +668,7 @@ final class MetalPipeline: @unchecked Sendable {
                 if ok { break }
                 cur = actual
             }
-            self._latestProcessedBuffer.store(processedBuf)
+            self._latestProcessedBuffer.store(processedEightBitBuf ?? processedBuf)
             self._latestProcessedTex.store(processedTexI)
             if let tBuf = trackerBuf, let tTex = trackerTex {
                 self._latestTrackerBuffer.store(tBuf)
@@ -851,32 +941,44 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// Convenience init that creates its own gate and an empty ConsumerRegistry.
     ///
-    /// Used by Stage02Tests to build a standalone pipeline without needing to import Atomics.
-    convenience init(device: MTLDevice, captureSize: Size, gateOpen: Bool = true) throws {
+    /// Used by Stage02Tests to build a standalone pipeline without needing to
+    /// import Atomics. `lanesEightBit` defaults to `false` so existing
+    /// pool-count assertions stay valid.
+    convenience init(
+        device: MTLDevice,
+        captureSize: Size,
+        gateOpen: Bool = true,
+        lanesEightBit: Bool = false
+    ) throws {
         try self.init(
             device: device,
             captureSize: captureSize,
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: ConsumerRegistry(),
-            engineSessionToken: ManagedAtomic<UInt64>(0)
+            engineSessionToken: ManagedAtomic<UInt64>(0),
+            lanesEightBit: lanesEightBit
         )
     }
 
     /// Convenience init that accepts an explicit ConsumerRegistry but hides ManagedAtomic.
     ///
-    /// Used by Stage06Tests so tests can inject a specific registry without importing Atomics.
+    /// Used by Stage06Tests so tests can inject a specific registry without
+    /// importing Atomics. `lanesEightBit` defaults to `false` so existing
+    /// pool-count assertions stay valid.
     convenience init(
         device: MTLDevice,
         captureSize: Size,
         gateOpen: Bool = true,
-        consumers: ConsumerRegistry
+        consumers: ConsumerRegistry,
+        lanesEightBit: Bool = false
     ) throws {
         try self.init(
             device: device,
             captureSize: captureSize,
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: consumers,
-            engineSessionToken: ManagedAtomic<UInt64>(0)
+            engineSessionToken: ManagedAtomic<UInt64>(0),
+            lanesEightBit: lanesEightBit
         )
     }
 
@@ -901,6 +1003,13 @@ final class MetalPipeline: @unchecked Sendable {
     var trackerSizeForTest: Size { trackerSize }
     var stillCapturePoolForTest: CVPixelBufferPool? { stillCapturePool }
     var stillCaptureDequeueCountForTest: Int { stillCaptureDequeueCount }
+
+    // Pre-Phase-3 — RGBA8 conversion test seams.
+    var eightBitNaturalPoolForTest: CVPixelBufferPool? { eightBitNaturalPool }
+    var eightBitProcessedPoolForTest: CVPixelBufferPool? { eightBitProcessedPool }
+    /// Always nil; tracker lane is not converted (Plan OQ #4).
+    var eightBitTrackerPoolForTest: CVPixelBufferPool? { nil }
+    var lanesEightBitForTest: Bool { lanesEightBit }
 
     func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
         _latestNaturalBuffer.store(buffer)

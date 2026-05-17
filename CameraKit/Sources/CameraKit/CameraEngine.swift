@@ -67,6 +67,12 @@ public actor CameraEngine {
     /// `setResolution()` throw `.calibrationInProgress`. `close()` and the
     /// `.interrupted` `SessionState` route call `cancel()` here.
     private var calibrationTask: Task<CalibrationResult, Error>?
+    /// Pre-Phase-3 — cached for `setResolution` / recovery pipeline rebuilds so
+    /// the session's `OpenConfiguration.lanesEightBit` value survives across
+    /// pipeline re-inits.
+    ///
+    /// Set in `open(configuration:)`.
+    private var lanesEightBitCurrent: Bool = true
     private nonisolated let frameResultContinuationBox =
         Mutex<AsyncStream<FrameResult>.Continuation?>(nil)
     private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
@@ -214,8 +220,11 @@ public actor CameraEngine {
             captureSize: captureSize,
             gate: submissionGate,
             consumers: consumers,
-            engineSessionToken: sessionToken
+            engineSessionToken: sessionToken,
+            lanesEightBit: configuration.lanesEightBit
         )
+        // Pre-Phase-3 — record for setResolution / recovery pipeline rebuilds.
+        self.lanesEightBitCurrent = configuration.lanesEightBit
         pipeline.onMetalError = { [weak self] mErr in
             Task { [weak self] in
                 let err = CameraError(
@@ -354,9 +363,12 @@ public actor CameraEngine {
             naturalTextureId: 0,  // stub: texture IDs arrive Stage 05
             activeCaptureResolution: captureSize,
             activeCropRegion: activeCropRegion,
-            // Lane-buffer format (what consumers see), NOT camera source format.
-            // Phase-2 §2d.7. Source is YUV 420f, converted to RGBA16F by MetalPipeline.
-            streamPixelFormat: "RGBA16F",
+            // Lane-buffer format (what `currentPixelBuffer(stream:)` returns),
+            // NOT camera source format. Phase-2 §2d.7 + pre-Phase-3 RGBA8:
+            // default-on flag emits "BGRA8"; opt-out keeps "RGBA16F".
+            streamPixelFormat: configuration.lanesEightBit
+                ? Constants.streamPixelFormatStringEightBit
+                : Constants.streamPixelFormatStringSixteenBit,
             isoRange: isoRange,
             exposureDurationRangeNs: exposureDurationRangeNs,
             focusRange: 0.0...1.0,
@@ -648,7 +660,8 @@ public actor CameraEngine {
             captureSize: size,
             gate: submissionGate,
             consumers: consumers,
-            engineSessionToken: sessionToken
+            engineSessionToken: sessionToken,
+            lanesEightBit: lanesEightBitCurrent
         )
         pipeline.onMetalError = { [weak self] mErr in
             Task { [weak self] in
@@ -728,37 +741,61 @@ public actor CameraEngine {
 
     /// Exposes the live natural-tex mailbox for the MTKView draw pass.
     ///
-    /// Forwards to `MetalPipeline.latestNaturalTex` — the pipeline updates this
-    /// mailbox in the per-frame completion handler (single writer: delivery
-    /// queue). MUST be re-evaluated each draw; do not cache the returned
-    /// pointer (Bug 4: pool rotation strands cached pointers).
+    /// Always `.rgba16Float` — the texture path preserves HDR-grade precision
+    /// for in-process Metal consumers (calibration sampling, MTKView preview,
+    /// the dev harness's `MTKViewRepresentable` configured
+    /// `colorPixelFormat = .rgba16Float`). The buffer accessor
+    /// `currentPixelBuffer(stream:)` may emit BGRA8 instead, depending on
+    /// `OpenConfiguration.lanesEightBit` — see its doc-comment for the
+    /// load-bearing texture/buffer asymmetry. Forwards to
+    /// `MetalPipeline.latestNaturalTex` (single writer: delivery queue). MUST
+    /// be re-evaluated each draw; do not cache (Bug 4: pool rotation strands
+    /// cached pointers).
     public nonisolated func currentTexture() -> (any MTLTexture)? {
         _metalPipeline.latest?.latestNaturalTex
     }
 
     /// Exposes the live processed-tex mailbox for the right-half MTKView draw.
     ///
-    /// Same live-mailbox contract as `currentTexture()` — re-evaluate per draw.
+    /// Always `.rgba16Float` — see `currentTexture()` for the rationale and
+    /// the load-bearing texture/buffer asymmetry. Same live-mailbox contract
+    /// as `currentTexture()` — re-evaluate per draw.
     public nonisolated func currentProcessedTexture() -> (any MTLTexture)? {
         _metalPipeline.latest?.latestProcessedTex
     }
 
     /// Stage 06: returns the latest tracker texture for external consumers.
     ///
-    /// nonisolated so callers can access synchronously without an actor hop.
-    /// Reads `latestTrackerTex` from the pipeline's `Mailbox<T>` (G-13).
-    /// Returns nil if no frame has been encoded yet or the engine is closed.
+    /// Always `.rgba16Float`. The tracker lane is **not** converted to 8-bit
+    /// by `OpenConfiguration.lanesEightBit` — `.tracker` has no Phase-3
+    /// Pigeon counterpart, so the conversion would be unused cost (Pre-Phase-3
+    /// design Open Q #4). `nonisolated` so callers can access synchronously
+    /// without an actor hop. Reads `latestTrackerTex` from the pipeline's
+    /// `Mailbox<T>` (G-13). Returns nil if no frame has been encoded yet or
+    /// the engine is closed.
     public nonisolated func currentTrackerTexture() -> (any MTLTexture)? {
         _metalPipeline.latest?.latestTrackerTex
     }
 
-    /// Returns the latest IOSurface-backed `CVPixelBuffer` for the requested lane,
-    /// or `nil` if no frame has been delivered yet (or post-pause/close).
+    /// Returns the latest IOSurface-backed `CVPixelBuffer` for the requested
+    /// lane, or `nil` if no frame has been delivered yet (or post-pause/close).
     ///
     /// `nonisolated` + synchronous — Phase-3's `FlutterTexture.copyPixelBuffer()`
-    /// is called on the GPU thread and must not suspend. The buffer returned is
-    /// `kCVPixelFormatType_64RGBAHalf` (RGBA16F) — see `SessionCapabilities.streamPixelFormat`.
-    /// Phase-2 design §2c.
+    /// is called on the GPU thread and must not suspend.
+    ///
+    /// **Format depends on `OpenConfiguration.lanesEightBit`:**
+    ///   - default (`true`) — `.natural` / `.processed` return
+    ///     `kCVPixelFormatType_32BGRA` (BGRA8, `.bgra8Unorm`). `.tracker`
+    ///     stays `kCVPixelFormatType_64RGBAHalf` (RGBA16F).
+    ///   - opt-out (`false`) — every lane returns RGBA16F (today's behavior).
+    ///
+    /// **Asymmetry: this accessor's format can differ from the texture
+    /// accessors above.** `currentTexture()` / `currentProcessedTexture()` /
+    /// `currentTrackerTexture()` **always** return `.rgba16Float` — internal
+    /// in-process Metal consumers (preview MTKView, calibration sampling)
+    /// need the precision, while out-of-process Phase-3 bridge consumers want
+    /// the 8-bit wire-format parity with Android. Don't refactor this
+    /// asymmetry away. Phase-2 design §2c + pre-Phase-3 RGBA8.
     public nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? {
         switch stream {
         case .natural: return _metalPipeline.latest?.latestNaturalBuffer
@@ -1234,7 +1271,12 @@ public actor CameraEngine {
         guard isOpen, let pipeline = metalPipeline, let capture = stillCapture else {
             throw EngineError.notOpen
         }
-        guard let buffer = pipeline.latestNaturalBuffer else {
+        // Pre-Phase-3 — read the parallel RGBA16F mailbox so HDR precision is
+        // preserved regardless of `OpenConfiguration.lanesEightBit`. The
+        // bridge-facing `currentPixelBuffer(stream: .natural)` may emit BGRA8,
+        // but capture must keep the half-float buffer the StillCapture encode
+        // path expects (vImage RGBA16F → 8-bit).
+        guard let buffer = pipeline.latestNaturalBufferRGBA16F else {
             CameraKitLog.warning(.engine, "[natural] no natural-lane buffer available")
             throw EngineError.capture(.bufferUnavailable)
         }

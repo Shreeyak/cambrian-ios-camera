@@ -1,3 +1,83 @@
+# state.md — Pre-Phase-3 RGBA8 lane conversion (2026-05-15)
+
+Pre-Phase-3 additive capabilities stage outside brief discipline. Spec:
+`docs/superpowers/specs/2026-05-15-rgba16f-to-rgba8-conversion-design.md`.
+Plan: `docs/superpowers/plans/2026-05-15-rgba16f-to-rgba8-conversion.md`.
+Rationale: `DECISIONS.md` D-2P-09 (BGRA8 wire format), D-2P-11 (default-on,
+Option B placement, tracker non-conversion, parallel RGBA16F mailbox for
+still capture).
+
+## What's built — Pre-Phase-3 RGBA8 (permanent)
+
+- **`OpenConfiguration.lanesEightBit: Bool = true`** — session-scoped flag.
+  Default on. Drives a Pass-7 compute pass + mailbox rewire on natural +
+  processed lanes only (tracker stays RGBA16F).
+- **Pass-7 (`rgba16fToBgra8`)** at
+  `CameraKit/Sources/CameraKit/Shaders/Rgba16fToBgra8.metal` — compute
+  kernel; reads RGBA16F, writes `.bgra8Unorm` (Metal handles byte-order
+  swizzle on write). Clamp to `[0, 1]`.
+- **`TexturePoolManager.makeBgra8LanePool` + `dequeueEightBitPoolTexture`**
+  — IOSurface-backed BGRA8 pools, parallel to the RGBA16F pool factory.
+  Lazy-allocated only when the flag is on.
+- **`SessionCapabilities.streamPixelFormat`** is now flag-dependent —
+  `"BGRA8"` by default, `"RGBA16F"` when opted out. Doc-comment updated
+  to state the buffer/texture asymmetry.
+- **Texture/buffer asymmetry doc-comments** on
+  `CameraEngine.currentTexture()`, `currentProcessedTexture()`,
+  `currentTrackerTexture()`, `currentPixelBuffer(stream:)` — state the
+  load-bearing invariant explicitly. Textures stay `.rgba16Float`;
+  buffers track the flag.
+- **`MetalPipeline.latestNaturalBufferRGBA16F`** — parallel mailbox added
+  for `captureNaturalPicture` so HDR-grade precision survives the
+  bridge-facing flag flip. Single-writer same contract as the other
+  mailboxes.
+- **`CameraEngine.captureNaturalPicture`** rewired to source from the
+  RGBA16F mailbox so the `StillCapture.encode` vImage RGBA16F → 8-bit
+  path keeps its input precision regardless of `lanesEightBit`.
+- **`MetalPipeline` convenience inits** gained `lanesEightBit: Bool = false`
+  default — preserves Stage 02 / Stage 06 pool-count assertions; tests
+  that want the flag on opt in explicitly.
+
+## Scaffolding still live
+
+None added; none retired.
+
+## Public API exposed — Pre-Phase-3 RGBA8 additions
+
+- `OpenConfiguration.lanesEightBit: Bool` (with default `true`).
+- `SessionCapabilities.streamPixelFormat` semantics extended (string
+  values `"BGRA8"` / `"RGBA16F"`).
+
+## Manual test evidence — Pre-Phase-3 RGBA8
+
+- New suite `RgbaConversionTests` (20 tests across nine `@Suite` structs)
+  — pass on device (iPad Pro 11" 2nd-gen, iPad8,9, iOS 26.4.2).
+- `Stage13Phase2PixelFormatTests` updated to cover both flag states
+  (`defaultLaneFormatIsBgra8`, `optOutLaneFormatIsRgba16f`) — pass.
+- Full regression: 181 tests pass / 0 fail (+1 from
+  `RgbaConversionNaturalCaptureSourceTests`).
+- **HITL on iPad — completed 2026-05-15.** 30 fps sustained at 4K
+  (0 fps-degraded windows, 0 mailbox-overwrite events across ~2 min);
+  still-capture HDR fidelity unchanged (visual confirmation by user;
+  architecturally untouched — Pass-6 → still pool → vImage path is
+  independent of Pass-7). Evidence at
+  `measurements/phase-3-prep/rgba8-conversion.md`.
+
+## Decisions taken — Pre-Phase-3 RGBA8
+
+- D-2P-09 (already logged 2026-05-15) — BGRA8 wire format chosen,
+  Android adds the swizzle on its side.
+- D-2P-11 (this PR) — default-on; Option B placement (per-lane Pass-7
+  bridge tap, RGBA16F end-to-end internally); tracker lane does not
+  convert; single `streamPixelFormat` field preserved with extended
+  semantics; per-feature test naming (`RgbaConversionTests.swift`);
+  parallel `latestNaturalBufferRGBA16F` mailbox preserves natural-lane
+  HDR capture path.
+- Plan §Open Questions 2–6 — resolved inline in
+  `docs/superpowers/plans/2026-05-15-rgba16f-to-rgba8-conversion.md`.
+
+---
+
 # state.md — `captureNaturalPicture` (2026-05-15)
 
 Pre-Phase-3 additive feature outside brief discipline. Spec:
