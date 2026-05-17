@@ -202,11 +202,16 @@ Each development machine needs this once:
 brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq
 xcode-build-server config -project eva-swift-stitch.xcodeproj \
                           -scheme eva-swift-stitch
+git config core.hooksPath .githooks
 ```
 
 The second command generates `buildServer.json` at the repo root, bridging
 sourcekit-lsp to Xcode's build system. It is gitignored (contains a
 machine-specific DerivedData path); re-run after cloning or changing scheme.
+
+The third command enables the repo's `pre-push` hook, which keeps the
+`camerakit-only` synthetic branch in sync for the Flutter plugin consumer.
+See §10 for the full mechanism. Skip on a one-off push with `--no-verify`.
 
 ### 6.1 Coordinator discipline
 
@@ -523,3 +528,89 @@ underlying issue and ask again — do not `--amend` around it.
 - `implementation/architecture/README.md` — concern-file map + cross-file matrix.
 - `implementation/ios-platform-guide/README.md` — `ADR-##` / `G-##` registry.
 - `implementation/briefs/stage-NN.md` — spec for the current stage.
+
+## 10. Flutter plugin consumption — `camerakit-only` synthetic branch
+
+CameraKit is consumed by two external clients (per Phase-2 + Phase-3 of the
+Flutter migration; see
+`docs/superpowers/specs/2026-05-14-camerakit-flutter-migration-design.md`):
+
+1. **The native dev harness** in `eva-swift-stitch/` (this repo) — consumes
+   CameraKit as a local SPM package dep, unchanged from today.
+2. **The Flutter plugin** at
+   `/Users/shrek/work/cambrian/camera2_flutter_demo/packages/cambrian_camera/`
+   — embeds CameraKit's source under `ios/CameraKit/` via `git subtree`, and
+   references it as a local SPM dep from the plugin's
+   `ios/cambrian_camera/Package.swift` (Phase 3).
+
+The cam2fd subtree pulls from a **synthetic branch** in this repo called
+`camerakit-only`. That branch has `CameraKit/`'s contents promoted to the
+root (so `Package.swift` is at `/Package.swift`, not `/CameraKit/Package.swift`)
+and history filtered to only commits touching `CameraKit/`. cam2fd's
+`ios/CameraKit/` therefore contains the package content only — no `App/`,
+no `scripts/`, no broken `implementation/` symlinks.
+
+### How it stays in sync
+
+`.githooks/pre-push` regenerates the synthetic branch on every push to
+`origin/main` that includes `CameraKit/` changes. The hook runs
+`git subtree split --prefix=CameraKit -b camerakit-only` and force-pushes
+the result. Enable once per clone (§6.0):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Skip on a one-off push with `git push --no-verify`.
+
+### One-time bootstrap
+
+If `camerakit-only` doesn't exist on `origin` yet (this is true at first
+adoption), bootstrap it manually before the hook can maintain it:
+
+```bash
+git subtree split --prefix=CameraKit -b camerakit-only
+git push origin camerakit-only
+```
+
+After this, the hook handles updates automatically.
+
+### Version pinning via tags
+
+cam2fd's Package.swift can pin CameraKit by branch (latest tracking) or
+tag (stable). Branch tracking — `branch: "camerakit-only"` — always gets
+the current synthetic branch tip. Tag pinning is more stable and is
+recommended for cam2fd's releases.
+
+Tag this repo's `main` at milestone points (e.g., `v1.0.0`, `v1.1.0`).
+The pre-push hook regenerates the synthetic branch but does not propagate
+tags — tag the synthetic branch explicitly when cutting a release for
+cam2fd:
+
+```bash
+# After tagging main at a milestone:
+git tag -a v1.0.0 -m "..."                         # tag on main
+git push origin v1.0.0
+# Propagate to the synthetic branch so cam2fd can pin by tag:
+git tag -a camerakit-v1.0.0 camerakit-only -m "..."
+git push origin camerakit-v1.0.0
+```
+
+### cam2fd-side workflow (reference — actual commands run in that repo)
+
+After this repo's synthetic branch exists on `origin`:
+
+```bash
+# Initial setup (one time, in cam2fd):
+git subtree add --prefix=packages/cambrian_camera/ios/CameraKit \
+   https://github.com/<org>/eva-swift-stitch.git camerakit-only --squash
+
+# Pull updates later:
+git subtree pull --prefix=packages/cambrian_camera/ios/CameraKit \
+   https://github.com/<org>/eva-swift-stitch.git camerakit-only --squash
+```
+
+The synthesized content under `ios/CameraKit/` looks like normal files to
+anyone working in cam2fd or to downstream consumers (Eva) who copy-paste
+`cambrian_camera`. Phase 3's iOS plugin Package.swift references the
+subtreed content as `.package(path: "../CameraKit")`.
