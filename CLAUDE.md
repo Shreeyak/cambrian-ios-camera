@@ -603,11 +603,11 @@ After this repo's synthetic branch exists on `origin`:
 ```bash
 # Initial setup (one time, in cam2fd):
 git subtree add --prefix=packages/cambrian_camera/ios/CameraKit \
-   https://github.com/<org>/eva-swift-stitch.git camerakit-only --squash
+   https://github.com/Shreeyak/cambrian-ios-camera.git camerakit-only --squash
 
 # Pull updates later:
 git subtree pull --prefix=packages/cambrian_camera/ios/CameraKit \
-   https://github.com/<org>/eva-swift-stitch.git camerakit-only --squash
+   https://github.com/Shreeyak/cambrian-ios-camera.git camerakit-only --squash
 ```
 
 The synthesized content under `ios/CameraKit/` looks like normal files to
