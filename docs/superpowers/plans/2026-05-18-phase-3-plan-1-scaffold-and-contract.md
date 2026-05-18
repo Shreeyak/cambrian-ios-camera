@@ -1835,3 +1835,64 @@ Optional, for the executor (subagent or human):
 - **The smoke build at the end of each B task is the gate.** Don't move on to the next amendment until the current one builds clean on both platforms.
 - **Plan 1 deliberately leaves iOS HostApi as stubs.** Resist the temptation to start filling in real impls (that's Plan 2). The point of Plan 1 is to land a building, registered, end-to-end-wired plugin so Plan 2 can iterate fast.
 - **Two iPads, two UDID schemes.** Per eva-swift-stitch CLAUDE.md §8, the project has two iPads with two different UDID conventions (xctrace vs. devicectl). For Plan 1 only the xctrace UDID is needed (`flutter run -d <udid>`); Plan 4's deeper device verification covers both.
+
+---
+
+## Status — completed 2026-05-18
+
+**Branch (cam2fd):** `phase-3-plan-1-scaffold-and-contract` (based on the
+fast-forward merge of `dev` into `main` — `dev` carried real engineering
+work — GPU readback, Y-flip unification, ISO — that `main` did not yet have).
+
+**Commits on the feature branch:**
+- `cd09136` — Squashed CameraKit subtree-add (`camerakit-v1.0.0` → commit `6fbdc6b`)
+- `b947678` — Subtree merge commit
+- `70ad09f` — Cluster A: SPM scaffold + podspec + iOS-26 bump (`flutter build ios` pass)
+- `92ff2e2` — Cluster B1: §5.1 `rawStream*` → `naturalStream*`
+- `a1033a2` — Cluster B2: §5.2 `onCapabilitiesChanged` → `onStreamConfigurationChanged` + `CamStreamConfiguration`
+- `f3f767e` — Cluster B3: §5.4 capture* broadened with `CamPhotosDestination` + `CamCaptureResult` (return-type breaking)
+- `76cef55` — Cluster B4: §5.5 doc `paused` + `interrupted` `SessionState`
+- `b7df7a5` — Cluster B5: §5.6 4 permission host methods (Android real status + stub requests; iOS stubs)
+- `4beddc1` — Cluster B6: §5.7 `streamPixelFormat` on `CamCapabilities`
+
+**Plan-time deviation from the spec layout (decided during execution):**
+Flutter's SPM integration evaluates relative `.package(path:)` from its
+ephemeral symlink directory, not the symlink target. The spec's original
+sibling layout (`ios/CameraKit/` next to `ios/cambrian_camera/` with
+`.package(path: "../CameraKit")`) failed Flutter's SPM resolve. **Resolution:**
+the CameraKit subtree was vendored INSIDE the plugin directory at
+`packages/cambrian_camera/ios/cambrian_camera/CameraKit/` and the plugin
+references it via `.package(path: "CameraKit")`. The "snapshot, not
+hand-edited" invariant is unchanged; only the prefix moves.
+
+**Deferred from this plan (carried by the user's instruction):**
+- A5 + B7.5 on-device `flutter run` smokes — both iPads showed `unavailable`
+  in `devicectl`; the user opted to defer device runs and rely on the
+  build/analyze gates (which verify Pigeon shape + plugin link + scaffold
+  registration end-to-end).
+
+**Carried over from Cluster A as a plan-time fix not in the original plan:**
+- `scripts/regenerate_pigeon.sh` was patched in lock-step with A2.6's
+  pigeon `swiftOut` repoint (the script hardcoded the old `ios/Classes/`
+  path).
+- An `IPHONEOS_DEPLOYMENT_TARGET = 13.0` survived in 3 project-level
+  build configurations of `ios/Runner.xcodeproj/project.pbxproj` —
+  the original A4.1 ruby block only iterated `p.targets`; project-level
+  configs needed a second pass (also iterated in the executed step).
+
+**Verification at end of plan:**
+- Plugin `flutter analyze`: 4 pre-existing `curly_braces` info-level
+  warnings (carried over from before Plan 1, unchanged) — no errors,
+  no new warnings.
+- `flutter build ios --debug --no-codesign`: `Built build/ios/iphoneos/Runner.app`.
+  Plugin Swift symbols (`CameraHostApi`, `CameraHostApiImpl`,
+  `captureImage`, `setResolution`, `stopRecording`, …) link into
+  `Runner.debug.dylib`; CameraKit's `default.metallib` bundles correctly.
+- `flutter build apk --debug`: `Built build/app/outputs/flutter-apk/app-debug.apk`.
+  Required setting up the OpenCV symlink per CLAUDE.md (one-time per worktree).
+- `bash scripts/regenerate_pigeon.sh` after B7.1 — idempotent (zero diff).
+
+**Plan 2** (Adapter + Methods + Bridge) is the next step. Branch in cam2fd:
+`phase-3-plan-2-adapter-methods-bridge`, based on this plan's
+`phase-3-plan-1-scaffold-and-contract` branch (after merge to cam2fd's main).
+

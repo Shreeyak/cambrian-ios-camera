@@ -29,6 +29,12 @@
 
 ## File Inventory (all under `packages/cambrian_camera/`)
 
+> **NOTE (2026-05-19):** This inventory describes the *primary path*
+> (separate Pigeon input file). Implementation took the **A2-FALLBACK**
+> path instead — see the **Status** section at the end of this file for
+> the actual file inventory of what shipped.
+
+
 ### Created
 
 - `pigeons/camera_api_ios.dart` — new Pigeon input file
@@ -258,3 +264,120 @@ Plan 4 is HITL + polish: 18-case device matrix per spec §8.4 (which includes ca
 - **The duplicate `CamRgbSample` in `messages_ios.g.dart`** is acceptable — Dart treats them as distinct types, and the adapter (`CameraIosHostApiImpl.swift`) explicitly references the `Messages_ios.g.swift` version. If type-collision errors appear, that's the fallback trigger.
 - **D2 Android regression smoke is non-optional.** The whole point of Option C is to prove Android is untouched. Verify on a real Android device or emulator — don't skip.
 - **No engine surface changes needed.** All four engine method calls (`calibrateWhiteBalance`, `calibrateBlackBalance`, error throws, cancel handling) are Phase-2 deliverables already in the subtreed snapshot.
+
+---
+
+## Status — 2026-05-19 (cam2fd branch `phase-3-plan-3-ios-only-calibration`)
+
+**Path taken: A2-FALLBACK (single shared Pigeon file + Android `not_implemented` stubs).**
+
+### Why the fallback fired
+
+Task A2's smoke build surfaced Pigeon 22's per-input-file behavior:
+every emitted Swift file ships its own `class PigeonError`, codec
+helpers (`wrapResult` / `wrapError` / `nilOrValue`), and any referenced
+data types at module scope. With `pigeons/camera_api_ios.dart`
+producing `Messages_ios.g.swift` alongside the shared
+`Messages.g.swift`, the iOS Swift module ended up with two
+`PigeonError` and two `CamRgbSample` declarations — fatal
+"Invalid redeclaration" / "ambiguous for type lookup" errors. Spec
+§6.5 anticipated only the Dart-side type-collision failure mode, but
+the Swift-side `PigeonError` collision is structurally unavoidable in
+Pigeon 22 (the runtime helper class is emitted per output file, not
+once per module; users cannot suppress it).
+
+The canonical Pigeon multi-input pattern (`interactive_media_ads_{ios,android}.dart`)
+works because their iOS file emits Swift while their Android file
+emits Kotlin — no two Swift files end up in the same module. Our
+"iOS plus more iOS" use case crosses that boundary.
+
+### Shape of the final implementation in cam2fd
+
+- `pigeons/camera_api.dart` — shared contract now declares
+  `calibrateWhiteBalance(int handle)` + `calibrateBlackBalance(int handle)`
+  on the existing `@HostApi() CameraHostApi`. Wire result is
+  `CamCalibrationResult { CamRgbSample before, after; bool converged;
+  int iterations; double? gainR/G/B; double? blackR/G/B; }` — six
+  optional fields appended to the spec §6.1 shape so the iOS adapter
+  can pass the engine's committed values through to Dart. **See
+  spec deviation note below.**
+- `packages/cambrian_camera/ios/cambrian_camera/Sources/cambrian_camera/CameraHostApiImpl.swift` —
+  Plan B1 impls live here (NOT in a separate `CameraIosHostApiImpl.swift`).
+  Each method calls the engine, then reads
+  `engine.currentSettingsSnapshot()` /
+  `currentProcessingParametersSnapshot()` to populate the WB-only /
+  BB-only optional fields.
+- `packages/cambrian_camera/android/src/main/kotlin/com/cambrian/camera/CambrianCameraPlugin.kt` —
+  two ~4-line stubs: `callback(Result.failure(FlutterError("not_implemented", ...)))`.
+- `packages/cambrian_camera/lib/src/cambrian_camera_controller.dart` —
+  both calibration methods branch on `defaultTargetPlatform ==
+  TargetPlatform.iOS` at the top; iOS path routes through the Pigeon
+  call and adapts `CamCalibrationResult` → `WbCalibrationResult` /
+  `BbCalibrationResult` records. Android path is unchanged — runs the
+  existing iterative Dart loop.
+- `scripts/regenerate_pigeon.sh` — unchanged from main. The fallback
+  path only requires regenerating the shared contract.
+
+### Spec deviation: `CamCalibrationResult` extended fields
+
+Plan task C1 assumed the iOS engine's four-field `CalibrationResult`
+shape would be sufficient. Empirically, the example app
+(`lib/main.dart:_runWbCalibration` / `_runBbCalibration`) immediately
+re-applies `result.gains` / `result.offsets` to the camera after
+calibration — so the Dart-side `WbCalibrationResult.gains` /
+`BbCalibrationResult.offsets` records must be populated with the
+engine's *committed* values. Returning sentinel `(1,1,1)` / `(0,0,0)`
+would have caused the example app to overwrite the just-calibrated
+gains, silently breaking iOS calibration.
+
+The minimal fix kept inside the Pigeon contract was six optional
+fields (three for WB, three for BB) on `CamCalibrationResult`. The
+adapter reads them from the engine's existing public
+`currentSettingsSnapshot()` / `currentProcessingParametersSnapshot()`
+accessors — no CameraKit subtree changes. The spec §6.1 class shape
+grew by six nullable fields; the iOS adapter logic is unchanged
+otherwise.
+
+### Verification done
+
+- `flutter analyze` clean (4 pre-existing info-level lints unrelated to Plan 3).
+- All 50 existing package unit tests pass (`flutter test`).
+- `flutter build ios --debug --no-codesign` — built clean (`build/ios/iphoneos/Runner.app`).
+- `flutter build apk --debug` — built clean (`build/app/outputs/flutter-apk/app-debug.apk`).
+- No `Messages_ios.g.*` files exist in the tree (artifacts deleted post-fallback).
+- The shared Kotlin `Messages.g.kt` declares the new iOS-only methods
+  (required so the stub `override fun` calls compile against the
+  Pigeon-generated interface).
+
+### Verification pending (human gate)
+
+- **D1 — iOS on-device smoke.** Plan §D1 cases (preview WB visibly
+  adjusts; `before` ≠ `after`; `converged: true`, `iterations: 1`;
+  concurrency-guard error rehearsals from §D1 final paragraph).
+  Requires an iPad with the example app deployed.
+- **D2 — Android regression smoke.** Plan §D2 — Android still runs
+  the iterative Dart loop and returns `iterations > 1` with no
+  `not_implemented` surfacing. Requires an Android device or emulator.
+- **C1 mock-based unit test.** Plan §C1 wanted a hand-rolled mock
+  asserting the iOS branch invokes the HostApi while Android runs the
+  Dart loop. Deferred — `cambrian_camera` has no mock framework in
+  `dev_dependencies` (`mocktail` / `mockito`), and adding one + a
+  `@visibleForTesting` constructor for `CambrianCamera` is out of
+  scope for Plan 3's primary goal. Static type checking + smoke
+  builds give structural confidence; mock test would only catch a
+  caller-routing regression.
+
+### Carry-forward to Plan 4
+
+- HITL device matrix (spec §8.4 cases 10 + 11) is the load-bearing
+  validation of the iOS path; the build/test gates above are
+  necessary but not sufficient.
+- The `not_implemented` Android stub is unreachable in normal use
+  (Dart branches before calling), but it surfaces a real Pigeon
+  error if a future change accidentally invokes it from Android. No
+  monitoring needed — a single integration test or careful manual
+  smoke catches any regression.
+- If Plan 5 (Pigeon cross-platform cleanup) ever reconsiders the
+  separate-file approach, the failure mode documented above is the
+  evidence: Pigeon 22's per-Swift-file `PigeonError` emission rules
+  out "shared + iOS-extra" cleanly without a Pigeon upstream change.
