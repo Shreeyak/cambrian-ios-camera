@@ -516,8 +516,37 @@ public actor CameraEngine {
     /// transition into `SessionState` so downstream consumers
     /// (`ErrorPresenterViewModel`, Phase-3's Pigeon adapter) see a consistent
     /// pause/resume signal.
+    ///
+    /// The mirror defers to OS-driven events when the state machine sits in an
+    /// OS-owned origin (`.interrupted`, `.recovering`, `.error`). From those
+    /// states the only legitimate `.command` transition is `.closed`, so a
+    /// scenePhase-driven `.streaming`/`.paused` is off-map — and worse, would
+    /// overwrite the OS's truth with a wrong value. `SessionStateMachine` is the
+    /// single source of truth: if `classify` rejects the mirrored transition we
+    /// skip the publish (logged) and let the OS event path restore `.streaming`
+    /// (`onSessionEvent(.otherInterruptionEnded)`, recovery completion). This
+    /// also closes the symmetric `.opening → .paused` hole. Caught under
+    /// `test_device`, where a harness/bring-up AVF interruption races a
+    /// `.active` scenePhase into the off-map trap in `publishState`.
+    ///
+    /// Known gap (out of scope — D-06 gate owns correctness): if an interruption
+    /// ends while the app is backgrounded, the OS publishes `.streaming (event)`
+    /// but the ViewModel won't re-issue `notifyScenePhasePaused(true)` until the
+    /// next scenePhase change — the machine reads `.streaming` while the gate is
+    /// still closed. A truthfulness gap, not a crash.
     public func notifyScenePhasePaused(_ paused: Bool) {
-        publishState(paused ? .paused : .streaming, kind: .command)
+        let target: SessionState = paused ? .paused : .streaming
+        let from = stateMachine.current
+        if SessionStateMachine.classify(from: from, to: target, kind: .command) == .offMap {
+            CameraKitLog.notice(
+                .engine,
+                "[scenePhase] skipping mirror from=\(from.rawValue) "
+                    + "to=\(target.rawValue) kind=command caller=\(#function) "
+                    + "(deferring to OS-driven state)"
+            )
+            return
+        }
+        publishState(target, kind: .command)
     }
 
     /// Test-only: drive the state machine into `.streaming` so teardown paths
@@ -538,6 +567,9 @@ public actor CameraEngine {
     func _markOpenForTest() {
         stateMachine._setCurrentForTest(.streaming)
     }
+
+    /// Test-only: read the state machine's current `SessionState` (stateStream only yields on publish).
+    var _currentStateForTest: SessionState { stateMachine.current }
 
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
     nonisolated func tickFrame() {

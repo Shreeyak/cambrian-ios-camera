@@ -199,3 +199,60 @@ struct Stage13Phase2OpenConfigurationTests {
         #expect(cfg.initialSettings?.exposureTimeNs == 16_000_000)
     }
 }
+
+// MARK: - scenePhase × interruption off-map race regression
+
+/// Regression for the `interrupted → streaming (command)` off-map trap.
+///
+/// Caught under `test_device`: a harness/bring-up AVF interruption drives the
+/// engine to `.interrupted`, then a `.active` scenePhase made
+/// `notifyScenePhasePaused` publish `.streaming (command)` — off-map from
+/// `.interrupted`, tripping the `publishState` `assertionFailure`. The mirror
+/// now defers to the classifier (`SessionStateMachine` is SSOT) when the origin
+/// is OS-owned.
+@Suite("Stage 13 Phase 2 — scenePhase mirror off-map guard")
+struct Stage13Phase2ScenePhaseMirrorGuardTests {
+
+    /// Drive engine `.streaming → .interrupted` via the same seam the existing
+    /// interrupted-state test uses, mirroring the `test_device` precondition.
+    private func makeInterruptedEngine() async -> CameraEngine {
+        let engine = CameraEngine()
+        await engine._markOpenForTest()
+        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 4))
+        #expect(await engine._currentStateForTest == .interrupted)
+        return engine
+    }
+
+    @Test("from .interrupted, notifyScenePhasePaused(false) does not force .streaming (command)")
+    func scenePhaseActiveFromInterruptedIsSkipped() async {
+        let engine = await makeInterruptedEngine()
+        // Pre-fix: off-map `.interrupted → .streaming (command)` → assertion trap.
+        await engine.notifyScenePhasePaused(false)
+        #expect(await engine._currentStateForTest == .interrupted)
+    }
+
+    @Test("from .interrupted, notifyScenePhasePaused(true) does not force .paused (command)")
+    func scenePhaseInactiveFromInterruptedIsSkipped() async {
+        let engine = await makeInterruptedEngine()
+        await engine.notifyScenePhasePaused(true)
+        #expect(await engine._currentStateForTest == .interrupted)
+    }
+
+    @Test("OS event path still restores .streaming after the mirror deferred")
+    func interruptionEndStillRestoresStreaming() async {
+        let engine = await makeInterruptedEngine()
+        await engine.notifyScenePhasePaused(false)  // deferred, no-op
+        await engine._postSessionEventForTest(.otherInterruptionEnded)
+        #expect(await engine._currentStateForTest == .streaming)
+    }
+
+    @Test("positive control: from .streaming the mirror still publishes .paused (command)")
+    func scenePhaseMirrorStillWorksFromStreaming() async {
+        let engine = CameraEngine()
+        await engine._markOpenForTest()  // .streaming
+        await engine.notifyScenePhasePaused(true)
+        #expect(await engine._currentStateForTest == .paused)
+        await engine.notifyScenePhasePaused(false)
+        #expect(await engine._currentStateForTest == .streaming)
+    }
+}
