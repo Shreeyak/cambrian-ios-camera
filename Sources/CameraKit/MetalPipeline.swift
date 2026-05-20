@@ -75,13 +75,13 @@ final class MetalPipeline: @unchecked Sendable {
     private let processedPool: CVPixelBufferPool
     private let trackerPool: CVPixelBufferPool
 
-    // RGBA8 lane conversion — unconditional.
+    // RGBA8 lane conversion — unconditional for natural + processed.
     //
-    // Pass-7 dispatches per-frame for natural + processed (NOT tracker) and
-    // writes into these IOSurface-backed BGRA8 pools. The buffer mailboxes
-    // (`_latestNaturalBuffer` / `_latestProcessedBuffer`) point at the
-    // converted buffer, so `CameraEngine.currentPixelBuffer(stream:)` returns
-    // BGRA8 for the Phase-3 bridge. See
+    // Pass-7 dispatches per-frame for natural + processed and writes into these
+    // IOSurface-backed BGRA8 pools. The tracker lane uses a fused approach:
+    // `trackerPool` is itself BGRA8, so Pass-4's downsample writes BGRA8 directly
+    // with no separate conversion pass. All three buffer mailboxes deliver BGRA8
+    // to `CameraEngine.currentPixelBuffer(stream:)` for the Phase-3 bridge. See
     // `docs/superpowers/specs/2026-05-15-rgba16f-to-rgba8-conversion-design.md`.
     private let eightBitNaturalPool: CVPixelBufferPool
     private let eightBitProcessedPool: CVPixelBufferPool
@@ -321,11 +321,13 @@ final class MetalPipeline: @unchecked Sendable {
         // 6. Per-stream CVPixelBufferPools (Stage 06 pool-backed lineage).
         naturalPool = try texturePool.makeWorkingFormatPool(size: captureSize)
         processedPool = try texturePool.makeWorkingFormatPool(size: captureSize)
-        trackerPool = try texturePool.makeWorkingFormatPool(size: trackerSize)
+        // Tracker pool is BGRA8 — Pass-4's kernel writes `float4` via
+        // `texture2d<float, access::write>`, so a `.bgra8Unorm` output texture
+        // clamps [0,1] and stores BGRA8 with no shader edit (Task 2, 8-bit
+        // BGRA end-to-end delivery design).
+        trackerPool = try texturePool.makeBgra8LanePool(size: trackerSize)
 
-        // 6b. RGBA8 lane conversion — unconditional. Tracker lane is intentionally
-        //     not converted (Plan OQ #4) — no Phase-3 Pigeon counterpart for the
-        //     tracker lane; saves one Metal pass/frame.
+        // 6b. RGBA8 lane conversion — unconditional for natural + processed.
         self.eightBitNaturalPool = try texturePool.makeBgra8LanePool(size: captureSize)
         self.eightBitProcessedPool = try texturePool.makeBgra8LanePool(size: captureSize)
         guard let fnConvert = library.makeFunction(name: "rgba16fToBgra8") else {
@@ -398,9 +400,11 @@ final class MetalPipeline: @unchecked Sendable {
         }
 
         // Tracker buffer only when someone is subscribed to .tracker (no wasteful alloc).
+        // Pool is BGRA8; dequeueEightBitPoolTexture wraps it as .bgra8Unorm — Pass-4's
+        // shader writes float4 into a bgra8Unorm output which clamps and stores BGRA8.
         let trackerPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
         if consumers.hasSubscriber(.tracker) {
-            trackerPair = try? texturePool.dequeuePoolTexture(
+            trackerPair = try? texturePool.dequeueEightBitPoolTexture(
                 pool: trackerPool, width: trackerSize.width, height: trackerSize.height)
         } else {
             trackerPair = nil
@@ -520,11 +524,11 @@ final class MetalPipeline: @unchecked Sendable {
             }
         }
 
-        // Pass 7: RGBA16F → BGRA8 conversion for the lane-buffer mailboxes
-        // (unconditional). Tracker is not converted (Plan §OQ #4). Not
-        // subscriber-gated in v1. Pass-7 reads the RGBA16F lane texture and
-        // writes into a fresh BGRA8 pool buffer's .bgra8Unorm view; the buffer
-        // mailbox below points at the new buffer.
+        // Pass 7: RGBA16F → BGRA8 conversion for the natural + processed lane-buffer
+        // mailboxes (unconditional). Tracker is NOT converted here — its pool is already
+        // BGRA8; Pass-4 writes BGRA8 directly (fused). Not subscriber-gated in v1.
+        // Pass-7 reads the RGBA16F lane texture and writes into a fresh BGRA8 pool
+        // buffer's .bgra8Unorm view; the buffer mailbox below points at the new buffer.
         var naturalEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
         var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
         if let pair = try? texturePool.dequeueEightBitPoolTexture(
@@ -571,7 +575,7 @@ final class MetalPipeline: @unchecked Sendable {
         // Stage 10: extract NV12 buffer for delivery in completion handler.
         let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
         // Capture the BGRA8-converted buffers for the mailbox store in the
-        // completion handler (natural and processed lanes only; tracker stays RGBA16F).
+        // completion handler. Tracker buffer is already BGRA8 (pool fused in Pass-4).
         let naturalEightBitBuf: CVPixelBuffer? = naturalEightBitPair?.buffer
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
 
@@ -629,11 +633,13 @@ final class MetalPipeline: @unchecked Sendable {
             if trackerBuf != nil {
                 consumers.yield(fs, stream: .tracker)
             }
-            // Update preview mailboxes for MTKView draw pass. Buffer mailboxes
-            // store the BGRA8-converted buffers unconditionally; texture mailboxes
-            // always store RGBA16F. The `_latestNaturalBufferRGBA16F` mailbox
-            // additionally preserves the RGBA16F pool buffer so that
-            // `captureNaturalPicture` retains HDR-grade precision for still capture.
+            // Update preview mailboxes for MTKView draw pass. Buffer mailboxes store
+            // BGRA8 for all lanes: natural + processed via Pass-7, tracker via Pass-4
+            // (pool is BGRA8; no extra conversion pass). Texture mailboxes store
+            // RGBA16F for natural + processed (internal Metal consumers need precision);
+            // tracker texture is bgra8Unorm (Pass-4 writes directly into the BGRA8 pool).
+            // The `_latestNaturalBufferRGBA16F` mailbox preserves the RGBA16F pool buffer
+            // so that `captureNaturalPicture` retains HDR-grade precision for still capture.
             self._latestNaturalBuffer.store(naturalEightBitBuf ?? naturalBuf)
             self._latestNaturalBufferRGBA16F.store(naturalBuf)
             self._latestNaturalTex.store(naturalTexI)
@@ -983,8 +989,8 @@ final class MetalPipeline: @unchecked Sendable {
     // RGBA8 conversion test seams.
     var eightBitNaturalPoolForTest: CVPixelBufferPool { eightBitNaturalPool }
     var eightBitProcessedPoolForTest: CVPixelBufferPool { eightBitProcessedPool }
-    /// Always nil; tracker lane is not converted (Plan OQ #4).
-    var eightBitTrackerPoolForTest: CVPixelBufferPool? { nil }
+    // Note: there is no separate eightBitTrackerPool — the tracker pool itself is
+    // BGRA8 (fused into Pass-4). Use `trackerPoolForTest` to inspect tracker format.
 
     func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
         _latestNaturalBuffer.store(buffer)

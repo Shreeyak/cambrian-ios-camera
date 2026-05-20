@@ -752,11 +752,11 @@ public actor CameraEngine {
 
     /// Stage 06: returns the latest tracker texture for external consumers.
     ///
-    /// Always `.rgba16Float`. The tracker lane is **not** converted to 8-bit —
-    /// `.tracker` has no Phase-3 Pigeon counterpart, so the conversion would be
-    /// unused cost (Pre-Phase-3 design Open Q #4). `nonisolated` so callers can
-    /// access synchronously without an actor hop. Reads `latestTrackerTex` from
-    /// the pipeline's `Mailbox<T>` (G-13). Returns nil if no frame has been
+    /// Returns `.bgra8Unorm`. Pass-4's tracker downsample kernel writes `float4` via
+    /// `texture2d<float, access::write>` into a BGRA8 pool texture — the hardware
+    /// clamps [0,1] and stores 8-bit BGRA with no shader change. `nonisolated` so
+    /// callers can access synchronously without an actor hop. Reads `latestTrackerTex`
+    /// from the pipeline's `Mailbox<T>` (G-13). Returns nil if no frame has been
     /// encoded yet or the engine is closed.
     public nonisolated func currentTrackerTexture() -> (any MTLTexture)? {
         _metalPipeline.latest?.latestTrackerTex
@@ -768,18 +768,10 @@ public actor CameraEngine {
     /// `nonisolated` + synchronous — Phase-3's `FlutterTexture.copyPixelBuffer()`
     /// is called on the GPU thread and must not suspend.
     ///
-    /// **Format:** `.natural` / `.processed` return `kCVPixelFormatType_32BGRA`
-    /// (BGRA8, `.bgra8Unorm`). `.tracker` stays
-    /// `kCVPixelFormatType_64RGBAHalf` (RGBA16F) — no Phase-3 Pigeon
-    /// counterpart for that lane (Open Q #4).
+    /// **Format:** All three lanes return `kCVPixelFormatType_32BGRA` (BGRA8).
     ///
-    /// **Asymmetry: this accessor's format differs from the texture accessors.**
-    /// `currentTexture()` / `currentProcessedTexture()` /
-    /// `currentTrackerTexture()` **always** return `.rgba16Float` — internal
-    /// in-process Metal consumers (preview MTKView, calibration sampling)
-    /// need the precision, while out-of-process Phase-3 bridge consumers want
-    /// the 8-bit wire-format parity with Android. Don't refactor this
-    /// asymmetry away. Phase-2 design §2c.
+    /// - `.natural` / `.processed`: Pass-7 RGBA16F→BGRA8 conversion.
+    /// - `.tracker`: fused — `trackerPool` is BGRA8; Pass-4 writes BGRA8 directly.
     public nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? {
         switch stream {
         case .natural: return _metalPipeline.latest?.latestNaturalBuffer

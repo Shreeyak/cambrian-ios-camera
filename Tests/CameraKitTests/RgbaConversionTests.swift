@@ -129,8 +129,14 @@ struct RgbaConversionPipelinePoolTests {
             #expect(CVPixelBufferGetWidth(proc) == captureSize.width)
             #expect(CVPixelBufferGetHeight(proc) == captureSize.height)
         }
-        // Tracker lane is not converted — no Phase-3 Pigeon counterpart (Plan OQ #4).
-        #expect(pipeline.eightBitTrackerPoolForTest == nil)
+        // Tracker pool is itself BGRA8 (fused into Pass-4); no separate conversion pool.
+        var trackerBufOut: CVPixelBuffer?
+        let trackerStatus = CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault, pipeline.trackerPoolForTest, &trackerBufOut)
+        #expect(trackerStatus == kCVReturnSuccess)
+        if let trk = trackerBufOut {
+            #expect(CVPixelBufferGetPixelFormatType(trk) == kCVPixelFormatType_32BGRA)
+        }
     }
 }
 
@@ -192,22 +198,285 @@ struct RgbaConversionMailboxFormatTests {
     }
 }
 
-// MARK: - Tracker lane regression
+// MARK: - Tracker lane BGRA8 delivery
 
-@Suite("RGBA8 conversion — tracker lane stays RGBA16F")
-struct RgbaConversionTrackerStaysRgba16fTests {
+@Suite("RGBA8 conversion — tracker lane delivers BGRA8")
+struct RgbaConversionTrackerBgra8Tests {
 
-    @Test("Pipeline init does NOT allocate a tracker 8-bit pool")
-    func noTrackerEightBitPool() throws {
+    /// Pass-4 writes directly into a BGRA8 pool; no separate conversion pass.
+    ///
+    /// Verify the pool vends 32BGRA buffers at the tracker's computed dimensions.
+    @Test("trackerPool vends BGRA8 buffers at the computed tracker dimensions")
+    func trackerPoolVendsBgra8() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
         }
         let pipeline = try MetalPipeline(
             device: device,
-            captureSize: Size(width: 256, height: 256),
+            captureSize: Size(width: 256, height: 192),
             gateOpen: true)
-        #expect(pipeline.eightBitTrackerPoolForTest == nil)
+        let trackerSize = pipeline.trackerSizeForTest
+        var bufOut: CVPixelBuffer?
+        let status = CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault, pipeline.trackerPoolForTest, &bufOut)
+        #expect(status == kCVReturnSuccess)
+        guard let buf = bufOut else {
+            Issue.record("no buffer from tracker pool")
+            return
+        }
+        #expect(CVPixelBufferGetPixelFormatType(buf) == kCVPixelFormatType_32BGRA)
+        #expect(CVPixelBufferGetWidth(buf) == trackerSize.width)
+        #expect(CVPixelBufferGetHeight(buf) == trackerSize.height)
+    }
+
+    /// `currentPixelBuffer(stream: .tracker)` must deliver `kCVPixelFormatType_32BGRA`
+    /// after at least one frame. `currentTrackerTexture()` must be `.bgra8Unorm`.
+    @Test("currentPixelBuffer(stream: .tracker) is BGRA8 after encode")
+    func trackerPixelBufferIsBgra8AfterEncode() async throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let consumers = ConsumerRegistry()
+        let pipeline = try MetalPipeline(
+            device: device,
+            captureSize: Size(width: 256, height: 192),
+            gateOpen: true,
+            consumers: consumers)
+
+        // Subscribe so Pass-4 allocates a tracker pair. Hold the stream alive — discarding
+        // it immediately terminates the continuation and removes the subscriber before encode.
+        let trackerStream = await consumers.subscribe(stream: .tracker)
+
+        let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
+            width: 256, height: 192)
+        try pipeline.encode(sampleBuffer: sample)
+        await pipeline.lastCommandBuffer?.completed()
+
+        guard let buf = pipeline.latestTrackerBufferForTest else {
+            Issue.record("tracker buffer mailbox not populated — ensure tracker subscriber active")
+            return
+        }
+        let trackerSize = pipeline.trackerSizeForTest
+        #expect(
+            CVPixelBufferGetPixelFormatType(buf) == kCVPixelFormatType_32BGRA,
+            "tracker buffer should be 32BGRA")
+        #expect(CVPixelBufferGetWidth(buf) == trackerSize.width)
+        #expect(CVPixelBufferGetHeight(buf) == trackerSize.height)
+        #expect(
+            pipeline.latestTrackerTex?.pixelFormat == .bgra8Unorm,
+            "tracker texture mailbox should be bgra8Unorm")
+        // Keep the stream alive through assertions — early dealloc terminates the
+        // continuation and removes the subscriber before encode completes.
+        withExtendedLifetime(trackerStream) {}
+    }
+
+    /// Pass-4-specific channel-order + clamp verification.
+    ///
+    /// The tracker takes a different path than natural/processed: Pass-4 reads
+    /// `texture2d<float, access::sample>` through a bilinear sampler and does
+    /// `outTex.write(float4, gid)` straight into the `.bgra8Unorm` tracker
+    /// texture (no convert kernel). A binding/order mistake there would not be
+    /// caught by `bgra8ChannelOrderAndClamp` (which drives `rgba16fToBgra8PSO`).
+    /// Drive a uniform known color through `trackerDownsamplePSO` into a BGRA8
+    /// pool texture and assert `[B, G, R, A]` order + unorm clamp.
+    @Test("Pass-4 tracker downsample stores [B, G, R, A] and clamps on write")
+    func trackerPass4ChannelOrderAndClamp() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let tpm = try TexturePoolManager(device: device)
+        let library = try device.makeDefaultLibrary(bundle: .module)
+        guard let fn = library.makeFunction(name: "trackerDownsample") else {
+            Issue.record("trackerDownsample kernel not found")
+            return
+        }
+        let pso = try device.makeComputePipelineState(function: fn)
+        let cq = device.makeCommandQueue()!
+        // Match the pipeline's tracker sampler (linear, clampToEdge).
+        let samplerDesc = MTLSamplerDescriptor()
+        samplerDesc.minFilter = .linear
+        samplerDesc.magFilter = .linear
+        samplerDesc.sAddressMode = .clampToEdge
+        samplerDesc.tAddressMode = .clampToEdge
+        let sampler = device.makeSamplerState(descriptor: samplerDesc)!
+
+        let size = Size(width: 4, height: 4)
+
+        // Drives one uniform-red RGBA16F source (so bilinear sampling has no
+        // boundary blend) through Pass-4 into a BGRA8 pool texture; returns the
+        // first pixel's BGRA bytes.
+        func runTracker(redHalf: UInt16) throws -> (b: UInt8, g: UInt8, r: UInt8, a: UInt8) {
+            let srcDesc = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .rgba16Float, width: size.width, height: size.height,
+                mipmapped: false)
+            srcDesc.usage = [.shaderRead, .shaderWrite]
+            srcDesc.storageMode = .shared
+            let srcTex = device.makeTexture(descriptor: srcDesc)!
+            let half0: UInt16 = 0x0000  // 0.0
+            let half1: UInt16 = 0x3C00  // 1.0 (alpha)
+            let rowBytes = size.width * 4 * 2
+            var rowData = [UInt16](repeating: 0, count: size.width * size.height * 4)
+            for px in 0..<(size.width * size.height) {
+                rowData[px * 4 + 0] = redHalf  // R
+                rowData[px * 4 + 1] = half0  // G
+                rowData[px * 4 + 2] = half0  // B
+                rowData[px * 4 + 3] = half1  // A
+            }
+            srcTex.replace(
+                region: MTLRegionMake2D(0, 0, size.width, size.height),
+                mipmapLevel: 0, withBytes: rowData, bytesPerRow: rowBytes)
+
+            let pool = try tpm.makeBgra8LanePool(size: size)
+            let (dstBuf, dstTex) = try tpm.dequeueEightBitPoolTexture(
+                pool: pool, width: size.width, height: size.height)
+
+            let cb = cq.makeCommandBuffer()!
+            let enc = cb.makeComputeCommandEncoder()!
+            enc.setComputePipelineState(pso)
+            enc.setTexture(srcTex, index: 0)
+            enc.setTexture(dstTex, index: 1)
+            enc.setSamplerState(sampler, index: 0)
+            let tg = MTLSize(width: 8, height: 8, depth: 1)
+            let groups = MTLSize(
+                width: (size.width + 7) / 8, height: (size.height + 7) / 8, depth: 1)
+            enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+            enc.endEncoding()
+            cb.commit()
+            cb.waitUntilCompleted()
+
+            CVPixelBufferLockBaseAddress(dstBuf, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(dstBuf, .readOnly) }
+            let base = CVPixelBufferGetBaseAddress(dstBuf)!
+            let bytes = base.assumingMemoryBound(to: UInt8.self)
+            return (bytes[0], bytes[1], bytes[2], bytes[3])
+        }
+
+        // Normal red R=1.0 → BGRA = [0, 0, 255, 255].
+        let normal = try runTracker(redHalf: 0x3C00)
+        #expect(normal.b == 0, "B channel of red should be 0, got \(normal.b)")
+        #expect(normal.g == 0, "G channel of red should be 0, got \(normal.g)")
+        #expect(normal.r == 255, "R channel of red should be 255, got \(normal.r)")
+        #expect(normal.a == 255, "A channel of red should be 255, got \(normal.a)")
+
+        // Over-bright red R=2.0 → unorm write clamps to 255 (not wrap to 0).
+        let clamped = try runTracker(redHalf: 0x4000)
+        #expect(clamped.b == 0, "B channel of over-bright red should be 0, got \(clamped.b)")
+        #expect(clamped.r == 255, "R=2.0 should clamp to 255 (not wrap), got \(clamped.r)")
+    }
+
+    /// Channel-order + unorm-clamp verification: dispatch `rgba16fToBgra8PSO` (the same
+    /// kernel used throughout the pipeline) from a known solid-red RGBA16F source into a
+    /// BGRA8 pool buffer; assert byte order `[B=0, G=0, R=255, A=255]` for R=1.0
+    /// and byte clamping to 255 (not wrap) for R=2.0.
+    @Test("BGRA8 write clamps and stores [B, G, R, A] channel order")
+    func bgra8ChannelOrderAndClamp() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let tpm = try TexturePoolManager(device: device)
+        let library = try device.makeDefaultLibrary(bundle: .module)
+        guard let fn = library.makeFunction(name: "rgba16fToBgra8") else {
+            Issue.record("rgba16fToBgra8 kernel not found")
+            return
+        }
+        let pso = try device.makeComputePipelineState(function: fn)
+        let cq = device.makeCommandQueue()!
+
+        let size = Size(width: 4, height: 4)
+
+        // Build a shared RGBA16F source texture with a known red pixel (R=1.0, G=0, B=0, A=1.0).
+        let srcDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float, width: size.width, height: size.height, mipmapped: false)
+        srcDesc.usage = [.shaderRead, .shaderWrite]
+        srcDesc.storageMode = .shared
+        guard let srcTex = device.makeTexture(descriptor: srcDesc) else {
+            Issue.record("could not create source texture")
+            return
+        }
+        // Float16 bit patterns: 1.0 = 0x3C00, 0.0 = 0x0000, 2.0 = 0x4000
+        let half1: UInt16 = 0x3C00  // 1.0
+        let half2: UInt16 = 0x4000  // 2.0 (out-of-[0,1] — should clamp)
+        let half0: UInt16 = 0x0000  // 0.0
+        // RGBA order in source texture memory.
+        // Row 0–1: solid red R=1.0 — for channel-order check [B=0, G=0, R=255, A=255].
+        let normalRow: [UInt16] = [half1, half0, half0, half1]
+        // Row 2–3: over-bright red R=2.0 — unorm write must clamp to 255, not wrap to 0.
+        let clampRow: [UInt16] = [half2, half0, half0, half1]
+        let rowBytes = size.width * 4 * 2  // 4 channels × 2 bytes/channel
+        var rowData = [UInt16](repeating: 0, count: size.width * 4)
+        // Rows 0-1: fill with normalRow.
+        for col in 0..<size.width {
+            rowData[col * 4 + 0] = normalRow[0]
+            rowData[col * 4 + 1] = normalRow[1]
+            rowData[col * 4 + 2] = normalRow[2]
+            rowData[col * 4 + 3] = normalRow[3]
+        }
+        srcTex.replace(
+            region: MTLRegionMake2D(0, 0, size.width, 2),
+            mipmapLevel: 0,
+            withBytes: rowData,
+            bytesPerRow: rowBytes)
+        // Rows 2-3: fill with clampRow.
+        for col in 0..<size.width {
+            rowData[col * 4 + 0] = clampRow[0]
+            rowData[col * 4 + 1] = clampRow[1]
+            rowData[col * 4 + 2] = clampRow[2]
+            rowData[col * 4 + 3] = clampRow[3]
+        }
+        srcTex.replace(
+            region: MTLRegionMake2D(0, 2, size.width, 2),
+            mipmapLevel: 0,
+            withBytes: rowData,
+            bytesPerRow: rowBytes)
+
+        // Dequeue a BGRA8 destination from the pool.
+        let pool = try tpm.makeBgra8LanePool(size: size)
+        let (dstBuf, dstTex) = try tpm.dequeueEightBitPoolTexture(
+            pool: pool, width: size.width, height: size.height)
+
+        let cb = cq.makeCommandBuffer()!
+        let enc = cb.makeComputeCommandEncoder()!
+        enc.setComputePipelineState(pso)
+        enc.setTexture(srcTex, index: 0)
+        enc.setTexture(dstTex, index: 1)
+        let tg = MTLSize(width: 8, height: 8, depth: 1)
+        let groups = MTLSize(
+            width: (size.width + 7) / 8, height: (size.height + 7) / 8, depth: 1)
+        enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+
+        // Read back the BGRA8 pixel from the CVPixelBuffer (ADR-06: through IOSurface).
+        CVPixelBufferLockBaseAddress(dstBuf, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(dstBuf, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(dstBuf) else {
+            Issue.record("could not lock BGRA8 buffer")
+            return
+        }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(dstBuf)
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+
+        // Row 0, column 0: normal red → BGRA = [0, 0, 255, 255]
+        let b0 = bytes[0]
+        let g0 = bytes[1]
+        let r0 = bytes[2]
+        let a0 = bytes[3]
+        #expect(b0 == 0, "B channel of red pixel should be 0, got \(b0)")
+        #expect(g0 == 0, "G channel of red pixel should be 0, got \(g0)")
+        #expect(r0 == 255, "R channel of red pixel should be 255, got \(r0)")
+        #expect(a0 == 255, "A channel of red pixel should be 255, got \(a0)")
+
+        // Row 2, column 0: over-bright red (R=2.0) → unorm clamp → R=255, not wrap to 0
+        let row2 = bytesPerRow * 2
+        let b2 = bytes[row2 + 0]
+        let r2 = bytes[row2 + 2]
+        #expect(b2 == 0, "B channel of over-bright red should be 0, got \(b2)")
+        #expect(r2 == 255, "R=2.0 should clamp to 255 (not wrap to 0), got \(r2)")
     }
 }
 
