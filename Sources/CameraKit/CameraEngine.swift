@@ -215,9 +215,25 @@ public actor CameraEngine {
         guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
             throw EngineError.metal(MetalError.unsupportedFormat)
         }
+        // P2a — honor OpenConfiguration.cropRegion as a TRUE crop: validate it
+        // against the sensor (same constraints as setCropRegion — in-bounds,
+        // even coords for 4:2:0), then size the output textures to the crop.
+        // nil → full-frame output (captureSize), the default.
+        let openOutputSize: Size?
+        let openCropOrigin: (x: Int, y: Int)
+        if let crop = configuration.cropRegion {
+            try validateCropRegion(crop, sensor: captureSize)
+            openOutputSize = Size(width: crop.width, height: crop.height)
+            openCropOrigin = (crop.x, crop.y)
+        } else {
+            openOutputSize = nil
+            openCropOrigin = (0, 0)
+        }
         let pipeline = try MetalPipeline(
             device: mtlDevice,
             captureSize: captureSize,
+            outputSize: openOutputSize,
+            cropOrigin: openCropOrigin,
             gate: submissionGate,
             consumers: consumers,
             engineSessionToken: sessionToken,
@@ -256,6 +272,11 @@ public actor CameraEngine {
         self.captureDelegate = delegate
         self.metalPipeline = pipeline
         self._metalPipeline.store(pipeline)
+        // Seed the preview mailboxes with blank pool buffers so the natural and
+        // processed lanes are non-nil on first open(), before the first frame —
+        // otherwise the Flutter texture bridge registers id 0 and the natural
+        // lane stays black until a close→open cycle (measurements 2026-05-20 §1, P2b).
+        pipeline.seedPreviewMailboxes()
         stillCapture = StillCapture()
         self.deliveryQueue = delivery
 
@@ -336,14 +357,17 @@ public actor CameraEngine {
             await self.setProcessingParams(persistedProcessing)
         }
 
+        // Mirror the requested crop into `currentCropRegion` so subsequent
+        // `publishStreamConfiguration()` callers reflect the open-time crop even
+        // before any `setCropRegion(_:)`. Source of truth for published config is
+        // pipeline state (`Self.activeCropRect(for:)`), not this mirror.
+        currentCropRegion = configuration.cropRegion
+
         // 11. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
-        let activeCropRegion = Rect(
-            x: 0,
-            y: 0,
-            width: Constants.cropDefaultWidthPx,
-            height: Constants.cropDefaultHeightPx
-        )
+        // P2a — the REAL crop rect, derived from the pipeline's outputSize +
+        // cropOrigin: full-frame Rect(0,0,sensorW,sensorH) when uncropped.
+        let activeCropRegion = Self.activeCropRect(for: pipeline)
         let isoRange = await device.isoRange
         let exposureDurationRangeNs = await device.exposureDurationRangeNs
         let zoomMin = await device.minAvailableVideoZoomFactor
@@ -463,17 +487,27 @@ public actor CameraEngine {
         return stream
     }
 
+    /// P2a — the REAL active crop rect for a pipeline: the sub-region the output
+    /// textures cover.
+    ///
+    /// `Rect(cropOrigin.x, cropOrigin.y, outputSize.width, outputSize.height)`,
+    /// which collapses to full-frame `Rect(0, 0, sensorW, sensorH)` when
+    /// uncropped. Single source of truth for `activeCropRegion` in both
+    /// `open()`'s `SessionCapabilities` and `publishStreamConfiguration()` —
+    /// derived from pipeline state, not the `currentCropRegion` mirror.
+    private static func activeCropRect(for pipeline: MetalPipeline) -> Rect {
+        Rect(
+            x: pipeline.cropOrigin.x,
+            y: pipeline.cropOrigin.y,
+            width: pipeline.outputSize.width,
+            height: pipeline.outputSize.height)
+    }
+
     private func publishStreamConfiguration() {
         guard let pipeline = metalPipeline else { return }
-        let crop =
-            currentCropRegion
-            ?? Rect(
-                x: 0, y: 0,
-                width: pipeline.captureSize.width,
-                height: pipeline.captureSize.height)
         let cfg = StreamConfiguration(
             activeCaptureResolution: pipeline.captureSize,
-            activeCropRegion: crop)
+            activeCropRegion: Self.activeCropRect(for: pipeline))
         streamConfigContinuationBox.withLock { $0?.yield(cfg) }
     }
 
@@ -704,6 +738,9 @@ public actor CameraEngine {
         }
         metalPipeline = pipeline
         _metalPipeline.store(pipeline)
+        // Seed preview mailboxes for the new pipeline so the lanes don't blank
+        // during a resolution change (measurements 2026-05-20 §1, P2b).
+        pipeline.seedPreviewMailboxes()
 
         captureDelegate?.logNextFrame = true
         submissionGate.store(true, ordering: .sequentiallyConsistent)
@@ -878,34 +915,93 @@ public actor CameraEngine {
         Task.detached { SettingsPersistence.saveProcessing(toSave) }
     }
 
-    /// Stage 04: writes the Pass-1 crop rectangle into the pipeline's `UniformsHost.crop` field.
+    /// Validates a P2a true-crop rect against the sensor bounds and the 4:2:0
+    /// chroma-alignment constraint.
     ///
-    /// Coordinates are pixel-space within the active capture size; pixels outside the rect render as black.
-    ///
-    /// - Throws: `EngineError.notOpen` if the session is not open.
-    /// - Throws: `EngineError.settingsConflict` if the rect is degenerate
-    ///   (zero width/height) or extends past the capture bounds.
-    public func setCropRegion(_ rect: Rect) async throws {
-        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-        let texW = pipeline.captureSize.width
-        let texH = pipeline.captureSize.height
+    /// - Throws: `EngineError.settingsConflict` if the rect is degenerate (zero
+    ///   width/height), extends past the sensor bounds, or has any odd
+    ///   coordinate. Odd luma offsets/extents skew the half-resolution chroma
+    ///   plane sampling and cause color fringing, so all four fields must be
+    ///   even (4:2:0). Shared by `open()` and `setCropRegion(_:)`.
+    private func validateCropRegion(_ rect: Rect, sensor: Size) throws {
         guard rect.width > 0, rect.height > 0,
             rect.x >= 0, rect.y >= 0,
-            rect.x + rect.width <= texW,
-            rect.y + rect.height <= texH
+            rect.x + rect.width <= sensor.width,
+            rect.y + rect.height <= sensor.height
         else {
             throw EngineError.settingsConflict(
-                reason: "crop rect \(rect) outside capture bounds \(texW)x\(texH)")
+                reason: "crop rect \(rect) outside sensor bounds \(sensor.width)x\(sensor.height)")
         }
-        // Route through the mutex so the delivery-queue snapshot in encode() is always coherent (Inv 6).
-        pipeline.uniforms.withLock { storage in
-            storage.crop = CropUniform(
-                originX: UInt32(rect.x),
-                originY: UInt32(rect.y),
-                width: UInt32(rect.width),
-                height: UInt32(rect.height)
-            )
+        guard rect.x % 2 == 0, rect.y % 2 == 0,
+            rect.width % 2 == 0, rect.height % 2 == 0
+        else {
+            throw EngineError.settingsConflict(
+                reason: "crop rect \(rect) has odd coordinate(s); 4:2:0 chroma requires even x/y/width/height")
         }
+    }
+
+    /// P2a: applies a TRUE crop — the natural/processed output resolution becomes
+    /// the crop-region size.
+    ///
+    /// The AVCaptureSession keeps producing full sensor-size buffers; Pass-1
+    /// reads the `rect`-offset sub-region at 1:1 into `rect.width × rect.height`
+    /// output textures (no zoom, no masking). Implemented by recreating the
+    /// `MetalPipeline` with the new `outputSize`/`cropOrigin` — the sensor
+    /// resolution is unchanged, so (unlike `setResolution`) the AVF session is
+    /// NOT reconfigured. Overrides state.md #67 (which recommended dropping this
+    /// API); see DECISIONS.md.
+    ///
+    /// - Throws: `EngineError.notOpen` if the session is not open.
+    /// - Throws: `EngineError.calibrationInProgress` if a calibration is in
+    ///   flight (the rebuild would invalidate its pipeline reference).
+    /// - Throws: `EngineError.settingsConflict` if the rect is degenerate,
+    ///   out of sensor bounds, or has odd coordinates (4:2:0 chroma).
+    public func setCropRegion(_ rect: Rect) async throws {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        // A pipeline rebuild would strand an in-flight calibration's reference.
+        if calibrationTask != nil { throw EngineError.calibrationInProgress }
+
+        let sensor = pipeline.captureSize
+        try validateCropRegion(rect, sensor: sensor)
+
+        submissionGate.store(false, ordering: .sequentiallyConsistent)
+        await drainSubmittedFrame()
+
+        metalPipeline = nil
+        _metalPipeline.store(nil)
+
+        guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
+            throw EngineError.metal(MetalError.unsupportedFormat)
+        }
+        let newPipeline = try MetalPipeline(
+            device: mtlDevice,
+            captureSize: sensor,
+            outputSize: Size(width: rect.width, height: rect.height),
+            cropOrigin: (rect.x, rect.y),
+            gate: submissionGate,
+            consumers: consumers,
+            engineSessionToken: sessionToken,
+            lanesEightBit: lanesEightBitCurrent
+        )
+        newPipeline.onMetalError = { [weak self] mErr in
+            Task { [weak self] in
+                let err = CameraError(
+                    code: .unknownError,
+                    message: "metal: \(mErr)",
+                    isFatal: false
+                )
+                await self?.publishErrorAsync(err)
+                await self?.recovery?.enterRecovery(error: err)
+            }
+        }
+        metalPipeline = newPipeline
+        _metalPipeline.store(newPipeline)
+        // Seed preview mailboxes so the lanes don't blank during the crop change
+        // (measurements 2026-05-20 §1, P2b).
+        newPipeline.seedPreviewMailboxes()
+
+        submissionGate.store(true, ordering: .sequentiallyConsistent)
+
         currentCropRegion = rect
         // Phase-2 §2c: emit active-config-changed.
         publishStreamConfiguration()
