@@ -164,13 +164,12 @@ final class TexturePoolManager: @unchecked Sendable {
     }
 
     /// Creates a `CVPixelBufferPool` that vends IOSurface-backed, Metal-compatible
-    /// **BGRA8** `CVPixelBuffer`s for the pre-Phase-3 RGBA8 conversion path.
+    /// **BGRA8** `CVPixelBuffer`s for the RGBA8 lane-conversion path (Pass-7).
     ///
     /// Parallel to `makeWorkingFormatPool` but emits
     /// `kCVPixelFormatType_32BGRA` instead of `_64RGBAHalf`. Same pool
     /// attributes (`POOL_MIN_BUFFER_COUNT`, `POOL_MAX_BUFFER_AGE_SECONDS`,
-    /// IOSurface + Metal compatibility). Used only when
-    /// `OpenConfiguration.lanesEightBit == true`.
+    /// IOSurface + Metal compatibility).
     func makeBgra8LanePool(size: Size) throws -> CVPixelBufferPool {
         let poolAttrs: [CFString: Any] = [
             kCVPixelBufferPoolMinimumBufferCountKey: Constants.poolMinBufferCount,

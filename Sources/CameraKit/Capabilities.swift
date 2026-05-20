@@ -38,16 +38,13 @@ public struct SessionCapabilities: Sendable, Hashable {
     /// `currentPixelBuffer(stream:)` — what the Phase-3 zero-copy texture
     /// bridge sees.
     ///
-    /// Default (`OpenConfiguration.lanesEightBit == true`): `"BGRA8"`
-    /// (`kCVPixelFormatType_32BGRA`, `.bgra8Unorm`) — Apple's
+    /// Always `"BGRA8"` (`kCVPixelFormatType_32BGRA`, `.bgra8Unorm`) — Apple's
     /// `CVMetalTextureCache`-canonical 32-bit RGBA-family format on iOS.
-    /// Opt-out (`lanesEightBit == false`): `"RGBA16F"`
-    /// (`kCVPixelFormatType_64RGBAHalf`, `.rgba16Float`).
     ///
     /// The **texture accessors** — `currentTexture()`,
     /// `currentProcessedTexture()`, `currentTrackerTexture()` — always return
-    /// `.rgba16Float` regardless of the flag (Phase-2 §2c + pre-Phase-3 RGBA8
-    /// asymmetry). Tracker buffer also stays RGBA16F either way.
+    /// `.rgba16Float` (Phase-2 §2c asymmetry). Tracker buffer also stays
+    /// RGBA16F.
     ///
     /// Note this is **not** the camera *source* format (YUV `420f`, converted
     /// by MetalPipeline Pass-1).
@@ -110,35 +107,17 @@ public struct OpenConfiguration: Sendable, Hashable {
     /// §2a. Applied via the same `updateSettings` merge+coupling+commit path
     /// after `setupSession` returns and before the first `startRunning`.
     public var initialSettings: CameraSettings?
-    /// When true (default), `currentPixelBuffer(stream: .natural)` and
-    /// `currentPixelBuffer(stream: .processed)` return BGRA8 buffers
-    /// (`kCVPixelFormatType_32BGRA`, `MTLPixelFormat.bgra8Unorm`) — Apple's
-    /// `CVMetalTextureCache`-canonical 32-bit RGBA-family format on iOS.
-    ///
-    /// When false, those accessors return the internal RGBA16F lane buffers
-    /// (`kCVPixelFormatType_64RGBAHalf`). Tracker is RGBA16F either way.
-    ///
-    /// Default true → matches the Flutter plugin's expected wire format on
-    /// the Phase-3 zero-copy bridge. Internal pipeline (Pass-1/2/4/5/6,
-    /// calibration sampling, MTKView preview, still capture) stays RGBA16F
-    /// regardless. Texture accessors (`currentTexture()` /
-    /// `currentProcessedTexture()` / `currentTrackerTexture()`) always return
-    /// `.rgba16Float`. See
-    /// `docs/superpowers/specs/2026-05-15-rgba16f-to-rgba8-conversion-design.md`.
-    public var lanesEightBit: Bool
 
     public init(
         cameraId: String? = nil,
         captureResolution: Size? = nil,
         cropRegion: Rect? = nil,
-        initialSettings: CameraSettings? = nil,
-        lanesEightBit: Bool = true
+        initialSettings: CameraSettings? = nil
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
         self.cropRegion = cropRegion
         self.initialSettings = initialSettings
-        self.lanesEightBit = lanesEightBit
     }
 }
 
