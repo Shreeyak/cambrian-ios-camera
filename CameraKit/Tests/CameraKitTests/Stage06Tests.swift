@@ -110,7 +110,8 @@ struct Stage06Tests {
             pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
         let (pb, _) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
-        let (tb, _) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+        // Tracker pool is BGRA8 — use the 8-bit dequeue helper (Task 2 format change).
+        let (tb, _) = try pipeline.texturePoolForTest.dequeueEightBitPoolTexture(
             pool: pipeline.trackerPoolForTest,
             width: pipeline.trackerSizeForTest.width,
             height: pipeline.trackerSizeForTest.height)
