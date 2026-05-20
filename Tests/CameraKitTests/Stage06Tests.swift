@@ -110,7 +110,8 @@ struct Stage06Tests {
             pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
         let (pb, _) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
-        let (tb, _) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+        // Tracker pool is BGRA8 — use the 8-bit dequeue helper (Task 2 format change).
+        let (tb, _) = try pipeline.texturePoolForTest.dequeueEightBitPoolTexture(
             pool: pipeline.trackerPoolForTest,
             width: pipeline.trackerSizeForTest.width,
             height: pipeline.trackerSizeForTest.height)
@@ -125,14 +126,14 @@ struct Stage06Tests {
     /// `seedPreviewMailboxes()` makes the natural + processed lanes non-nil
     /// before the first frame is encoded.
     ///
-    /// Without it, `currentPixelBuffer(.natural)` is nil on first open and the
-    /// raw lane stays black (texture id 0) until a close→open cycle. Covers both
-    /// the RGBA16F (default) and the BGRA8 Phase-3 bridge lane formats.
+    /// Without it, `currentPixelBuffer(.natural)` / `currentTexture()` are nil on
+    /// first open and the raw lane stays black (texture id 0) until a close→open
+    /// cycle. Seeds the BGRA8 buffer + BGRA8 texture (Flutter bridge) and the
+    /// RGBA16F texture (calibration).
     @Test func seedPreviewMailboxesPopulatesLanesBeforeFirstFrame() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let size = Size(width: 256, height: 256)
 
-        // Default lanes (RGBA16F).
         let pipeline = try MetalPipeline(
             device: device, captureSize: size,
             gateOpen: true, consumers: ConsumerRegistry())
@@ -141,15 +142,13 @@ struct Stage06Tests {
         pipeline.seedPreviewMailboxes()
         #expect(pipeline.latestNaturalBuffer != nil, "natural lane seeded on open")
         #expect(pipeline.latestProcessedBuffer != nil, "processed lane seeded on open")
-        #expect(pipeline.latestNaturalTex != nil)
-        #expect(pipeline.latestProcessedTex != nil)
+        #expect(pipeline.latestNaturalBgra8Tex != nil, "bridge BGRA8 texture seeded")
+        #expect(pipeline.latestProcessedBgra8Tex != nil)
+        #expect(pipeline.latestNaturalTex16F != nil, "calibration RGBA16F texture seeded")
+        #expect(pipeline.latestProcessedTex16F != nil)
 
-        // BGRA8 lanes (Phase-3 bridge format): the seeded buffer must be BGRA8.
-        let pipeline8 = try MetalPipeline(
-            device: device, captureSize: size,
-            gateOpen: true, lanesEightBit: true)
-        pipeline8.seedPreviewMailboxes()
-        let nat8 = try #require(pipeline8.latestNaturalBuffer)
+        // The bridge buffer must be BGRA8 (the unconditional Flutter delivery format).
+        let nat8 = try #require(pipeline.latestNaturalBuffer)
         #expect(
             CVPixelBufferGetPixelFormatType(nat8) == kCVPixelFormatType_32BGRA,
             "BGRA8 lane must seed a BGRA8 buffer for the Flutter bridge")
@@ -164,9 +163,9 @@ struct Stage06Tests {
             device: device, captureSize: size,
             gateOpen: true, consumers: ConsumerRegistry())
         pipeline.seedPreviewMailboxes()
-        let firstTex = try #require(pipeline.latestNaturalTex)
-        pipeline.seedPreviewMailboxes()  // guard: latestNaturalTex != nil → no-op
-        let secondTex = try #require(pipeline.latestNaturalTex)
+        let firstTex = try #require(pipeline.latestNaturalBgra8Tex)
+        pipeline.seedPreviewMailboxes()  // guard: latestNaturalTex16F != nil → no-op
+        let secondTex = try #require(pipeline.latestNaturalBgra8Tex)
         #expect(firstTex === secondTex, "second seed must not replace the live texture")
     }
 
@@ -267,8 +266,7 @@ struct Stage06Tests {
             captureSize: sensor,
             outputSize: crop,
             cropOrigin: (256, 192),
-            gateOpen: true,
-            lanesEightBit: false)
+            gateOpen: true)
 
         // Source is sensor-sized; Pass-1 reads the offset sub-region.
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
@@ -277,8 +275,8 @@ struct Stage06Tests {
         // the transition to .completed — deterministic, no sleep.
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
-        let nat = try #require(pipeline.latestNaturalTex)
-        let proc = try #require(pipeline.latestProcessedTex)
+        let nat = try #require(pipeline.latestNaturalTex16F)
+        let proc = try #require(pipeline.latestProcessedTex16F)
         #expect(nat.width == 512)
         #expect(nat.height == 384)
         #expect(proc.width == 512)
@@ -292,14 +290,14 @@ struct Stage06Tests {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let sensor = Size(width: 512, height: 384)
         let pipeline = try MetalPipeline(
-            device: device, captureSize: sensor, gateOpen: true, lanesEightBit: false)
+            device: device, captureSize: sensor, gateOpen: true)
         #expect(pipeline.outputSize == sensor)
 
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
         try pipeline.encode(sampleBuffer: sb)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
-        let nat = try #require(pipeline.latestNaturalTex)
+        let nat = try #require(pipeline.latestNaturalTex16F)
         #expect(nat.width == 512)
         #expect(nat.height == 384)
     }
