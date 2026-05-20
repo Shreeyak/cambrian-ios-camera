@@ -100,8 +100,8 @@ public actor CameraEngine {
     nonisolated let sessionToken: ManagedAtomic<UInt64> = ManagedAtomic(0)
 
     // Bug 4 fix: previewTex accessors forward live to MetalPipeline mailboxes
-    // (`latestNaturalTex` / `latestProcessedTex`) — which the pipeline rewrites
-    // every frame. The previous capture-once snapshot pattern sat on whichever
+    // (`latestNaturalBgra8Tex` / `latestProcessedBgra8Tex`) — which the pipeline
+    // rewrites every frame. The previous capture-once snapshot pattern sat on whichever
     // pool buffer was dequeued at open() time and froze whenever pool rotation
     // moved past it (typical after any transient back-pressure). Tracker tex
     // already followed this live-forward pattern (line ~565).

@@ -7,8 +7,9 @@ using namespace metal;
 // B, G, R, A bytes. Clamp to [0, 1] so half-floats above nominal range don't
 // wrap into a low 8-bit value.
 //
-// One dispatch per lane (natural + processed); unconditional. Tracker lane is
-// not converted — no Phase-3 Pigeon counterpart (Open Q #4).
+// One dispatch per lane for natural + processed. The tracker lane does NOT use
+// this kernel — its pool is BGRA8, so Pass-4's downsample writes 8-bit directly
+// (fused), no separate convert dispatch.
 //
 // Reference: docs/superpowers/specs/2026-05-15-rgba16f-to-rgba8-conversion-design.md.
 

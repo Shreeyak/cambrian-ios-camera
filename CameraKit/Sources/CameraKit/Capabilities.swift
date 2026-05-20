@@ -39,12 +39,13 @@ public struct SessionCapabilities: Sendable, Hashable {
     /// bridge sees.
     ///
     /// Always `"BGRA8"` (`kCVPixelFormatType_32BGRA`, `.bgra8Unorm`) — Apple's
-    /// `CVMetalTextureCache`-canonical 32-bit RGBA-family format on iOS.
-    ///
-    /// The **texture accessors** — `currentTexture()`,
-    /// `currentProcessedTexture()`, `currentTrackerTexture()` — always return
-    /// `.rgba16Float` (Phase-2 §2c asymmetry). Tracker buffer also stays
-    /// RGBA16F.
+    /// `CVMetalTextureCache`-canonical 32-bit RGBA-family format on iOS, and the
+    /// single delivery format for every lane and every surface type. The
+    /// **texture accessors** — `currentTexture()`, `currentProcessedTexture()`,
+    /// `currentTrackerTexture()` — return the same BGRA8 IOSurface as the
+    /// matching `currentPixelBuffer(stream:)`. RGBA16F survives only as an
+    /// internal Metal-compute intermediate (the camera is 8-bit-locked, so
+    /// float precision buys nothing at the boundary).
     ///
     /// Note this is **not** the camera *source* format (YUV `420f`, converted
     /// by MetalPipeline Pass-1).
