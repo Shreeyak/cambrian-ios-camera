@@ -38,8 +38,6 @@ enum Constants {
     static let wbGrayWorldLogCap: Float = 0.25
     /// Per-frame wall-clock budget at 30fps (constants.md line 15).
     static let frameLatencyBudgetMs: Int = 33
-    /// IOSurface-backed working-texture pixel format — pairs with .rgba16Float MTLTexture views.
-    static let processedPixelFormat: OSType = kCVPixelFormatType_64RGBAHalf
 
     // MARK: - Stage 06 — Pool trio + tracker stream
 
