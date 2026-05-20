@@ -1,4 +1,7 @@
+import CoreMedia
+import CoreVideo
 import Foundation
+import Metal
 import Testing
 
 @testable import CameraKit
@@ -180,4 +183,83 @@ struct Stage13Phase2OpenConfigurationTests {
         #expect(cfg.initialSettings?.isoMode == .manual)
         #expect(cfg.initialSettings?.exposureTimeNs == 16_000_000)
     }
+}
+
+// MARK: - §2d.7 — FrameSet lane delivery (C++/AsyncStream consumers)
+
+@Suite("Stage 13 Phase 2 — FrameSet lane delivery")
+struct Stage13Phase2FrameSetDeliveryTests {
+
+    /// The `FrameSet` published to `consumers.yield` / the AsyncStream must
+    /// carry BGRA8 for every lane — that is what the C++ `CannyConsumer`
+    /// (`_32BGRA → COLOR_BGRA2GRAY`) and the Phase-3 bridge consume. A tracker
+    /// subscriber is registered so the tracker lane is the fused BGRA8 buffer,
+    /// not the natural fallback.
+    @Test("FrameSet delivers _32BGRA buffers for natural, processed, and tracker")
+    func frameSetLanesAreBgra8() async throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let consumers = ConsumerRegistry()
+        let pipeline = try MetalPipeline(
+            device: device,
+            captureSize: Size(width: 256, height: 192),
+            gateOpen: true,
+            consumers: consumers)
+
+        let naturalStream = await consumers.subscribe(stream: .natural)
+        let trackerStream = await consumers.subscribe(stream: .tracker)
+
+        let sample = try makeSyntheticYUVSampleBufferForStage13Tests(width: 256, height: 192)
+        try pipeline.encode(sampleBuffer: sample)
+
+        var received: FrameSet?
+        for await fs in naturalStream {
+            received = fs
+            break
+        }
+        guard let fs = received else {
+            Issue.record("no FrameSet delivered on the natural stream")
+            return
+        }
+        #expect(CVPixelBufferGetPixelFormatType(fs.natural) == kCVPixelFormatType_32BGRA)
+        #expect(CVPixelBufferGetPixelFormatType(fs.processed) == kCVPixelFormatType_32BGRA)
+        #expect(CVPixelBufferGetPixelFormatType(fs.tracker) == kCVPixelFormatType_32BGRA)
+        withExtendedLifetime(trackerStream) {}
+    }
+}
+
+// MARK: - Helpers
+
+/// IOSurface-backed YUV biplanar sample buffer for `encode(sampleBuffer:)`.
+///
+/// Named distinctly from the per-file helpers in the other suites to avoid
+/// linker symbol overlap within the test target.
+private func makeSyntheticYUVSampleBufferForStage13Tests(
+    width: Int, height: Int
+) throws -> CMSampleBuffer {
+    var pixelBuffer: CVPixelBuffer?
+    let attrs = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+    let cvStatus = CVPixelBufferCreate(
+        kCFAllocatorDefault, width, height,
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        attrs, &pixelBuffer)
+    guard cvStatus == kCVReturnSuccess, let pb = pixelBuffer else {
+        throw MetalError.unsupportedFormat
+    }
+    var fdOut: CMFormatDescription?
+    CMVideoFormatDescriptionCreateForImageBuffer(
+        allocator: kCFAllocatorDefault, imageBuffer: pb, formatDescriptionOut: &fdOut)
+    guard let fd = fdOut else { throw MetalError.unsupportedFormat }
+    var timing = CMSampleTimingInfo(
+        duration: CMTime(value: 1, timescale: 30),
+        presentationTimeStamp: .zero,
+        decodeTimeStamp: .invalid)
+    var sbOut: CMSampleBuffer?
+    CMSampleBufferCreateReadyWithImageBuffer(
+        allocator: kCFAllocatorDefault, imageBuffer: pb, formatDescription: fd,
+        sampleTiming: &timing, sampleBufferOut: &sbOut)
+    guard let sb = sbOut else { throw MetalError.unsupportedFormat }
+    return sb
 }
