@@ -12,7 +12,7 @@
 - Phase 1A + 1B (CameraKit decoupling).
 - Phase 2 (CameraKit API vocabulary alignment). Phase B re-uses this curated public surface (`setProcessingParams`, `OpenConfiguration.initialSettings`, capability ranges, `streamConfigurationStream`, `currentPixelBuffer(stream:)`, calibration methods returning `CalibrationResult`, `SessionState.interrupted`, etc.) as the basis for its Pigeon definitions.
 
-**Carries forward (authoritative measurement results):** `measurements/flutter-spm-spike/2026-05-15.md`, `measurements/texture-bridge/2026-05-15/notes.md`, `measurements/phase-3-prep/rgba8-conversion.md`.
+**Carries forward (authoritative measurement results):** `docs/measurements/flutter-spm-spike/2026-05-15.md`, `docs/measurements/texture-bridge/2026-05-15/notes.md`, `docs/measurements/phase-3-prep/rgba8-conversion.md`.
 
 ---
 
@@ -66,7 +66,7 @@ cambrian-ios-camera/  (repo root — renamed from eva-swift-stitch)
 │   └── README.md                            (notes "Phase B" — fresh design, no cam2fd carry-over)
 │
 ├── docs/
-│   ├── measurements/                      ← MOVED from /measurements/
+│   ├── docs/measurements/                      ← MOVED from /docs/measurements/
 │   │   ├── stage-NN/, texture-bridge/, flutter-spm-spike/, phase-3-prep/
 │   └── superpowers/
 │       ├── specs/, plans/
@@ -394,7 +394,7 @@ After A2.1–A2.8 commit, verify:
 - `mcp__XcodeBuildMCP__build_run_device` (or `scripts/build-summary.sh`) — `ios_example_app` builds successfully.
 - `grep -rln 'eva-swift-stitch\|eva_swift_stitch' --exclude-dir=.git --exclude-dir=implementation --exclude-dir=docs` — only matches under `docs/superpowers/specs/2026-05-{14,18}-*.md` and `CameraKit/state.md`. No live-code matches.
 
-### A3. Move `measurements/` to `docs/measurements/`
+### A3. Move `docs/measurements/` to `docs/docs/measurements/`
 
 ```bash
 git mv measurements docs/measurements
@@ -403,19 +403,19 @@ git mv measurements docs/measurements
 Exhaustive path-reference sweep:
 - `CameraKit/state.md` (per-stage HITL pointers)
 - `CameraKit/DECISIONS.md` (decision entries referencing measurement files)
-- `CameraKit/Sources/**/*.swift` and `CameraKit/Tests/**/*.swift` source comments — `grep -rln 'measurements/' CameraKit/Sources/ CameraKit/Tests/`
+- `CameraKit/Sources/**/*.swift` and `CameraKit/Tests/**/*.swift` source comments — `grep -rln 'docs/measurements/' CameraKit/Sources/ CameraKit/Tests/`
 - `docs/superpowers/specs/*.md`, `docs/superpowers/plans/*.md`
-- `scripts/` (`grep -rn measurements/ scripts/` to confirm)
+- `scripts/` (`grep -rn docs/measurements/ scripts/` to confirm)
 - `README.md` at repo root (if present)
 - **Do NOT edit `implementation/briefs/*.md`** — read-only symlinks to upstream. Flag as upstream-patch needed under "Open questions" in `state.md`; brief refs work against upstream's own root.
 
 Verify:
 ```bash
-grep -rn 'measurements/' \
+grep -rn 'docs/measurements/' \
   --exclude-dir=.git --exclude-dir=docs/measurements --exclude-dir=implementation \
   --include='*.swift' --include='*.md' --include='*.sh' --include='*.rb' \
   .
-# Zero hits, or only paths already updated to docs/measurements/.
+# Zero hits, or only paths already updated to docs/docs/measurements/.
 ```
 
 ### A4. Scaffold new top-level docs
@@ -637,17 +637,17 @@ if [ -n "$hits" ]; then
     FAIL=1
 fi
 
-echo "=== Legacy measurements/ path sweep (should be docs/measurements/) ==="
-hits=$(grep -rln 'measurements/' \
+echo "=== Legacy docs/measurements/ path sweep (should be docs/docs/measurements/) ==="
+hits=$(grep -rln 'docs/measurements/' \
     --exclude-dir=.git \
     --exclude-dir=docs/measurements \
     --exclude-dir=implementation \
     --include='*.swift' --include='*.md' --include='*.sh' --include='*.rb' \
     . || true)
-# Filter: allow already-updated docs/measurements/ refs
-hits=$(echo "$hits" | xargs -I{} grep -L 'docs/measurements/' {} 2>/dev/null || true)
+# Filter: allow already-updated docs/docs/measurements/ refs
+hits=$(echo "$hits" | xargs -I{} grep -L 'docs/docs/measurements/' {} 2>/dev/null || true)
 if [ -n "$hits" ]; then
-    echo "FAIL: unprefixed measurements/ found in:"
+    echo "FAIL: unprefixed docs/measurements/ found in:"
     echo "$hits"
     FAIL=1
 fi
@@ -697,7 +697,7 @@ Phase A is done when **all** of the following pass:
     ## Restructure 2026-05-20 — Flutter monorepo
     - Package.swift moved to repo root; CameraKit/Package.swift deleted; .testTarget dropped (see spec).
     - eva-swift-stitch renamed to ios_example_app (project, scheme, targets, source dirs, bundle ID).
-    - measurements/ moved to docs/measurements/.
+    - docs/measurements/ moved to docs/docs/measurements/.
     - flutter/ scaffolded (placeholder README; Phase B will populate).
     - .githooks/pre-push deleted; camerakit-only branch on origin frozen.
     - Phase 3 plans + spec archived to docs/superpowers/{plans,specs}/archive/.
@@ -800,7 +800,7 @@ Real ongoing risks the plan execution might still hit:
 | A0 | Tag current `main` as `pre-restructure-2026-05-20` | Coordinator |
 | A1 | Create root `Package.swift` (no real `.testTarget`; `SPMTestStub` instead); delete `CameraKit/Package.swift`. No build verification in A1. | Coordinator |
 | A2 | Eight sub-parts (A2.1–A2.8): pbxproj surgery via xcodeproj gem; single-commit filesystem moves (incl. `AppCxx/`, `Frameworks/` symlink); Swift source renames; bundle ID change + Apple Dev console step; `CameraKit.xcscheme` deletion + remaining scheme rename; `scripts/` sweep; `buildServer.json` at repo root; fastlane sweep. Then build verification. | Coordinator + subagent |
-| A3 | Move `measurements/` → `docs/measurements/`; exhaustive path-ref sweep | Coordinator |
+| A3 | Move `docs/measurements/` → `docs/docs/measurements/`; exhaustive path-ref sweep | Coordinator |
 | A4 | Scaffold `flutter/` placeholder README + root `README.md` | Coordinator |
 | A5 | Delete `.githooks/pre-push`. Leave `camerakit-only` branch on origin alone | Coordinator |
 | A5b | User renames GitHub repo to `cambrian-ios-camera`; update local remote URL | User + Coordinator |

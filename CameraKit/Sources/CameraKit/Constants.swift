@@ -114,7 +114,7 @@ enum Constants {
     /// AE lower frame-rate bound while recording — allows AE to halve in low light.
     /// constants.md#FRAME_RATE_RECORDING_MIN_FPS.
     static let frameRateRecordingMinFps: Int = 15
-    /// Default video bitrate. TARGET_BITRATE_MBPS is marked "measurements/" upstream;
+    /// Default video bitrate. TARGET_BITRATE_MBPS is marked "docs/measurements/" upstream;
     /// 40 Mbps is reasonable for 4K HEVC @ 30fps. See state.md open questions.
     static let recordingTargetBitrateBpsDefault: Int = 40_000_000
     /// Deadline for AVAssetWriter.finishWriting.

@@ -38,7 +38,7 @@
 
 ### Created (eva-swift-stitch, for documentation)
 
-- `measurements/phase-3-hitl/2026-MM-DD/` directory:
+- `docs/measurements/phase-3-hitl/2026-MM-DD/` directory:
   - `notes.md` — verbatim HITL matrix results (PASS/FAIL/notes per case)
   - `loaded-mode-regression.csv` — measurements from spec §8.6 rerun
   - `screen-recordings/` — at least one full HITL recording (.mov)
@@ -131,7 +131,7 @@ Display:
 
 ## Cluster C — 18-case on-device matrix (spec §8.4 + §10 OQ additions)
 
-Execute on physical iPad. Each case yields PASS / FAIL / NOTES, recorded in `eva-swift-stitch/measurements/phase-3-hitl/<date>/notes.md`.
+Execute on physical iPad. Each case yields PASS / FAIL / NOTES, recorded in `eva-swift-stitch/docs/measurements/phase-3-hitl/<date>/notes.md`.
 
 ### Task C1: Run all 18 cases
 
@@ -187,7 +187,7 @@ Per spec §8.5:
 
 **Acceptance threshold:** Per spec §8.6, `signal:pull ≥ 0.9` under stressor on connected iPad. If lower → Flutter raster-time signpost becomes mandatory (Cluster F).
 
-Record results to `measurements/phase-3-hitl/<date>/loaded-mode-regression.csv` with columns matching texture-bridge spike's `results.csv` where applicable.
+Record results to `docs/measurements/phase-3-hitl/<date>/loaded-mode-regression.csv` with columns matching texture-bridge spike's `results.csv` where applicable.
 
 ---
 
@@ -252,7 +252,7 @@ If Cluster D passed (`signal:pull ≥ 0.9`), skip Cluster F. Mention it in the p
 - [ ] `flutter analyze` clean
 - [ ] iOS + Android builds clean
 - [ ] README updated
-- [ ] HITL evidence checked in under `measurements/phase-3-hitl/<date>/`
+- [ ] HITL evidence checked in under `docs/measurements/phase-3-hitl/<date>/`
 
 ### Task G2: Push branch + final commits
 
@@ -270,7 +270,7 @@ Update the Phase 3 spec's status header to "Implemented YYYY-MM-DD". Carry-forwa
 - [ ] HITL screen exercises every host method (one button each)
 - [ ] Both texture widgets render live preview
 - [ ] FlutterApi streams visibly update (state, error, frame-result, stream-cfg, recording-state)
-- [ ] 18-case matrix recorded in `measurements/phase-3-hitl/<date>/notes.md` — every case PASS
+- [ ] 18-case matrix recorded in `docs/measurements/phase-3-hitl/<date>/notes.md` — every case PASS
 - [ ] Failure-mode rehearsals recorded
 - [ ] Loaded-mode regression CSV saved
 - [ ] Info.plist privacy strings verified in built `.app` via PlistBuddy
@@ -310,7 +310,7 @@ Future work (out of Phase 3 scope; not part of any of these four plans):
 the fresh example app — the processed preview rendered immediately. Likely cause:
 the example uses Flutter 3.41's scene-based lifecycle (`AppDelegate.swift` +
 `SceneDelegate.swift`), unlike the older repo-root app. So Cluster C actually ran
-on a physical iPad. Full results: `measurements/phase-3-hitl/2026-05-20/notes.md`.
+on a physical iPad. Full results: `docs/measurements/phase-3-hitl/2026-05-20/notes.md`.
 
 **Landed (code + docs):**
 - **Cluster A** — example `Info.plist` privacy strings; verified in built `.app`

@@ -1478,7 +1478,7 @@ git commit -m "feat(phase-1b): remove opencv2 from CameraKit package (final deco
 
 ## Task 12: Verify HITL — Canny edge-count overlay on iPad
 
-**Files:** none (HITL evidence captured in `measurements/phase-1b/`)
+**Files:** none (HITL evidence captured in `docs/measurements/phase-1b/`)
 
 The Phase 1A release introduced a regression risk for the DEBUG Canny overlay (`DisplayViewModel` now consumes a relocated wrapper through a relocated bridging header). Spec §Verification — Phase 1B requires: "the app links opencv2.xcframework, registers its Canny consumer through the seam after `engine.open()`, and edge counts flow on device — the Stage 08 Canny behaviour is preserved, just app-side."
 
@@ -1526,10 +1526,10 @@ mcp__XcodeBuildMCP__screenshot
 - [ ] **Step 4: Record HITL evidence**
 
 ```bash
-mkdir -p measurements/phase-1b
+mkdir -p docs/measurements/phase-1b
 ```
 
-Create `measurements/phase-1b/canny-overlay.md`:
+Create `docs/measurements/phase-1b/canny-overlay.md`:
 
 ```markdown
 # Phase 1B — Canny edge-count overlay HITL evidence
@@ -1555,7 +1555,7 @@ The Stage 08 Canny behaviour is preserved, just app-side.
 No commit on the screenshot; commit the markdown.
 
 ```bash
-git add measurements/phase-1b/canny-overlay.md
+git add docs/measurements/phase-1b/canny-overlay.md
 git commit -m "docs(phase-1b): HITL evidence — Canny overlay still firing on iPad"
 ```
 
@@ -1651,7 +1651,7 @@ use; previously it was completely unexercised.
 
 **Phase 1B exit gate:** `grep -rn "opencv\|cv::\|OpenCV" CameraKit/Sources/` → 0 hits.
 **Test bundle:** 127 passed / 0 failed (125 prior baseline + 2 new parity probes).
-**HITL:** edge-count overlay still firing on iPad — `measurements/phase-1b/canny-overlay.md`.
+**HITL:** edge-count overlay still firing on iPad — `docs/measurements/phase-1b/canny-overlay.md`.
 ```
 
 - [ ] **Step 3: Replace the Phase 1A landing section in state.md with Phase 1B**
@@ -1686,7 +1686,7 @@ identical frame sequences. This is the path Phase 3's Flutter plugin native
 code will use.
 
 HITL: Canny edge-count overlay still firing on iPad after `engine.open()` —
-`measurements/phase-1b/canny-overlay.md`.
+`docs/measurements/phase-1b/canny-overlay.md`.
 
 Bridge state: `CameraKitInterop` **stays exported** as a SwiftPM product.
 The dual-membered `Stage08Tests.stillCaptureUsesCppAtomic` still imports
@@ -1771,7 +1771,7 @@ git commit -m "docs(phase-1b): record OpenCV consumer decoupling landing
 - [ ] Test target keeps `CameraKitInterop` in its `packageProductDependencies` (for `Stage08Tests.stillCaptureUsesCppAtomic`)
 - [ ] `mcp__XcodeBuildMCP__test_device` → 127 / 0 / 0 on Shreeyak's iPad
 - [ ] CABI parity probe (`CABIParityTests.cabiParityWithSwiftAPI`) passes
-- [ ] HITL: Canny edge-count overlay still firing on iPad after `engine.open()`; evidence in `measurements/phase-1b/canny-overlay.md`
+- [ ] HITL: Canny edge-count overlay still firing on iPad after `engine.open()`; evidence in `docs/measurements/phase-1b/canny-overlay.md`
 - [ ] `CONTRACTS.md` regenerated; `state.md` records Phase 1B landing; `DECISIONS.md` has the new entry
 
 ---

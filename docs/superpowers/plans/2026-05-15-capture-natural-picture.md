@@ -357,7 +357,7 @@ Per CLAUDE.md §6 — device only, no simulators.
   output should have it applied.
 - Inspect EXIF of both — confirm `CamPlugin/v1` envelope has
   `"lane": "natural"` vs `"lane": "processed"`.
-- Evidence under `measurements/capture-natural-picture/2026-05-15/`.
+- Evidence under `docs/measurements/capture-natural-picture/2026-05-15/`.
 
 The HITL is the user's call to run; this plan ships the code and the CI tests.
 

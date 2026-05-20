@@ -191,7 +191,7 @@ when xcode is offline. `context7` covers third-party libraries; xcode
 Run targets, preferred order: **physical iPad** (required for R-21 camera-indicator
 and R-22 off-main `startRunning`); **Mac "Designed for iPad"** (day-to-day —
 exercises real capture). **Simulators are not an option on this machine** (see
-top of §6). Per-stage HITL / DEFERRED evidence lands under `measurements/stage-NN/`;
+top of §6). Per-stage HITL / DEFERRED evidence lands under `docs/measurements/stage-NN/`;
 each brief's §12 names the exact file paths.
 
 ### 6.0 One-time host setup

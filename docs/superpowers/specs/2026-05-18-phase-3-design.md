@@ -3,9 +3,9 @@
 **Status:** Draft 2026-05-18
 **Companion to:** `2026-05-14-camerakit-flutter-migration-design.md` (Phases 1–2 design, amended);
 `2026-05-15-phase3-handoff-notes.md` (carry-forward notes);
-`2026-05-15-texture-bridge-cadence-design.md` + `measurements/texture-bridge/2026-05-15/notes.md` (bridge spike + verdict);
-`measurements/flutter-spm-spike/2026-05-15.md` (packaging spike + verdict);
-`measurements/phase-3-prep/rgba8-conversion.md` (pixel-format closure).
+`2026-05-15-texture-bridge-cadence-design.md` + `docs/measurements/texture-bridge/2026-05-15/notes.md` (bridge spike + verdict);
+`docs/measurements/flutter-spm-spike/2026-05-15.md` (packaging spike + verdict);
+`docs/measurements/phase-3-prep/rgba8-conversion.md` (pixel-format closure).
 
 **Scope:** Phase 3 of the CameraKit → Flutter migration. Work in this phase
 spans **two repos**: `eva-swift-stitch` (this repo — the CameraKit producer
@@ -42,7 +42,7 @@ Phases 1–2 left CameraKit cleanly extractable. Specifically:
   `AVCapturePhotoOutput`).
 - Default lane wire-format is BGRA8 (`kCVPixelFormatType_32BGRA`) via the
   Pass-7 conversion; texture mailboxes stay RGBA16F for still capture
-  (D-2P-09, D-2P-11; HITL `measurements/phase-3-prep/rgba8-conversion.md`).
+  (D-2P-09, D-2P-11; HITL `docs/measurements/phase-3-prep/rgba8-conversion.md`).
 - The `camerakit-only` synthetic branch is live on `origin`
   (`https://github.com/Shreeyak/cambrian-ios-camera.git`); the
   `.githooks/pre-push` hook regenerates it on every push to `origin/main`
@@ -50,12 +50,12 @@ Phases 1–2 left CameraKit cleanly extractable. Specifically:
 
 Two empirical de-risks were closed before this spec:
 
-- **Packaging (SPM vs. CocoaPods).** `measurements/flutter-spm-spike/2026-05-15.md`
+- **Packaging (SPM vs. CocoaPods).** `docs/measurements/flutter-spm-spike/2026-05-15.md`
   verified Flutter's SPM integration accepts CameraKit's three-target shape
   verbatim, with `apple/swift-atomics` as a normal `.package(url:)` dep, no
   vendoring, and dual-mode tolerance for any CocoaPods-only sibling plugins.
   **Verdict: SPM.** CocoaPods remains documented as a fallback.
-- **Texture-bridge cadence.** `measurements/texture-bridge/2026-05-15/notes.md`
+- **Texture-bridge cadence.** `docs/measurements/texture-bridge/2026-05-15/notes.md`
   ran the cadence-spike on iPad Pro 11" 2nd gen. **Verdict: no mitigation
   needed.** The simple bridge — `copyPixelBuffer()` returns
   `currentPixelBuffer(stream:)` directly; per-lane subscriber `Task` fires
@@ -296,7 +296,7 @@ podspec in two ways:
   plan picks one path and uses it consistently.
 
 The CocoaPods-spike documentation
-(`measurements/cocoapods-cxx-spike/2026-05-15.md`) is the reference for
+(`docs/measurements/cocoapods-cxx-spike/2026-05-15.md`) is the reference for
 the four-pod shape if the SPM path ever needs to be retired — Phase 3
 does **not** build the four-pod shape; SPM is the production path and
 the podspec exists only to compile the *plugin* layer's Swift sources
@@ -460,7 +460,7 @@ observer wraps them as a higher-level concern.
 
 ## §4. FlutterTexture bridge — simple pull, per spike verdict
 
-The `measurements/texture-bridge/2026-05-15/notes.md` spike concluded
+The `docs/measurements/texture-bridge/2026-05-15/notes.md` spike concluded
 **no mitigation needed.** Phase 3 ships the simple version.
 
 ### Per-lane `FlutterTexture` implementation
@@ -482,7 +482,7 @@ accessor added in Phase 2 §2c — reads the live `Mailbox<CVPixelBuffer>`
 written by `MetalPipeline`'s delivery queue. No actor hop, no copy.
 
 Buffers are IOSurface-backed `kCVPixelFormatType_32BGRA` (per
-**D-2P-09** + **D-2P-11** + `measurements/phase-3-prep/rgba8-conversion.md`).
+**D-2P-09** + **D-2P-11** + `docs/measurements/phase-3-prep/rgba8-conversion.md`).
 Flutter's iOS embedder wraps via `CVMetalTextureCacheCreateTextureFromImage`
 as `.bgra8Unorm` — genuinely zero-copy. The Phase-3 handoff notes'
 three-option deliberation on RGBA16F (BGRA vs. RGBA16F vs. compute
@@ -578,7 +578,7 @@ Phase 3 carries forward:
 
 ### Pixel format is closed — do not re-open in implementation
 
-Per `measurements/phase-3-prep/rgba8-conversion.md` and **D-2P-11**: BGRA8
+Per `docs/measurements/phase-3-prep/rgba8-conversion.md` and **D-2P-11**: BGRA8
 wire format is the production setting; opt-out (`lanesEightBit: false`)
 returns the bridge to RGBA16F but is **not** a path the Flutter consumer
 exercises. Phase 3 does not implement an RGBA16F bridge variant.
@@ -975,7 +975,7 @@ mis-behaves on Pigeon 22.
 ## §7. Out of scope / non-goals
 
 - **No CocoaPods build path for Phase 3 production.** The four-pod
-  fallback documented at `measurements/cocoapods-cxx-spike/2026-05-15.md`
+  fallback documented at `docs/measurements/cocoapods-cxx-spike/2026-05-15.md`
   stays available; Phase 3 ships SPM.
 - **No multi-camera support.** One `CameraEngine` per `open(...)`. The
   handle abstraction is multi-engine-ready but the plan does not exercise
@@ -1064,7 +1064,7 @@ plugin tests, not CameraKit tests.
   ...)`.
 
 The full CameraKit test suite (141 tests pass as of Phase 2
-verification, per `measurements/phase-2/verification.md`) continues to
+verification, per `docs/measurements/phase-2/verification.md`) continues to
 run in **eva-swift-stitch**, not in cam2fd. cam2fd does not re-run
 CameraKit tests against the subtreed snapshot — by design, the snapshot
 is treated as a tagged release.
@@ -1087,7 +1087,7 @@ disallowed.
 | 6 | `setCropRegion` set + clear | `onStreamConfigurationChanged` fires both times with the new `cropWidth/cropHeight` (or null on clear) |
 | 7 | `captureImage(handle, dir, name, destination)` with `saveToLibrary: true` | result returns `phAssetLocalId`; image visible in Photos |
 | 8 | `captureImage(handle, dir, name, destination)` with `saveToLibrary: false` | result returns `filePath`; file exists on disk |
-| 9 | `captureNaturalPicture(...)` same matrix | same shape; HDR fidelity unchanged per `measurements/phase-3-prep/rgba8-conversion.md` precedent |
+| 9 | `captureNaturalPicture(...)` same matrix | same shape; HDR fidelity unchanged per `docs/measurements/phase-3-prep/rgba8-conversion.md` precedent |
 | 10 | `calibrateWhiteBalance(handle)` (iOS-only Pigeon path) | returns `CamCalibrationResult` with `before`/`after`, `converged: true`, `iterations: 1`; preview WB visibly adjusts |
 | 11 | `calibrateBlackBalance(handle)` | returns shape; preview pedestal visibly adjusts |
 | 12 | App background ↔ foreground | `onStateChanged` emits `"paused"` then `"streaming"`; preview resumes without rebuild |
@@ -1114,7 +1114,7 @@ disallowed.
 
 ### §8.6 Loaded-mode regression check
 
-Re-run the `measurements/texture-bridge/2026-05-15/` run-2 stressor
+Re-run the `docs/measurements/texture-bridge/2026-05-15/` run-2 stressor
 (continuous 5000-circle `CustomPainter`) inside the cam2fd example app
 with the **real** CameraKit pipeline (not the synthetic source the
 spike used) to confirm the loaded-mode jitter signature observed in the
@@ -1243,7 +1243,7 @@ to "must implement," not "recommended."
    Phase 3 starts, or (b) waiting for the Phase-3 spec → plan → code
    loop to settle on the producer side and tagging the loop's
    stabilization point as `v1.0.0`. Recommendation: (a) — Phase 2 is
-   stable as of `measurements/phase-2/verification.md` 2026-05-15; tag
+   stable as of `docs/measurements/phase-2/verification.md` 2026-05-15; tag
    now, iterate cam2fd separately.
 5. **Loaded-mode regression threshold.** §8.6 picks `signal:pull ≥ 0.9`
    as the on-device floor under the synthetic stressor. The plan

@@ -38,9 +38,9 @@
 | `scripts/*.sh` (11 files) | sed-replace `eva-swift-stitch.xcodeproj` → `ios_example_app/ios_example_app.xcodeproj`; `eva-swift-stitchTests` → `ios_example_appTests`; `eva-swift-stitchUITests` → `ios_example_appUITests`; `eva-swift-stitch` → `ios_example_app`; `eva_swift_stitch` → `ios_example_app`. |
 | `fastlane/Appfile`, `fastlane/Fastfile` | Manual edit of any `app_identifier` / scheme / xcodeproj refs. |
 | `CLAUDE.md` | Major rewrite of §1, §2, §3, §5, §6, §6.0, §8, §10. |
-| `CameraKit/state.md` | Add "Restructure 2026-05-20" entry; update `measurements/` path refs. |
-| `CameraKit/DECISIONS.md` | Update `measurements/` path refs (if any). |
-| Various source-code comments | Update `measurements/` refs in `CameraKit/Sources/`, `CameraKit/Tests/`. |
+| `CameraKit/state.md` | Add "Restructure 2026-05-20" entry; update `docs/measurements/` path refs. |
+| `CameraKit/DECISIONS.md` | Update `docs/measurements/` path refs (if any). |
+| Various source-code comments | Update `docs/measurements/` refs in `CameraKit/Sources/`, `CameraKit/Tests/`. |
 | App entry-point Swift file | `eva_swift_stitchApp.swift` → `ios_example_appApp.swift`; `@main struct eva_swift_stitchApp` → `@main struct ios_example_appApp`. |
 | 5 test files | `@testable import eva_swift_stitch` → `@testable import ios_example_app`. |
 | `eva_swift_stitchTests.swift` | File renamed to `ios_example_appTests.swift`; class renamed to match. |
@@ -53,7 +53,7 @@
 | `eva-swift-stitch/` | `ios_example_app/ios_example_app/` |
 | `eva-swift-stitchTests/` | `ios_example_app/Tests/` |
 | `eva-swift-stitchUITests/` | `ios_example_app/UITests/` |
-| `measurements/` | `docs/measurements/` |
+| `docs/measurements/` | `docs/docs/measurements/` |
 | `docs/superpowers/plans/2026-05-18-phase-3-plan-{1,2,3,4}-*.md` | `docs/superpowers/plans/archive/` |
 | `docs/superpowers/specs/2026-05-18-phase-3-design.md` | `docs/superpowers/specs/archive/` |
 
@@ -988,78 +988,78 @@ If verification fails, do NOT amend the commit. Investigate, write a fix commit,
 
 ---
 
-## Task 11: A3 — Move `measurements/` to `docs/measurements/`
+## Task 11: A3 — Move `docs/measurements/` to `docs/docs/measurements/`
 
-**Files moved:** `measurements/` → `docs/measurements/`
+**Files moved:** `docs/measurements/` → `docs/docs/measurements/`
 **Files modified:** `CameraKit/state.md`, `CameraKit/DECISIONS.md`, source comments under `CameraKit/Sources/` and `CameraKit/Tests/`, internal docs pointers.
 
-- [ ] **Step 1: Verify current measurements/ location.**
+- [ ] **Step 1: Verify current docs/measurements/ location.**
 
-Run: `ls measurements/ | head -5`
+Run: `ls docs/measurements/ | head -5`
 Expected: `phase-3-prep/`, `stage-08/`, `stage-09/`, `texture-bridge/`, etc.
 
 - [ ] **Step 2: Move the directory.**
 
 Run: `git mv measurements docs/measurements`
-Expected: no output. Verify: `ls docs/measurements/ | head -5`.
+Expected: no output. Verify: `ls docs/docs/measurements/ | head -5`.
 
 - [ ] **Step 3: Find references to the old path in source code.**
 
 Run:
 ```bash
-grep -rln 'measurements/' CameraKit/Sources/ CameraKit/Tests/
+grep -rln 'docs/measurements/' CameraKit/Sources/ CameraKit/Tests/
 ```
 Expected: zero or a small list. Note files.
 
 - [ ] **Step 4: Update source-code references.**
 
-For each file from Step 3, edit and replace `measurements/` with `docs/measurements/`. Most occurrences will be in doc comments — verify by inspecting the context (don't accidentally rewrite a string literal that means something else).
+For each file from Step 3, edit and replace `docs/measurements/` with `docs/docs/measurements/`. Most occurrences will be in doc comments — verify by inspecting the context (don't accidentally rewrite a string literal that means something else).
 
 If only doc comments are affected, mass-replace:
 ```bash
 find CameraKit/Sources CameraKit/Tests -name '*.swift' -exec sed -i '' \
-  's|measurements/|docs/measurements/|g' {} +
+  's|docs/measurements/|docs/docs/measurements/|g' {} +
 ```
 
 - [ ] **Step 5: Update references in state.md and DECISIONS.md.**
 
 Run:
 ```bash
-grep -n 'measurements/' CameraKit/state.md CameraKit/DECISIONS.md
+grep -n 'docs/measurements/' CameraKit/state.md CameraKit/DECISIONS.md
 ```
 For each match, edit the file and prefix with `docs/`. Or mass-replace:
 ```bash
-sed -i '' 's|measurements/|docs/measurements/|g' CameraKit/state.md CameraKit/DECISIONS.md
+sed -i '' 's|docs/measurements/|docs/docs/measurements/|g' CameraKit/state.md CameraKit/DECISIONS.md
 ```
 
 - [ ] **Step 6: Update references in docs/superpowers/.**
 
 Run:
 ```bash
-grep -rln 'measurements/' docs/superpowers/
+grep -rln 'docs/measurements/' docs/superpowers/
 ```
 Don't touch files under `docs/superpowers/specs/archive/` or `docs/superpowers/plans/archive/` (these are historical — leave as-is). For other matches, mass-replace:
 ```bash
 find docs/superpowers/specs docs/superpowers/plans -name '*.md' \
   -not -path '*/archive/*' \
-  -exec sed -i '' 's|measurements/|docs/measurements/|g' {} +
+  -exec sed -i '' 's|docs/measurements/|docs/docs/measurements/|g' {} +
 ```
 
-- [ ] **Step 7: Confirm scripts/ has no measurements/ refs.**
+- [ ] **Step 7: Confirm scripts/ has no docs/measurements/ refs.**
 
-Run: `grep -rn measurements/ scripts/`
+Run: `grep -rn docs/measurements/ scripts/`
 Expected: no output. If matches, update each.
 
 - [ ] **Step 8: Note that `implementation/briefs/*.md` are READ-ONLY symlinks.**
 
 Run: `ls -la implementation/`
-Expected: symlinks to `/Users/shrek/work/cambrian/ios-translation/...`. Brief refs work against upstream's own root layout — they don't need editing here. Flag this for the state.md update at Task 19 ("upstream briefs reference `measurements/stage-NN/` which resolves against upstream's own layout, not this repo's").
+Expected: symlinks to `/Users/shrek/work/cambrian/ios-translation/...`. Brief refs work against upstream's own root layout — they don't need editing here. Flag this for the state.md update at Task 19 ("upstream briefs reference `docs/measurements/stage-NN/` which resolves against upstream's own layout, not this repo's").
 
 - [ ] **Step 9: Final verification grep.**
 
 Run:
 ```bash
-grep -rn 'measurements/' \
+grep -rn 'docs/measurements/' \
   --exclude-dir=.git \
   --exclude-dir=docs/measurements \
   --exclude-dir=implementation \
@@ -1068,7 +1068,7 @@ grep -rn 'measurements/' \
   --include='*.swift' --include='*.md' --include='*.sh' --include='*.rb' \
   .
 ```
-Expected: zero hits, or only paths that already say `docs/measurements/`.
+Expected: zero hits, or only paths that already say `docs/docs/measurements/`.
 
 - [ ] **Step 10: Stage and commit.**
 
@@ -1079,14 +1079,14 @@ Expected: shows `R` lines for the directory move and `M` lines for the updated f
 Commit:
 ```bash
 git commit -m "$(cat <<'EOF'
-chore(restructure): A3 — move measurements/ to docs/measurements/
+chore(restructure): A3 — move docs/measurements/ to docs/docs/measurements/
 
 Exhaustive sweep of path references: CameraKit/state.md, DECISIONS.md,
 source-code comments under CameraKit/Sources/ and Tests/, internal docs
 pointers under docs/superpowers/.
 
 implementation/briefs/*.md are upstream READ-ONLY symlinks — their
-measurements/ refs resolve against upstream's own layout, not affected
+docs/measurements/ refs resolve against upstream's own layout, not affected
 by this move.
 
 Per docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md A3.
@@ -1537,7 +1537,7 @@ cambrian-ios-camera/  (repo root)
 │   └── README.md
 │
 ├── docs/
-│   ├── measurements/                      (per-stage HITL + spike notes)
+│   ├── docs/measurements/                      (per-stage HITL + spike notes)
 │   └── superpowers/{specs,plans}/         (+ archive/ for superseded Phase 3)
 │
 ├── implementation/                        (READ-ONLY symlinks to ios-translation)
@@ -1708,17 +1708,17 @@ if [ -n "$hits" ]; then
     FAIL=1
 fi
 
-echo "=== Legacy measurements/ path sweep (should be docs/measurements/) ==="
-hits=$(grep -rln 'measurements/' \
+echo "=== Legacy docs/measurements/ path sweep (should be docs/docs/measurements/) ==="
+hits=$(grep -rln 'docs/measurements/' \
     --exclude-dir=.git \
     --exclude-dir=docs/measurements \
     --exclude-dir=implementation \
     --include='*.swift' --include='*.md' --include='*.sh' --include='*.rb' \
     . || true)
-# Filter: allow already-updated docs/measurements/ refs
-hits=$(echo "$hits" | xargs -I{} grep -L 'docs/measurements/' {} 2>/dev/null || true)
+# Filter: allow already-updated docs/docs/measurements/ refs
+hits=$(echo "$hits" | xargs -I{} grep -L 'docs/docs/measurements/' {} 2>/dev/null || true)
 if [ -n "$hits" ]; then
-    echo "FAIL: unprefixed measurements/ found in:"
+    echo "FAIL: unprefixed docs/measurements/ found in:"
     echo "$hits"
     FAIL=1
 fi
@@ -1897,7 +1897,7 @@ Edit `CameraKit/state.md`. Find the top of the file (after any "Current stage" h
 
 - Package.swift moved to repo root; CameraKit/Package.swift deleted; .testTarget dropped (see spec).
 - eva-swift-stitch renamed to ios_example_app (project, scheme, targets, source dirs, bundle ID).
-- measurements/ moved to docs/measurements/.
+- docs/measurements/ moved to docs/docs/measurements/.
 - flutter/ scaffolded (placeholder README; Phase B will populate).
 - .githooks/pre-push deleted; camerakit-only branch on origin frozen.
 - Phase 3 plans + spec archived to docs/superpowers/{plans,specs}/archive/.

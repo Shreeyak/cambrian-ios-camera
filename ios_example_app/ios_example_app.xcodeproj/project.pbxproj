@@ -251,7 +251,7 @@
 				0180F31D54B458CEB93EF6B1 /* UI */,
 				74088CABCBA2F09A99F67F53 /* AppCxx */,
 			);
-			path = ios_example_app/ios_example_app;
+			path = ios_example_app;
 			sourceTree = "<group>";
 		};
 		14E07E1F2F8E513F00E9F7FC /* Preview Content */ = {
@@ -270,7 +270,7 @@
 				255FA5191553CA836E7A35A8 /* Stage08CannyTests.swift */,
 				3CAE570E5E991D0D48A41E91 /* CABIParityTests.swift */,
 			);
-			path = ios_example_app/Tests;
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		14E07E332F8E513F00E9F7FC /* UITests */ = {
@@ -279,7 +279,7 @@
 				14E07E342F8E513F00E9F7FC /* ios_example_appUITests.swift */,
 				14E07E362F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift */,
 			);
-			path = ios_example_app/UITests;
+			path = UITests;
 			sourceTree = "<group>";
 		};
 		55B96687A8A946447581150F /* include */ = {
