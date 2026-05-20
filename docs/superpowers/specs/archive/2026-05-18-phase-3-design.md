@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-20** by `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`. This plan targeted cam2fd integration which is no longer the architecture. Phase B's plan will be written fresh.
+
 # CameraKit → Flutter Migration — Phase 3 Design
 
 **Status:** Draft 2026-05-18

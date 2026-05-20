@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-20** by `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`. This plan targeted cam2fd integration which is no longer the architecture. Phase B's plan will be written fresh.
+
 # Phase 3 — Plan 4: HITL Matrix + Polish
 
 > **For agentic workers (opus or similar):** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax. Lean by design — acceptance metrics + reference pointers, not exhaustive code blocks.
