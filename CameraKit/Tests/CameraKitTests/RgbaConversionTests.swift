@@ -20,55 +20,9 @@ struct RgbaConversionConstantsTests {
         #expect(Constants.eightBitLaneMetalFormat == MTLPixelFormat.bgra8Unorm)
     }
 
-    @Test("streamPixelFormatStringEightBit is the literal \"BGRA8\"")
-    func streamPixelFormatStringEightBitMatches() {
-        #expect(Constants.streamPixelFormatStringEightBit == "BGRA8")
-    }
-
-    @Test("streamPixelFormatStringSixteenBit is the literal \"RGBA16F\"")
-    func streamPixelFormatStringSixteenBitMatches() {
-        #expect(Constants.streamPixelFormatStringSixteenBit == "RGBA16F")
-    }
-}
-
-// MARK: - OpenConfiguration
-
-@Suite("RGBA8 conversion — OpenConfiguration")
-struct RgbaConversionOpenConfigurationTests {
-
-    @Test("lanesEightBit defaults to true")
-    func lanesEightBitDefaultsToTrue() {
-        let cfg = OpenConfiguration()
-        #expect(cfg.lanesEightBit == true)
-    }
-
-    @Test("Legacy three-arg init still compiles; lanesEightBit defaults to true")
-    func legacyThreeArgInitDefaultsLanesEightBitTrue() {
-        let legacy = OpenConfiguration(
-            cameraId: "back",
-            captureResolution: Size(width: 1920, height: 1080),
-            cropRegion: nil)
-        #expect(legacy.lanesEightBit == true)
-        #expect(legacy.cameraId == "back")
-    }
-
-    @Test("Legacy four-arg init with initialSettings still compiles")
-    func legacyFourArgInitWithInitialSettingsCompiles() {
-        var s = CameraSettings()
-        s.iso = 400
-        let legacy = OpenConfiguration(
-            cameraId: "back",
-            captureResolution: nil,
-            cropRegion: nil,
-            initialSettings: s)
-        #expect(legacy.initialSettings?.iso == 400)
-        #expect(legacy.lanesEightBit == true)
-    }
-
-    @Test("lanesEightBit can be opted out to false")
-    func lanesEightBitOptOutFalse() {
-        let cfg = OpenConfiguration(lanesEightBit: false)
-        #expect(cfg.lanesEightBit == false)
+    @Test("streamPixelFormatString is the literal \"BGRA8\"")
+    func streamPixelFormatStringMatchesBgra8() {
+        #expect(Constants.streamPixelFormatString == "BGRA8")
     }
 }
 
@@ -137,13 +91,13 @@ struct RgbaConversionKernelDiscoveryTests {
     }
 }
 
-// MARK: - MetalPipeline flag plumbing
+// MARK: - MetalPipeline — BGRA8 pools always allocated
 
-@Suite("RGBA8 conversion — MetalPipeline flag plumbing")
-struct RgbaConversionPipelineFlagTests {
+@Suite("RGBA8 conversion — MetalPipeline always allocates BGRA8 pools")
+struct RgbaConversionPipelinePoolTests {
 
-    @Test("Pipeline with lanesEightBit=true allocates 8-bit pools")
-    func pipelineFlagOnAllocatesEightBitPools() throws {
+    @Test("Pipeline always allocates 8-bit pools for natural and processed")
+    func pipelineAlwaysAllocatesEightBitPools() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -151,29 +105,11 @@ struct RgbaConversionPipelineFlagTests {
         let pipeline = try MetalPipeline(
             device: device,
             captureSize: Size(width: 256, height: 256),
-            gateOpen: true,
-            lanesEightBit: true)
+            gateOpen: true)
         #expect(pipeline.eightBitNaturalPoolForTest != nil)
         #expect(pipeline.eightBitProcessedPoolForTest != nil)
+        /// Tracker lane is not converted — no Phase-3 Pigeon counterpart (Plan OQ #4).
         #expect(pipeline.eightBitTrackerPoolForTest == nil)
-        #expect(pipeline.lanesEightBitForTest == true)
-    }
-
-    @Test("Pipeline with lanesEightBit=false skips 8-bit pool allocation")
-    func pipelineFlagOffSkipsEightBitPools() throws {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            Issue.record("no metal device")
-            return
-        }
-        let pipeline = try MetalPipeline(
-            device: device,
-            captureSize: Size(width: 256, height: 256),
-            gateOpen: true,
-            lanesEightBit: false)
-        #expect(pipeline.eightBitNaturalPoolForTest == nil)
-        #expect(pipeline.eightBitProcessedPoolForTest == nil)
-        #expect(pipeline.eightBitTrackerPoolForTest == nil)
-        #expect(pipeline.lanesEightBitForTest == false)
     }
 }
 
@@ -182,8 +118,8 @@ struct RgbaConversionPipelineFlagTests {
 @Suite("RGBA8 conversion — mailbox format end-to-end")
 struct RgbaConversionMailboxFormatTests {
 
-    @Test("Flag-on: latest*Buffer is BGRA8 for natural and processed")
-    func flagOnNaturalProcessedAreBgra8() throws {
+    @Test("latest*Buffer is BGRA8 for natural and processed (conversion is unconditional)")
+    func naturalProcessedAreBgra8() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -193,8 +129,7 @@ struct RgbaConversionMailboxFormatTests {
             device: device,
             captureSize: Size(width: 256, height: 192),
             gateOpen: true,
-            consumers: consumers,
-            lanesEightBit: true)
+            consumers: consumers)
 
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
@@ -205,7 +140,7 @@ struct RgbaConversionMailboxFormatTests {
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         guard let natural = pipeline.latestNaturalBufferForTest,
-              let processed = pipeline.latestProcessedBufferForTest
+            let processed = pipeline.latestProcessedBufferForTest
         else {
             Issue.record("natural/processed mailboxes not populated")
             return
@@ -214,8 +149,8 @@ struct RgbaConversionMailboxFormatTests {
         #expect(CVPixelBufferGetPixelFormatType(processed) == kCVPixelFormatType_32BGRA)
     }
 
-    @Test("Flag-off: latest*Buffer stays RGBA16F for natural and processed")
-    func flagOffNaturalProcessedStayRgba16f() throws {
+    @Test("Texture mailboxes always return .rgba16Float")
+    func textureMailboxesAlwaysRgba16Float() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -225,56 +160,24 @@ struct RgbaConversionMailboxFormatTests {
             device: device,
             captureSize: Size(width: 256, height: 192),
             gateOpen: true,
-            consumers: consumers,
-            lanesEightBit: false)
-
+            consumers: consumers)
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
         try pipeline.encode(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
-        guard let natural = pipeline.latestNaturalBufferForTest,
-              let processed = pipeline.latestProcessedBufferForTest
-        else {
-            Issue.record("natural/processed mailboxes not populated")
-            return
-        }
-        #expect(CVPixelBufferGetPixelFormatType(natural) == kCVPixelFormatType_64RGBAHalf)
-        #expect(CVPixelBufferGetPixelFormatType(processed) == kCVPixelFormatType_64RGBAHalf)
-    }
-
-    @Test("Texture mailboxes always return .rgba16Float regardless of flag")
-    func textureMailboxesAlwaysRgba16Float() throws {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            Issue.record("no metal device")
-            return
-        }
-        for flagOn in [true, false] {
-            let consumers = ConsumerRegistry()
-            let pipeline = try MetalPipeline(
-                device: device,
-                captureSize: Size(width: 256, height: 192),
-                gateOpen: true,
-                consumers: consumers,
-                lanesEightBit: flagOn)
-            let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
-                width: 256, height: 192)
-            try pipeline.encode(sampleBuffer: sample)
-            pipeline.lastCommandBuffer?.waitUntilCompleted()
-
-            #expect(pipeline.latestNaturalTex?.pixelFormat == .rgba16Float)
-            #expect(pipeline.latestProcessedTex?.pixelFormat == .rgba16Float)
-        }
+        #expect(pipeline.latestNaturalTex?.pixelFormat == .rgba16Float)
+        #expect(pipeline.latestProcessedTex?.pixelFormat == .rgba16Float)
     }
 }
 
-// MARK: - Tracker lane regression (OQ #4 lock)
+// MARK: - Tracker lane regression
 
-@Suite("RGBA8 conversion — tracker lane stays RGBA16F regardless of flag")
+@Suite("RGBA8 conversion — tracker lane stays RGBA16F")
 struct RgbaConversionTrackerStaysRgba16fTests {
 
-    @Test("Pipeline init with flag-on does NOT allocate a tracker 8-bit pool")
-    func noTrackerEightBitPoolWhenFlagOn() throws {
+    @Test("Pipeline init does NOT allocate a tracker 8-bit pool")
+    func noTrackerEightBitPool() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -282,19 +185,18 @@ struct RgbaConversionTrackerStaysRgba16fTests {
         let pipeline = try MetalPipeline(
             device: device,
             captureSize: Size(width: 256, height: 256),
-            gateOpen: true,
-            lanesEightBit: true)
+            gateOpen: true)
         #expect(pipeline.eightBitTrackerPoolForTest == nil)
     }
 }
 
 // MARK: - latestNaturalBufferRGBA16F preserves HDR precision for still capture
 
-@Suite("RGBA8 conversion — captureNaturalPicture sources RGBA16F regardless of flag")
+@Suite("RGBA8 conversion — captureNaturalPicture sources RGBA16F")
 struct RgbaConversionNaturalCaptureSourceTests {
 
-    @Test("Flag-on: latestNaturalBufferRGBA16F is RGBA16F (still-capture HDR fidelity)")
-    func flagOnNaturalCaptureBufferIsRgba16f() throws {
+    @Test("latestNaturalBufferRGBA16F is RGBA16F (still-capture HDR fidelity)")
+    func naturalCaptureBufferIsRgba16f() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -304,8 +206,7 @@ struct RgbaConversionNaturalCaptureSourceTests {
             device: device,
             captureSize: Size(width: 256, height: 192),
             gateOpen: true,
-            consumers: consumers,
-            lanesEightBit: true)
+            consumers: consumers)
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
         try pipeline.encode(sampleBuffer: sample)
@@ -319,20 +220,20 @@ struct RgbaConversionNaturalCaptureSourceTests {
     }
 }
 
-// MARK: - SessionCapabilities.streamPixelFormat reflects the flag
+// MARK: - SessionCapabilities.streamPixelFormat is unconditionally BGRA8
 
-@Suite("RGBA8 conversion — streamPixelFormat reflects flag")
+@Suite("RGBA8 conversion — streamPixelFormat is unconditionally BGRA8")
 struct RgbaConversionStreamPixelFormatTests {
 
-    @Test("Capabilities reports 'BGRA8' when constructed with the eight-bit string")
-    func capabilityReportsBgra8WhenFlagOn() {
+    @Test("SessionCapabilities.streamPixelFormat equals the BGRA8 constant")
+    func streamPixelFormatIsBgra8() {
         let cap = SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
             previewTextureId: 0,
             naturalTextureId: 0,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
-            streamPixelFormat: Constants.streamPixelFormatStringEightBit,
+            streamPixelFormat: Constants.streamPixelFormatString,
             isoRange: 25...3200,
             exposureDurationRangeNs: 1_000_000...100_000_000,
             focusRange: 0.0...1.0,
@@ -340,30 +241,15 @@ struct RgbaConversionStreamPixelFormatTests {
             evCompensationRange: -3.0...3.0)
         #expect(cap.streamPixelFormat == "BGRA8")
     }
-
-    @Test("Capabilities reports 'RGBA16F' when constructed with the sixteen-bit string")
-    func capabilityReportsRgba16fWhenFlagOff() {
-        let cap = SessionCapabilities(
-            supportedSizes: [Size(width: 1920, height: 1080)],
-            previewTextureId: 0,
-            naturalTextureId: 0,
-            activeCaptureResolution: Size(width: 1920, height: 1080),
-            activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
-            streamPixelFormat: Constants.streamPixelFormatStringSixteenBit,
-            isoRange: 25...3200,
-            exposureDurationRangeNs: 1_000_000...100_000_000,
-            focusRange: 0.0...1.0,
-            zoomRange: 1.0...1.0,
-            evCompensationRange: -3.0...3.0)
-        #expect(cap.streamPixelFormat == "RGBA16F")
-    }
 }
 
 // MARK: - Helpers
 
 /// Creates an IOSurface-backed YUV biplanar CVPixelBuffer wrapped in a
-/// CMSampleBuffer for `encode(sampleBuffer:)`. Mirrors the helper in
-/// Stage02Tests / Stage06Tests; named distinctly to avoid linker overlap.
+/// CMSampleBuffer for `encode(sampleBuffer:)`.
+///
+/// Mirrors the helper in Stage02Tests / Stage06Tests; named distinctly to avoid
+/// linker overlap.
 private func makeSyntheticYUVSampleBufferForRgba8Tests(
     width: Int, height: Int
 ) throws -> CMSampleBuffer {

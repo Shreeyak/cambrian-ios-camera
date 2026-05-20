@@ -128,10 +128,9 @@ enum Constants {
     /// constants.md#ENCODER_PIXEL_FORMAT.
     static let encoderPixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
-    // MARK: - Pre-Phase-3 — RGBA8 lane conversion
+    // MARK: - RGBA8 lane conversion (unconditional)
 
-    /// Wire pixel format emitted on `currentPixelBuffer(stream:)` when
-    /// `OpenConfiguration.lanesEightBit` is true (default).
+    /// Wire pixel format emitted on `currentPixelBuffer(stream:)`.
     ///
     /// BGRA8 is Apple's `CVMetalTextureCache`-canonical 32-bit RGBA-family
     /// format on iOS — wraps zero-copy as `.bgra8Unorm`. Android adapts at
@@ -143,11 +142,9 @@ enum Constants {
     /// `CVMetalTextureCache` wraps and Pass-7 kernel output.
     static let eightBitLaneMetalFormat: MTLPixelFormat = .bgra8Unorm
 
-    /// String reported on `SessionCapabilities.streamPixelFormat` when
-    /// `lanesEightBit` is true.
-    static let streamPixelFormatStringEightBit: String = "BGRA8"
-
-    /// String reported on `SessionCapabilities.streamPixelFormat` when
-    /// `lanesEightBit` is false.
-    static let streamPixelFormatStringSixteenBit: String = "RGBA16F"
+    /// String reported on `SessionCapabilities.streamPixelFormat`.
+    ///
+    /// Conversion to BGRA8 is unconditional — natural and processed lane buffers
+    /// always deliver `kCVPixelFormatType_32BGRA` to `currentPixelBuffer(stream:)`.
+    static let streamPixelFormatString: String = "BGRA8"
 }
