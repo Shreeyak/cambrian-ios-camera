@@ -18,8 +18,12 @@ public final class SliderDebouncer: @unchecked Sendable {
 
     private let intervalMs: Int
     private let dispatch: Dispatch
-    private let continuation: AsyncStream<Double>.Continuation
-    private let stream: AsyncStream<Double>
+    // continuation + stream are recreated on each start() so the debouncer
+    // can be restarted after stop() — stop() calls continuation.finish(),
+    // which would otherwise leave the previously-iterated stream permanently
+    // closed.
+    private var continuation: AsyncStream<Double>.Continuation
+    private var stream: AsyncStream<Double>
     private var consumerTask: Task<Void, Never>?
 
     public init(intervalMs: Int = 16, dispatch: @escaping Dispatch) {
@@ -32,6 +36,12 @@ public final class SliderDebouncer: @unchecked Sendable {
 
     public func start() async {
         consumerTask?.cancel()
+        // Recreate the stream/continuation pair so a start() after stop() works.
+        // The previous pair (if any) was finished by stop(); reusing it would
+        // make the for-await below exit immediately.
+        var c: AsyncStream<Double>.Continuation!
+        self.stream = AsyncStream<Double>(bufferingPolicy: .bufferingNewest(1)) { c = $0 }
+        self.continuation = c
         let stream = self.stream
         let dispatch = self.dispatch
         let intervalMs = self.intervalMs

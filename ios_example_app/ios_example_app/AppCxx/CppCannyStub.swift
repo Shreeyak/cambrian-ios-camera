@@ -22,12 +22,12 @@ public final class CppCannyStub: @unchecked Sendable {
             fatalError("canny_stub_create() returned null — out of memory or invalid heap state")
         }
         self.handle = h
-        log.info("CppCannyStub: created")
+        log.notice("CppCannyStub: created")
     }
 
     deinit {
         let count = canny_stub_processed_count(handle)
-        log.info("CppCannyStub: destroying — total frames processed: \(count)")
+        log.notice("CppCannyStub: destroying — total frames processed: \(count, privacy: .public)")
         canny_stub_destroy(handle)
     }
 

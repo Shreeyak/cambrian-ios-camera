@@ -1289,7 +1289,7 @@ See decisions 35–38 in `CameraKit/DECISIONS.md`.
 
 ## Open questions for next stage
 
-1. **HITL `08:external-canny-stub-runs-on-device`** — pending device run; evidence template in `docs/measurements/stage-08/canny.md`.
+1. **HITL `08:external-canny-stub-runs-on-device`** — resolved (PASS); evidence in `docs/measurements/stage-08/canny.md`.
 2. **ADR-13 upstream revision** — C++ interop transitivity requires all importers to enable the flag; upstream should revise ADR-13.
 3. **OpenCV xcframework Mac slice** — xcframework contains only `ios-arm64`; Mac "Designed for iPad" fallback build unverified for Stage 08 C++ targets.
 4. **Carried open questions from Stage 07** (focalLengthMm, sigmoid curve, D-17 revision).
