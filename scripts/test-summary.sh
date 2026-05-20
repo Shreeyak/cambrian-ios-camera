@@ -2,12 +2,12 @@
 # test-summary.sh — wrap `xcodebuild test`; structured output via xcsift.
 #
 # Usage: scripts/test-summary.sh [--scheme NAME] [--filter SUITE] [--destination DEST] [--verbose]
-#   --scheme      default: eva-swift-stitch (app scheme, hosts CameraKitTests
+#   --scheme      default: ios_example_app (app scheme, hosts CameraKitTests
 #                 via the dual-membership pattern documented in CLAUDE.md §8)
 #                 — switch to `CameraKit` only when running the package's
 #                 SwiftPM testTarget directly (rare; not runnable on device).
 #   --filter      passed as `-only-testing:<value>`
-#                 (e.g. eva-swift-stitchTests/PhotosLibraryClientResolveTests)
+#                 (e.g. ios_example_appTests/PhotosLibraryClientResolveTests)
 #   --destination override device destination
 #   --verbose     dump full xcodebuild log at the end
 #
@@ -17,7 +17,7 @@
 # at .build-logs/<ts>-test-<scheme>.json. Read either at any time.
 set -uo pipefail
 
-SCHEME="eva-swift-stitch"
+SCHEME="ios_example_app"
 FILTER=""
 DESTINATION=""
 VERBOSE=0
@@ -37,10 +37,10 @@ if [[ -z "$DESTINATION" ]]; then
   # Prefer physical iPad; fall back to Mac "Designed for iPad". If neither,
   # ERROR — never silently use a simulator.
   #
-  # eva-swift-stitchTests is app-hosted (TEST_HOST=eva-swift-stitch.app) and
+  # ios_example_appTests is app-hosted (TEST_HOST=ios_example_app.app) and
   # compiles the package's test sources directly via the dual-membership
   # pattern (CLAUDE.md §8). Physical iPad is the canonical run target.
-  DESTS=$(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
+  DESTS=$(xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
   DEVICE_UUID=$(echo "$DESTS" \
     | grep -E '\{ *platform:iOS, ' \
     | grep -v placeholder \
@@ -64,7 +64,7 @@ TS=$(date +%Y%m%d-%H%M%S)
 LOG=".build-logs/${TS}-test-${SCHEME}.log"
 JSON=".build-logs/${TS}-test-${SCHEME}.json"
 
-CMD=(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" \
+CMD=(xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" \
      -destination "$DESTINATION" test)
 if [[ -n "$FILTER" ]]; then
   CMD+=(-only-testing:"$FILTER")

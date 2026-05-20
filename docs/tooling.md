@@ -225,8 +225,8 @@ is the one action with no alternative.
 
 ```bash
 brew install xcode-build-server fswatch swift-format ripgrep repomix
-xcode-build-server config -project eva-swift-stitch.xcodeproj \
-                          -scheme eva-swift-stitch
+xcode-build-server config -project ios_example_app/ios_example_app.xcodeproj \
+                          -scheme ios_example_app
 ```
 
 The `xcode-build-server config` step creates `buildServer.json` at the

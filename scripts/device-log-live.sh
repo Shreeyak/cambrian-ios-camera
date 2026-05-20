@@ -4,7 +4,7 @@
 # Uses xcrun devicectl device copy from to pull <Documents>/camerakit.log
 # every POLL_INTERVAL seconds and append new lines to a local mirror.
 # The device must have the app installed with CameraKitLog.enableFileLogging()
-# called at startup (set in eva_swift_stitchApp.init).
+# called at startup (set in ios_example_appApp.init).
 #
 # Usage:
 #   scripts/device-log-live.sh            # start background polling
@@ -15,7 +15,7 @@
 set -u
 
 UDID="DAD37FD5-685B-50E0-911E-F9BC40BBDBE5"
-BUNDLE="com.cambrian.eva-swift-stitch"
+BUNDLE="com.cambrian.ios-example-app"
 _TMP="${TMPDIR:-/tmp}"
 LOG="${_TMP%/}/camerakit-live.log"
 PULL="${_TMP%/}/camerakit-pull.log"

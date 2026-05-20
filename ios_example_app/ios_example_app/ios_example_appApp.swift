@@ -1,6 +1,6 @@
 //
-//  eva_swift_stitchApp.swift
-//  eva-swift-stitch
+//  ios_example_appApp.swift
+//  ios_example_app
 //
 //  Created by shrek on 4/14/26.
 //
@@ -22,7 +22,7 @@ private class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 @main
-struct eva_swift_stitchApp: App {
+struct ios_example_appApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {

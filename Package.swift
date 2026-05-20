@@ -16,9 +16,8 @@ let package = Package(
     ],
     targets: [
         // C++ PixelSink pool + atomics. No OpenCV — Phase 1B (2026-05-15) moved
-        // the Canny consumer + the opencv2 xcframework into the eva-swift-stitch
-        // app target (now ios_example_app). The package contains the consumer-join
-        // seam only.
+        // the Canny consumer + the opencv2 xcframework into the ios_example_app
+        // app target. The package contains the consumer-join seam only.
         .target(
             name: "CameraKitCxx",
             path: "CameraKit/Sources/CameraKitCxx",

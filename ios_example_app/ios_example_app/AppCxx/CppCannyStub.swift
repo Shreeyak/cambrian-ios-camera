@@ -5,7 +5,7 @@
 //
 // The canny_stub_* C-ABI symbols come from AppCxx/CannyConsumer.cpp and are
 // exposed to Swift via AppCxx-Bridging-Header.h (SWIFT_OBJC_BRIDGING_HEADER
-// on the eva-swift-stitch target).
+// on the ios_example_app target).
 import CameraKit  // PixelSinkCallbacks (Swift-side struct used by
                   // engine.consumers.registerCallback).
 import Foundation

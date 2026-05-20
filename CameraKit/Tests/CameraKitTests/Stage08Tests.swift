@@ -74,7 +74,7 @@ struct Stage08Tests {
     }
 
     // Phase 1B (2026-05-15): the prior `cannyStubConsumerReceivesTrackerFrames`
-    // test relocated to eva-swift-stitchTests/Stage08CannyTests.swift —
+    // test relocated to ios_example_app/Tests/Stage08CannyTests.swift —
     // `CppCannyStub` now lives in the app target's AppCxx/ layer.
 
     // MARK: - 08:get-native-pipeline-handle-holds-actor

@@ -1,13 +1,13 @@
 //
-//  eva_swift_stitchUITestsLaunchTests.swift
-//  eva-swift-stitchUITests
+//  ios_example_appUITestsLaunchTests.swift
+//  ios_example_appUITests
 //
 //  Created by shrek on 4/14/26.
 //
 
 import XCTest
 
-final class eva_swift_stitchUITestsLaunchTests: XCTestCase {
+final class ios_example_appUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

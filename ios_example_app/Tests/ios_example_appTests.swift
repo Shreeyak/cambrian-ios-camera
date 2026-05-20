@@ -1,14 +1,14 @@
 //
-//  eva_swift_stitchTests.swift
-//  eva-swift-stitchTests
+//  ios_example_appTests.swift
+//  ios_example_appTests
 //
 //  Created by shrek on 4/14/26.
 //
 
 import XCTest
-@testable import eva_swift_stitch
+@testable import ios_example_app
 
-final class eva_swift_stitchTests: XCTestCase {
+final class ios_example_appTests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

@@ -25,8 +25,8 @@ across the iOS forensics, MDM, and dev-tooling ecosystems for iOS 26.4.
 ## Prerequisites
 
 The app must call `CameraKitLog.enableFileLogging()` at startup
-(in `eva_swift_stitchApp.init()`). Verify with `grep enableFileLogging
-eva-swift-stitch/eva_swift_stitchApp.swift` if logs look empty.
+(in `ios_example_appApp.init()`). Verify with `grep enableFileLogging
+ios_example_app/ios_example_app/ios_example_appApp.swift` if logs look empty.
 
 ## Usage
 
@@ -53,7 +53,7 @@ Either start the polling and read the mirror, or pull once directly:
 xcrun devicectl device copy from \
   --device "DAD37FD5-685B-50E0-911E-F9BC40BBDBE5" \
   --domain-type appDataContainer \
-  --domain-identifier com.cambrian.eva-swift-stitch \
+  --domain-identifier com.cambrian.ios-example-app \
   --source /Documents/camerakit.log \
   --destination /tmp/camerakit-snapshot.log
 # Then Read or grep /tmp/camerakit-snapshot.log
@@ -117,8 +117,8 @@ tail -n "+$LN" "$LOG" | awk '{print $2}' | sort | uniq -c | sort -rn
 If a recent session has zero subsequent log lines, the app crashed
 before any `Logger.notice` fired. If a file has zero markers at all,
 either the app crashed before `enableFileLogging()` ran or the call is
-missing from `eva_swift_stitchApp.init()` — re-verify with
-`grep enableFileLogging eva-swift-stitch/eva_swift_stitchApp.swift`.
+missing from `ios_example_appApp.init()` — re-verify with
+`grep enableFileLogging ios_example_app/ios_example_app/ios_example_appApp.swift`.
 
 ## Important rules
 
@@ -137,7 +137,7 @@ missing from `eva_swift_stitchApp.init()` — re-verify with
 Hardcoded in `scripts/device-log-live.sh`:
 
 - UDID: `DAD37FD5-685B-50E0-911E-F9BC40BBDBE5` (Shreeyak's iPad)
-- Bundle: `com.cambrian.eva-swift-stitch`
+- Bundle: `com.cambrian.ios-example-app`
 - Source path: `/Documents/camerakit.log`
 - Mirror: `${TMPDIR}/camerakit-live.log`
 - PID file: `${TMPDIR}/camerakit-live.pid`

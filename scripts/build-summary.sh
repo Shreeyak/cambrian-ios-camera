@@ -10,7 +10,7 @@
 # Read either at any time — this script never loses output to a pipe.
 set -uo pipefail
 
-SCHEME="eva-swift-stitch"
+SCHEME="ios_example_app"
 DESTINATION=""
 VERBOSE=0
 
@@ -27,7 +27,7 @@ if [[ -z "$DESTINATION" ]]; then
   # Hard rule: NEVER use iOS simulators on this machine (memory constraint).
   # Prefer physical iPad; fall back to Mac "Designed for iPad" (native, not a sim).
   # If neither is available, ERROR — never silently fall through to a simulator.
-  DESTS=$(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
+  DESTS=$(xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
   DEVICE_UUID=$(echo "$DESTS" \
     | grep -E '\{ *platform:iOS, ' \
     | grep -v placeholder \
@@ -54,7 +54,7 @@ JSON=".build-logs/${TS}-build-${SCHEME}.json"
 echo "LOG: $LOG"
 echo "JSON: $JSON"
 
-xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -destination "$DESTINATION" build 2>&1 \
+xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -destination "$DESTINATION" build 2>&1 \
   | tee "$LOG" \
   | xcsift --format json > "$JSON" || true
 XC_STATUS=${PIPESTATUS[0]}

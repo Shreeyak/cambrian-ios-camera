@@ -9,7 +9,7 @@ import Testing
 /// `sleep(milliseconds:)` completes immediately but records the delay so tests
 /// can assert schedules without real-time waits. Uses a single NSLock for both
 /// the time counter and the sleep log — Atomics dependency was dropped so the
-/// eva-swift-stitchTests target can link without adding swift-atomics as a
+/// ios_example_appTests target can link without adding swift-atomics as a
 /// direct product dependency.
 final class TestClock: CameraKitClock, @unchecked Sendable {
     private let lock = NSLock()
