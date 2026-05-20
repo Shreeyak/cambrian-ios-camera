@@ -590,7 +590,6 @@ final class MetalPipeline: @unchecked Sendable {
         let trackerBuf = trackerPair?.buffer
         let trackerTex = trackerPair?.texture
         let consumers = self.consumers
-        let trackerForSet: CVPixelBuffer = trackerBuf ?? naturalBuf
         let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
         // Stage 10: extract NV12 buffer for delivery in completion handler.
         let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
@@ -601,6 +600,14 @@ final class MetalPipeline: @unchecked Sendable {
         let naturalEightBitTex: MTLTexture? = naturalEightBitPair?.texture
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
         let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
+
+        // FrameSet delivers BGRA8 for all three lanes to the C++/AsyncStream
+        // consumers (CannyConsumer format-branches on _32BGRA). The `?? <16F>`
+        // fallbacks only fire if a Pass-7 dequeue was dropped on pool
+        // exhaustion (rare); the tracker falls back to the BGRA8 natural buffer.
+        let naturalForSet: CVPixelBuffer = naturalEightBitBuf ?? naturalBuf
+        let processedForSet: CVPixelBuffer = processedEightBitBuf ?? processedBuf
+        let trackerForSet: CVPixelBuffer = trackerBuf ?? naturalForSet
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
         // advanced (close() / recovery ran) — prevents use-after-free on readback
@@ -642,8 +649,8 @@ final class MetalPipeline: @unchecked Sendable {
             let fs = FrameSet(
                 frameNumber: fn,
                 captureTime: captureTime,
-                natural: naturalBuf,
-                processed: processedBuf,
+                natural: naturalForSet,
+                processed: processedForSet,
                 tracker: trackerForSet,
                 capture: captureMeta,
                 processing: meta,
