@@ -40,6 +40,8 @@ struct Stage13Phase2StreamConfigurationStreamTests {
 @Suite("Stage 13 Phase 2 — Lane pixel format")
 struct Stage13Phase2PixelFormatTests {
 
+    /// Pins the lane pixel format `SessionCapabilities` reports under the default-on flag.
+    ///
     /// Phase-3's zero-copy `FlutterTexture` bridge wraps the lane
     /// `CVPixelBuffer`. As of pre-Phase-3 RGBA8 conversion, the default-on
     /// path emits BGRA8 (`kCVPixelFormatType_32BGRA`) on
