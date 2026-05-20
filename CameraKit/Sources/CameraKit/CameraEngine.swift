@@ -1149,9 +1149,19 @@ public actor CameraEngine {
         guard isOpen, let pipeline = metalPipeline, let capture = stillCapture else {
             throw EngineError.notOpen
         }
-        guard let session = cameraSession, session.avSession.isRunning else {
-            throw EngineError.capture(.metalReadbackFailed)
+        // Source the latest processed-lane BGRA8 buffer directly (no Pass-6 GPU
+        // readback). Like captureNaturalPicture, gating is by buffer
+        // availability rather than session-running state — capture during pause
+        // returns the last delivered frame, which is the right "capture the
+        // current picture" semantics.
+        guard let buffer = pipeline.latestProcessedBuffer else {
+            CameraKitLog.warning(.engine, "[still] no processed-lane buffer available")
+            throw EngineError.capture(.bufferUnavailable)
         }
+        CameraKitLog.notice(
+            .engine,
+            "[still] capture start size=\(pipeline.captureSize.width)x\(pipeline.captureSize.height)"
+        )
 
         let snap = await cameraSession?.device?.lastSnapshot
 
@@ -1162,15 +1172,24 @@ public actor CameraEngine {
             apertureValue = 0
         }
 
+        let writeURL: URL
+        do {
+            writeURL = try PhotosLibraryClient.resolve(outputURL: outputURL, defaultExt: "tif")
+        } catch let e as EngineError {
+            throw e
+        }
+
         let output: StillCaptureOutput
         do {
-            output = try await capture.captureImage(
-                pipeline: pipeline,
+            output = try await capture.encode(
+                buffer: buffer,
                 captureSize: pipeline.captureSize,
                 deviceSnapshot: snap,
                 focalLengthMm: 0,
                 apertureValue: apertureValue,
-                outputURL: outputURL
+                outputURL: writeURL,
+                format: .tiff,
+                laneTag: "processed"
             )
         } catch let e as StillCaptureError {
             throw EngineError.capture(e)
@@ -1211,9 +1230,9 @@ public actor CameraEngine {
     ///
     /// Pre-P3 sibling of `captureImage` for the Pigeon contract's
     /// `captureNaturalPicture` method. Reads the latest natural-lane buffer
-    /// from `MetalPipeline` (Pass-1 output, RGBA16F, IOSurface-backed),
-    /// JPEG-encodes via the shared `StillCapture.encode` path, and optionally
-    /// publishes to Photos. Does NOT touch `AVCapturePhotoOutput`
+    /// from `MetalPipeline` (BGRA8, IOSurface-backed — the single delivery
+    /// format), JPEG-encodes via the shared `StillCapture.encode` path, and
+    /// optionally publishes to Photos. Does NOT touch `AVCapturePhotoOutput`
     /// (`DECISIONS.md` D-2P-10).
     ///
     /// EXIF carries `"lane": "natural"` inside the `CamPlugin/v1` envelope so
@@ -1245,11 +1264,11 @@ public actor CameraEngine {
         guard isOpen, let pipeline = metalPipeline, let capture = stillCapture else {
             throw EngineError.notOpen
         }
-        // Read the parallel RGBA16F mailbox so HDR precision is preserved.
-        // The bridge-facing `currentPixelBuffer(stream: .natural)` emits BGRA8,
-        // but capture must keep the half-float buffer the StillCapture encode
-        // path expects (vImage RGBA16F → 8-bit).
-        guard let buffer = pipeline.latestNaturalBufferRGBA16F else {
+        // Source the latest natural-lane BGRA8 buffer — the same surface
+        // delivered to the preview/bridge. The camera is 8-bit-locked, so there
+        // is no half-float precision to preserve at capture; StillCapture.encode
+        // consumes BGRA8 directly.
+        guard let buffer = pipeline.latestNaturalBuffer else {
             CameraKitLog.warning(.engine, "[natural] no natural-lane buffer available")
             throw EngineError.capture(.bufferUnavailable)
         }

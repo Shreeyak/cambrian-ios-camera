@@ -142,15 +142,6 @@ final class MetalPipeline: @unchecked Sendable {
     var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
     var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 
-    // Parallel RGBA16F mailbox for the natural-lane buffer. Read by
-    // `CameraEngine.captureNaturalPicture` so HDR-grade still capture sources
-    // the half-float buffer the vImage encode path expects, even though the
-    // bridge-facing `currentPixelBuffer(stream: .natural)` is BGRA8.
-    // Single writer on the AVF delivery queue; same `Mailbox<T>` contract
-    // as the other lane mailboxes.
-    private let _latestNaturalBufferRGBA16F = Mailbox<CVPixelBuffer>()
-    var latestNaturalBufferRGBA16F: CVPixelBuffer? { _latestNaturalBufferRGBA16F.latest }
-
     /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex16F`.
     ///
     /// Read by `CameraEngine.awaitNaturalAfter` to confirm the natural texture
@@ -159,13 +150,6 @@ final class MetalPipeline: @unchecked Sendable {
     /// allow lock-free CAS reads. Single writer: completion handler on the
     /// delivery queue.
     let latestNaturalPTSNs: ManagedAtomic<Int64> = ManagedAtomic(0)
-
-    // Still capture (Stage 07) — one slot, CPU-readable pool.
-    private var stillCapturePool: CVPixelBufferPool?
-    // Armed by StillCapture.armCapture(); cleared by completion handler after delivery.
-    // Single-writer guarantee: CAS guard in StillCapture prevents concurrent arming.
-    nonisolated(unsafe) var pendingCaptureContinuation: CheckedContinuation<CVPixelBuffer, Error>?
-    private(set) var stillCaptureDequeueCount: Int = 0  // test seam
 
     // MARK: - Pass 4 — tracker downsample (Stage 06)
 
@@ -355,10 +339,6 @@ final class MetalPipeline: @unchecked Sendable {
         }
         self.rgba16fToBgra8PSO = try device.makeComputePipelineState(function: fnConvert)
 
-        // 8. Still-capture pool — 1-slot, CPU-readable, RGBA16F (Stage 07).
-        let sPool = try texturePool.makeStillCapturePool(size: captureSize)
-        self.stillCapturePool = sPool
-
         // 9. Stage 10: encoder NV12 pool + rgba16fToNV12 PSO (Pass 5).
         encoderPool = try texturePool.makeEncoderNV12Pool(size: captureSize)
         guard let fnEncode = library.makeFunction(name: "rgba16fToNV12") else {
@@ -491,34 +471,6 @@ final class MetalPipeline: @unchecked Sendable {
             pass4.endEncoding()
         }
 
-        // Pass 6: blit processedTexI → still readback buffer (gated on pending capture).
-        // Origins must be (0,0,0) — non-zero origins on IOSurface textures break rendering
-        // (CLAUDE.md §8 invariant). Dequeue from dedicated still pool, not processed pool.
-        var stillPairForCompletion: (buffer: CVPixelBuffer, texture: MTLTexture)?
-        if pendingCaptureContinuation != nil, let sPool = stillCapturePool {
-            if let pair = try? texturePool.dequeuePoolTexture(
-                pool: sPool, width: captureSize.width, height: captureSize.height
-            ) {
-                let pass6 = commandBuffer.makeBlitCommandEncoder()!
-                pass6.copy(
-                    from: processedTexI,
-                    sourceSlice: 0,
-                    sourceLevel: 0,
-                    sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                    sourceSize: MTLSize(
-                        width: processedTexI.width, height: processedTexI.height, depth: 1
-                    ),
-                    to: pair.texture,
-                    destinationSlice: 0,
-                    destinationLevel: 0,
-                    destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
-                )
-                pass6.endEncoding()
-                stillPairForCompletion = pair
-                stillCaptureDequeueCount += 1
-            }
-        }
-
         // Pass 5: RGBA16F → NV12 encode (Stage 10). Runs only while recording.
         // Pool exhaustion drops this frame from the recorder; preview is unaffected
         // (domain 06 Recording-Sink Back-Pressure).
@@ -590,7 +542,6 @@ final class MetalPipeline: @unchecked Sendable {
         let trackerBuf = trackerPair?.buffer
         let trackerTex = trackerPair?.texture
         let consumers = self.consumers
-        let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
         // Stage 10: extract NV12 buffer for delivery in completion handler.
         let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
         // Capture the BGRA8-converted buffers + textures for the mailbox store in
@@ -610,36 +561,22 @@ final class MetalPipeline: @unchecked Sendable {
         let trackerForSet: CVPixelBuffer = trackerBuf ?? naturalForSet
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
-        // advanced (close() / recovery ran) — prevents use-after-free on readback
-        // buffers and pending continuations (G-20).
+        // advanced (close() / recovery ran) — prevents stale FrameSet publish and
+        // stale mailbox stores after teardown/recovery (G-20).
         let tokenAtCommit = self.engineSessionToken.load(ordering: .acquiring)
         commandBuffer.addCompletedHandler { [weak self] cb in
             guard let self else { return }
             let liveToken = self.engineSessionToken.load(ordering: .acquiring)
             if liveToken != tokenAtCommit {
-                // Session advanced — release the pending capture slot if any and bail.
-                self.pendingCaptureContinuation?.resume(
-                    throwing: StillCaptureError.metalReadbackFailed
-                )
-                self.pendingCaptureContinuation = nil
+                // Session advanced — drop this frame's delivery entirely.
                 self.didNoOpCountForTest &+= 1
                 return
             }
             // Metal-level error classification (G-02 / ADR-15).
             if cb.status == .error {
                 let code = (cb.error as NSError?)?.code ?? -1
-                if let cont = self.pendingCaptureContinuation {
-                    cont.resume(throwing: MetalError.commandBufferFailed(code: code))
-                    self.pendingCaptureContinuation = nil
-                }
                 self.onMetalError?(MetalError.commandBufferFailed(code: code))
                 return
-            }
-            // Deliver still readback buffer to StillCapture if Pass 6 ran.
-            if let buf = stillBufForCompletion {
-                let cont = self.pendingCaptureContinuation
-                self.pendingCaptureContinuation = nil
-                cont?.resume(returning: buf)
             }
             // Stage 10: deliver NV12 encoder buffer if Pass 5 ran and command buffer succeeded.
             if let encBuf = encoderBufForCompletion, cb.status == .completed {
@@ -669,10 +606,9 @@ final class MetalPipeline: @unchecked Sendable {
             // texture mailboxes (`_latest*Bgra8Tex`, sharing the buffer's
             // IOSurface). The 16F texture mailboxes are kept only as internal
             // compute intermediates for calibration/diagnostic sampling — never
-            // delivered. The `_latestNaturalBufferRGBA16F` mailbox preserves the
-            // 16F pool buffer for the still-capture path (removed in Task 5).
+            // delivered. Still capture (`captureImage` / `captureNaturalPicture`)
+            // reads the BGRA8 buffer mailboxes directly.
             self._latestNaturalBuffer.store(naturalEightBitBuf ?? naturalBuf)
-            self._latestNaturalBufferRGBA16F.store(naturalBuf)
             self._latestNaturalTex16F.store(naturalTexI)
             if let nTex = naturalEightBitTex { self._latestNaturalBgra8Tex.store(nTex) }
             // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` can
@@ -952,17 +888,6 @@ final class MetalPipeline: @unchecked Sendable {
         return sum / Float(hi - lo)
     }
 
-    // MARK: - Still capture (Stage 07)
-
-    /// Arms the next-frame Pass 6 blit.
-    ///
-    /// Called by StillCapture after winning the CAS. Must be called before the next
-    /// `encode()` invocation. The continuation will be resumed exactly once — either
-    /// with the readback buffer on success, or with an error on GPU failure.
-    func armCapture(continuation: CheckedContinuation<CVPixelBuffer, Error>) {
-        pendingCaptureContinuation = continuation
-    }
-
     // MARK: - Internal test seams
 
     /// Convenience init that creates its own gate and an empty ConsumerRegistry.
@@ -1021,8 +946,6 @@ final class MetalPipeline: @unchecked Sendable {
     var processedPoolForTest: CVPixelBufferPool { processedPool }
     var trackerPoolForTest: CVPixelBufferPool { trackerPool }
     var trackerSizeForTest: Size { trackerSize }
-    var stillCapturePoolForTest: CVPixelBufferPool? { stillCapturePool }
-    var stillCaptureDequeueCountForTest: Int { stillCaptureDequeueCount }
 
     // RGBA8 conversion test seams.
     var eightBitNaturalPoolForTest: CVPixelBufferPool { eightBitNaturalPool }
