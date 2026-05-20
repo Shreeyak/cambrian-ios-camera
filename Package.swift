@@ -17,12 +17,11 @@ let package = Package(
     targets: [
         // C++ PixelSink pool + atomics. No OpenCV — Phase 1B (2026-05-15) moved
         // the Canny consumer + the opencv2 xcframework into the eva-swift-stitch
-        // app target. The package now contains the consumer-join seam only
-        // (PixelSinkPool fan-out, CaptureAtomic capture guard); external code
-        // joins via engine.getNativePipelineHandle() + pixel_sink_pool_register.
+        // app target (now ios_example_app). The package contains the consumer-join
+        // seam only.
         .target(
             name: "CameraKitCxx",
-            dependencies: [],
+            path: "CameraKit/Sources/CameraKitCxx",
             publicHeadersPath: "include",
             cxxSettings: [
                 .define("CPP_POOL_THREAD_COUNT", to: "4"),
@@ -33,6 +32,7 @@ let package = Package(
         .target(
             name: "CameraKitInterop",
             dependencies: ["CameraKitCxx"],
+            path: "CameraKit/Sources/CameraKitInterop",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .interoperabilityMode(.Cxx),
@@ -44,6 +44,7 @@ let package = Package(
                 "CameraKitInterop",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
+            path: "CameraKit/Sources/CameraKit",
             resources: [.process("Shaders")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -52,17 +53,13 @@ let package = Package(
                 .interoperabilityMode(.Cxx),
             ]
         ),
+        // Informational stub. Produces a clear `#error` for anyone who runs
+        // `swift test` reflexively. The real test suite lives in
+        // CameraKit/Tests/CameraKitTests/ and is compiled by the Xcode
+        // ios_example_appTests target (app-hosted on iPad).
         .testTarget(
-            name: "CameraKitTests",
-            dependencies: [
-                "CameraKit",
-                "CameraKitInterop",
-                .product(name: "Atomics", package: "swift-atomics"),
-            ],
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-                .interoperabilityMode(.Cxx),
-            ]
+            name: "SPMTestStub",
+            path: "CameraKit/Tests/SPMTestStub"
         ),
     ],
     cxxLanguageStandard: .cxx20
