@@ -638,7 +638,10 @@ struct MTKViewRepresentable: UIViewRepresentable {
         let mtkView = MTKView()
         mtkView.device = MTLCreateSystemDefaultDevice()
         mtkView.framebufferOnly = false
-        mtkView.colorPixelFormat = .rgba16Float
+        // All lane textures are now BGRA8 (8-bit end-to-end delivery). The blit
+        // in `draw(in:)` requires the drawable and source to share a pixel
+        // format, so the drawable matches the `.bgra8Unorm` lane textures.
+        mtkView.colorPixelFormat = .bgra8Unorm
         (mtkView.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         mtkView.preferredFramesPerSecond = 30
         mtkView.backgroundColor = .black

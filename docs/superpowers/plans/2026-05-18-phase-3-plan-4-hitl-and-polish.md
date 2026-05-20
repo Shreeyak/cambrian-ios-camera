@@ -301,3 +301,58 @@ Future work (out of Phase 3 scope; not part of any of these four plans):
 - Deeper `interrupted` SessionState device verification (Stage Manager peer scenario)
 - Cross-iPad parity sweep on iPad A16
 - The `captureNaturalPicture` AVCapturePhotoOutput path (deferred per D-2P-10)
+
+---
+
+## Status — landed + matrix run 2026-05-20 (branch `phase-3-plan-4-hitl-and-polish`)
+
+**Surprise:** the texture-bridge blank-preview blocker did **NOT** reproduce in
+the fresh example app — the processed preview rendered immediately. Likely cause:
+the example uses Flutter 3.41's scene-based lifecycle (`AppDelegate.swift` +
+`SceneDelegate.swift`), unlike the older repo-root app. So Cluster C actually ran
+on a physical iPad. Full results: `measurements/phase-3-hitl/2026-05-20/notes.md`.
+
+**Landed (code + docs):**
+- **Cluster A** — example `Info.plist` privacy strings; verified in built `.app`
+  via PlistBuddy.
+- **Cluster B** — HITL harness as a real plugin example app at
+  `packages/cambrian_camera/example/`: one button per host method, live stream
+  panels, dual texture lanes, app-lifecycle pause/resume, combined ISO+exp
+  button. `flutter analyze` clean; widget smoke test passes.
+- **Cluster E1** — plugin `README.md` adoption + troubleshooting docs.
+
+**Cluster C — 18-case matrix (ran on iPad, iOS 26.4.2):**
+- **PASS (12):** #1 permissions, #2 open (`fmt=bgra8`), #4 manual settings
+  (ISO+exp must be set in one call — see below), #5 setResolution, #7/#8
+  captureImage (Photos/file), #9 captureNaturalPicture, #10 calibrateWhiteBalance
+  (gray-world convergence), #11 calibrateBlackBalance, #14 record, #15
+  getNativePipelineHandle, #16 close→open.
+- **Conditional (1):** #3 preview fps — exposure-limited (~16.6 fps under a 60 ms
+  auto exposure); retest under bright light to confirm 30 fps.
+- **FAIL — real bugs (3):** #6 setCropRegion is a no-op on iOS; #12/#13
+  background/interruption **crash the engine** (off-map SessionState FSM
+  transitions, `CameraEngine.swift:1562`).
+- **Deferred (2):** #17 concurrent open (UI disables open button); #18 hot
+  restart (couldn't drive `flutter run` stdin).
+
+**Engine bugs surfaced (CameraKit / eva-swift-stitch — fix in producer repo):**
+1. **HIGH — background-lifecycle FSM crash cluster.** `interrupted → recovering`
+   and `recovering → streaming` are off-map and `assertionFailure` in debug. Any
+   backgrounding / call / camera-contention crashes. Needs FSM fix.
+2. **iOS `cropOutputSize` no-op** (works on Android).
+3. **First-open `naturalStreamTextureId=0`** — raw lane black on first open,
+   allocates after a close→open cycle (ordering bug, low severity).
+4. **Manual ISO/exposure usage gap** — independent calls don't pin; engine
+   should fold the current value of the other field when only one manual value is
+   passed (`setExposureModeCustom(duration:iso:)`), or document the
+   must-set-together constraint.
+
+**Cluster D (loaded-mode regression):** NOT RUN — superseded in priority by the
+engine crash findings; rerun once #1 is fixed.
+
+**Cluster F:** deferred — trigger (D `signal:pull < 0.9`) not measured.
+
+**Phase 3 is NOT "DONE":** the iOS implementation is functionally broad (most
+host methods verified on device) but the background-lifecycle crash (engine bug
+#1) is a shipping blocker. G2 push awaits user approval; G3 "Phase 3 complete"
+must wait on the engine FSM fix + Cluster D.
