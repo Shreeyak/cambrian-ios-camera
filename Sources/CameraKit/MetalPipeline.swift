@@ -145,6 +145,14 @@ final class MetalPipeline: @unchecked Sendable {
     var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
     var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 
+    /// Retains the pre-first-frame fallback scratch buffer for the processed lane.
+    ///
+    /// Keeps the returned blank texture valid through the caller's GPU dispatch
+    /// (CoreVideo retain contract). Separate from `_latestProcessedBuffer`: the
+    /// scratch is RGBA16F, not a BGRA8 delivery surface, and must never reach
+    /// `currentPixelBuffer(stream:)`.
+    private let _processedFallbackScratch = Mailbox<CVPixelBuffer>()
+
     /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex16F`.
     ///
     /// Read by `CameraEngine.awaitNaturalAfter` to confirm the natural texture
@@ -652,24 +660,6 @@ final class MetalPipeline: @unchecked Sendable {
         lastCommandBuffer?.waitUntilScheduled()
     }
 
-    /// Returns the latest natural texture for the MTKView draw pass.
-    ///
-    /// Reads the internal `latestNaturalTex16F` `Mailbox<T>` (G-13 single-writer
-    /// model) — the RGBA16F Pass-1 output, used by the calibration samplers and
-    /// the `encodePass2Only` test seam (NOT the BGRA8 preview surface).
-    /// Falls back to dequeuing a blank pool buffer on the first call before any frame arrives.
-    func currentTexture() -> MTLTexture {
-        if let t = latestNaturalTex16F { return t }
-        if let pair = try? texturePool.dequeuePoolTexture(
-            pool: naturalPool, width: captureSize.width, height: captureSize.height
-        ) {
-            _latestNaturalBuffer.store(pair.buffer)
-            _latestNaturalTex16F.store(pair.texture)
-            return pair.texture
-        }
-        fatalError("MetalPipeline.currentTexture: no preview texture available")
-    }
-
     /// Returns the latest processed texture for the right-half MTKView.
     ///
     /// Reads the internal `latestProcessedTex16F` `Mailbox<T>` (G-13
@@ -682,7 +672,11 @@ final class MetalPipeline: @unchecked Sendable {
         if let pair = try? texturePool.dequeuePoolTexture(
             pool: processedPool, width: captureSize.width, height: captureSize.height
         ) {
-            _latestProcessedBuffer.store(pair.buffer)
+            // Pre-first-frame fallback: retain the RGBA16F scratch buffer in a
+            // dedicated slot (NOT `_latestProcessedBuffer`, which is the BGRA8
+            // delivery surface) so the returned blank texture stays valid for
+            // the caller's GPU dispatch.
+            _processedFallbackScratch.store(pair.buffer)
             _latestProcessedTex16F.store(pair.texture)
             return pair.texture
         }
@@ -979,10 +973,12 @@ final class MetalPipeline: @unchecked Sendable {
     }
 
     // Test-only: dispatches Pass 2 (color transform) over the latest natural texture,
-    // awaits scheduled, and returns. Use after writing test-pattern bytes via lock/unlock.
+    // awaits scheduled, and returns. Use after installing natural + processed
+    // textures via `setLatestNaturalForTest` / `setLatestProcessedForTest`.
     func encodePass2Only() async throws {
-        let natTex = currentTexture()
-        let procTex = currentProcessedTex()
+        guard let natTex = latestNaturalTex16F, let procTex = latestProcessedTex16F else {
+            throw MetalError.noFrameAvailable
+        }
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             throw MetalError.commandBufferFailed(code: -1)
         }
