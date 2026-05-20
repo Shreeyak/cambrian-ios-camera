@@ -54,8 +54,9 @@ struct PatchUniform {
 
 /// Owns the GPU pipeline that converts YUV sample buffers through RGBA16F
 /// compute passes and delivers BGRA8 lane surfaces (preview, bridge, tracker,
-/// still capture). RGBA16F is the internal math format; BGRA8 is the single
-/// delivery format.
+/// still capture).
+///
+/// RGBA16F is the internal math format; BGRA8 is the single delivery format.
 ///
 /// ADR-02: `encode(sampleBuffer:)` runs entirely on the `delivery` DispatchQueue.
 /// No actor hops, no `Task {}`, no `await`, no `DispatchQueue.main.async`.
