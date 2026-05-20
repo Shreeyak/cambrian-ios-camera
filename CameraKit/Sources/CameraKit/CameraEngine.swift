@@ -726,28 +726,26 @@ public actor CameraEngine {
         return await device.dumpAllFormats()
     }
 
-    /// Exposes the live natural-tex mailbox for the MTKView draw pass.
+    /// Exposes the live natural-lane texture for the MTKView draw pass.
     ///
-    /// Always `.rgba16Float` — the texture path preserves HDR-grade precision
-    /// for in-process Metal consumers (calibration sampling, MTKView preview,
-    /// the dev harness's `MTKViewRepresentable` configured
-    /// `colorPixelFormat = .rgba16Float`). The buffer accessor
-    /// `currentPixelBuffer(stream:)` emits BGRA8 — see its doc-comment for
-    /// the load-bearing texture/buffer asymmetry. Forwards to
-    /// `MetalPipeline.latestNaturalTex` (single writer: delivery queue). MUST
-    /// be re-evaluated each draw; do not cache (Bug 4: pool rotation strands
-    /// cached pointers).
+    /// `.bgra8Unorm` — the same IOSurface delivered by
+    /// `currentPixelBuffer(stream: .natural)`, exposed as an `MTLTexture` for
+    /// the preview. One 8-bit surface per lane; the camera is 8-bit-locked, so
+    /// there is no precision to preserve at the delivery boundary (RGBA16F
+    /// survives only as an internal compute intermediate for the Metal math /
+    /// calibration sampling). Forwards to `MetalPipeline.latestNaturalBgra8Tex`
+    /// (single writer: delivery queue). MUST be re-evaluated each draw; do not
+    /// cache (Bug 4: pool rotation strands cached pointers).
     public nonisolated func currentTexture() -> (any MTLTexture)? {
-        _metalPipeline.latest?.latestNaturalTex
+        _metalPipeline.latest?.latestNaturalBgra8Tex
     }
 
-    /// Exposes the live processed-tex mailbox for the right-half MTKView draw.
+    /// Exposes the live processed-lane texture for the right-half MTKView draw.
     ///
-    /// Always `.rgba16Float` — see `currentTexture()` for the rationale and
-    /// the load-bearing texture/buffer asymmetry. Same live-mailbox contract
-    /// as `currentTexture()` — re-evaluate per draw.
+    /// `.bgra8Unorm` — see `currentTexture()`. Same live-mailbox contract;
+    /// re-evaluate per draw.
     public nonisolated func currentProcessedTexture() -> (any MTLTexture)? {
-        _metalPipeline.latest?.latestProcessedTex
+        _metalPipeline.latest?.latestProcessedBgra8Tex
     }
 
     /// Stage 06: returns the latest tracker texture for external consumers.

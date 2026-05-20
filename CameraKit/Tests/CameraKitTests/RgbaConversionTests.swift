@@ -176,8 +176,13 @@ struct RgbaConversionMailboxFormatTests {
         #expect(CVPixelBufferGetPixelFormatType(processed) == kCVPixelFormatType_32BGRA)
     }
 
-    @Test("Texture mailboxes always return .rgba16Float")
-    func textureMailboxesAlwaysRgba16Float() throws {
+    /// Load-bearing guarantee: the 16F textures survive as INTERNAL compute
+    /// intermediates (calibration sampling reads `latestNaturalTex16F`; the
+    /// diagnostic center-patch reads `latestProcessedTex16F`). They are never a
+    /// delivery surface — that is the BGRA8 mailboxes. Keep this isolated so a
+    /// future edit can't silently erode the 16F-for-the-math contract.
+    @Test("Internal calibration/sampling textures stay .rgba16Float")
+    func calibrationAndSamplingTexturesStay16F() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -193,8 +198,47 @@ struct RgbaConversionMailboxFormatTests {
         try pipeline.encode(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
-        #expect(pipeline.latestNaturalTex?.pixelFormat == .rgba16Float)
-        #expect(pipeline.latestProcessedTex?.pixelFormat == .rgba16Float)
+        #expect(pipeline.latestNaturalTex16F?.pixelFormat == .rgba16Float)
+        #expect(pipeline.latestProcessedTex16F?.pixelFormat == .rgba16Float)
+    }
+
+    /// The natural/processed preview textures (`currentTexture()` /
+    /// `currentProcessedTexture()` read these) are `.bgra8Unorm`, sharing the
+    /// matching lane buffer's surface — one BGRA8 surface per lane delivered as
+    /// both a `CVPixelBuffer` and an `MTLTexture` (the old texture/buffer
+    /// format asymmetry is gone).
+    @Test("Preview lane textures are .bgra8Unorm over the matching lane buffer")
+    func previewTexturesAreBgra8() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let consumers = ConsumerRegistry()
+        let pipeline = try MetalPipeline(
+            device: device,
+            captureSize: Size(width: 256, height: 192),
+            gateOpen: true,
+            consumers: consumers)
+        let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
+            width: 256, height: 192)
+        try pipeline.encode(sampleBuffer: sample)
+        pipeline.lastCommandBuffer?.waitUntilCompleted()
+
+        guard let natTex = pipeline.latestNaturalBgra8Tex,
+            let procTex = pipeline.latestProcessedBgra8Tex,
+            let natBuf = pipeline.latestNaturalBufferForTest,
+            let procBuf = pipeline.latestProcessedBufferForTest
+        else {
+            Issue.record("BGRA8 texture/buffer mailboxes not populated")
+            return
+        }
+        #expect(natTex.pixelFormat == .bgra8Unorm)
+        #expect(procTex.pixelFormat == .bgra8Unorm)
+        // Same surface ⇒ identical dimensions to the delivered lane buffer.
+        #expect(natTex.width == CVPixelBufferGetWidth(natBuf))
+        #expect(natTex.height == CVPixelBufferGetHeight(natBuf))
+        #expect(procTex.width == CVPixelBufferGetWidth(procBuf))
+        #expect(procTex.height == CVPixelBufferGetHeight(procBuf))
     }
 }
 

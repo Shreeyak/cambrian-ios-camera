@@ -30,7 +30,7 @@ final class DisplayViewModel {
     ///
     /// `nonisolated` so `MTKViewCoordinator.draw(in:)` can read them off the
     /// MainActor without an actor hop. Each call returns the *current* value
-    /// of `MetalPipeline.latestNaturalTex` / `latestProcessedTex` — never a
+    /// of the engine's `.bgra8Unorm` natural/processed lane textures — never a
     /// captured pointer (Bug 4: pool rotation strands cached pointers).
     nonisolated var naturalTex: MTLTexture? { engine.currentTexture() }
     nonisolated var processedTex: MTLTexture? { engine.currentProcessedTexture() }

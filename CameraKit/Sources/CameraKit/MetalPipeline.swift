@@ -90,24 +90,44 @@ final class MetalPipeline: @unchecked Sendable {
     private(set) var captureSize: Size
     private let trackerSize: Size
 
-    /// Preview-facing "latest" textures.
+    /// Internal RGBA16F "latest" textures — Metal-compute intermediates, NOT a
+    /// delivery surface.
+    ///
+    /// `_latestNaturalTex16F` is the Pass-1 output sampled by WB/BB calibration
+    /// (`dispatchCenterPatchOnNatural` / `dispatchBBCalibrationSample`);
+    /// `_latestProcessedTex16F` is the Pass-2 graded output sampled by the
+    /// diagnostic center-patch (`dispatchCenterPatch` / `sampleCenterPatch`).
+    /// They stay 16F because the math wants float headroom — the camera is
+    /// 8-bit-locked, so this precision only buys anything in-shader, never at
+    /// the delivery boundary. The preview/bridge surfaces are the BGRA8
+    /// mailboxes below.
     ///
     /// Single writer on the AVF delivery queue (`addCompletedHandler`
-    /// callback); readers on MainActor / sessionQueue / the C++ pixel-sink
-    /// consumer thread. See `Mailbox<T>` for the safety contract. G-13 /
-    /// Stage 06 design.
-    ///
-    /// Storage is `private` (Mailbox-write access is restricted to this
-    /// type); the public-read companion below forwards `latest` so external
-    /// readers continue to see `pipeline.latestNaturalTex` returning
-    /// `MTLTexture?` — preserves the prior `private(set)` semantics.
-    private let _latestNaturalTex = Mailbox<MTLTexture>()
-    private let _latestProcessedTex = Mailbox<MTLTexture>()
+    /// callback); readers on MainActor / sessionQueue. See `Mailbox<T>` for the
+    /// safety contract. G-13 / Stage 06 design.
+    private let _latestNaturalTex16F = Mailbox<MTLTexture>()
+    private let _latestProcessedTex16F = Mailbox<MTLTexture>()
     private let _latestTrackerTex = Mailbox<MTLTexture>()
 
-    var latestNaturalTex: MTLTexture? { _latestNaturalTex.latest }
-    var latestProcessedTex: MTLTexture? { _latestProcessedTex.latest }
+    var latestNaturalTex16F: MTLTexture? { _latestNaturalTex16F.latest }
+    var latestProcessedTex16F: MTLTexture? { _latestProcessedTex16F.latest }
+    /// Tracker texture — `.bgra8Unorm` (Pass-4 writes directly into the BGRA8
+    /// tracker pool; no separate 16F texture exists for this lane).
     var latestTrackerTex: MTLTexture? { _latestTrackerTex.latest }
+
+    /// Preview/bridge-facing BGRA8 lane textures (natural + processed).
+    ///
+    /// Each is the `.bgra8Unorm` view of the Pass-7 convert output, sharing its
+    /// IOSurface with the matching `_latest*Buffer` mailbox — so a lane exposes
+    /// one surface as both a `CVPixelBuffer` and an `MTLTexture`. The public
+    /// `CameraEngine.currentTexture()` / `currentProcessedTexture()` accessors
+    /// read these; the MTKView preview and the Phase-3 bridge get identical
+    /// 8-bit pixels. Single writer on the delivery queue (`Mailbox<T>`).
+    private let _latestNaturalBgra8Tex = Mailbox<MTLTexture>()
+    private let _latestProcessedBgra8Tex = Mailbox<MTLTexture>()
+
+    var latestNaturalBgra8Tex: MTLTexture? { _latestNaturalBgra8Tex.latest }
+    var latestProcessedBgra8Tex: MTLTexture? { _latestProcessedBgra8Tex.latest }
 
     // Phase-2 §2c: lane CVPixelBuffer mailboxes — paired with the texture
     // mailboxes above. Single writer on the AVF delivery queue; readers
@@ -131,7 +151,7 @@ final class MetalPipeline: @unchecked Sendable {
     private let _latestNaturalBufferRGBA16F = Mailbox<CVPixelBuffer>()
     var latestNaturalBufferRGBA16F: CVPixelBuffer? { _latestNaturalBufferRGBA16F.latest }
 
-    /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex`.
+    /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex16F`.
     ///
     /// Read by `CameraEngine.awaitNaturalAfter` to confirm the natural texture
     /// has been refreshed past a target buffer timestamp (e.g. the `t_apply`
@@ -574,10 +594,13 @@ final class MetalPipeline: @unchecked Sendable {
         let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
         // Stage 10: extract NV12 buffer for delivery in completion handler.
         let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
-        // Capture the BGRA8-converted buffers for the mailbox store in the
-        // completion handler. Tracker buffer is already BGRA8 (pool fused in Pass-4).
+        // Capture the BGRA8-converted buffers + textures for the mailbox store in
+        // the completion handler. Each pair's buffer and texture share one
+        // IOSurface. Tracker buffer is already BGRA8 (pool fused in Pass-4).
         let naturalEightBitBuf: CVPixelBuffer? = naturalEightBitPair?.buffer
+        let naturalEightBitTex: MTLTexture? = naturalEightBitPair?.texture
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
+        let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
         // advanced (close() / recovery ran) — prevents use-after-free on readback
@@ -633,16 +656,18 @@ final class MetalPipeline: @unchecked Sendable {
             if trackerBuf != nil {
                 consumers.yield(fs, stream: .tracker)
             }
-            // Update preview mailboxes for MTKView draw pass. Buffer mailboxes store
-            // BGRA8 for all lanes: natural + processed via Pass-7, tracker via Pass-4
-            // (pool is BGRA8; no extra conversion pass). Texture mailboxes store
-            // RGBA16F for natural + processed (internal Metal consumers need precision);
-            // tracker texture is bgra8Unorm (Pass-4 writes directly into the BGRA8 pool).
-            // The `_latestNaturalBufferRGBA16F` mailbox preserves the RGBA16F pool buffer
-            // so that `captureNaturalPicture` retains HDR-grade precision for still capture.
+            // Update lane mailboxes. Delivery is BGRA8 for every lane and every
+            // surface type: the buffer mailboxes (natural/processed via Pass-7,
+            // tracker via the fused Pass-4 pool) AND the natural/processed
+            // texture mailboxes (`_latest*Bgra8Tex`, sharing the buffer's
+            // IOSurface). The 16F texture mailboxes are kept only as internal
+            // compute intermediates for calibration/diagnostic sampling — never
+            // delivered. The `_latestNaturalBufferRGBA16F` mailbox preserves the
+            // 16F pool buffer for the still-capture path (removed in Task 5).
             self._latestNaturalBuffer.store(naturalEightBitBuf ?? naturalBuf)
             self._latestNaturalBufferRGBA16F.store(naturalBuf)
-            self._latestNaturalTex.store(naturalTexI)
+            self._latestNaturalTex16F.store(naturalTexI)
+            if let nTex = naturalEightBitTex { self._latestNaturalBgra8Tex.store(nTex) }
             // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` can
             // confirm naturalTex has been refreshed past a given timestamp. CAS
             // loop ensures we only advance the published PTS — out-of-order
@@ -657,7 +682,8 @@ final class MetalPipeline: @unchecked Sendable {
                 cur = actual
             }
             self._latestProcessedBuffer.store(processedEightBitBuf ?? processedBuf)
-            self._latestProcessedTex.store(processedTexI)
+            self._latestProcessedTex16F.store(processedTexI)
+            if let pTex = processedEightBitTex { self._latestProcessedBgra8Tex.store(pTex) }
             if let tBuf = trackerBuf, let tTex = trackerTex {
                 self._latestTrackerBuffer.store(tBuf)
                 self._latestTrackerTex.store(tTex)
@@ -682,15 +708,17 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// Returns the latest natural texture for the MTKView draw pass.
     ///
-    /// Reads `latestNaturalTex` `Mailbox<T>` (G-13 single-writer model).
+    /// Reads the internal `latestNaturalTex16F` `Mailbox<T>` (G-13 single-writer
+    /// model) — the RGBA16F Pass-1 output, used by the calibration samplers and
+    /// the `encodePass2Only` test seam (NOT the BGRA8 preview surface).
     /// Falls back to dequeuing a blank pool buffer on the first call before any frame arrives.
     func currentTexture() -> MTLTexture {
-        if let t = latestNaturalTex { return t }
+        if let t = latestNaturalTex16F { return t }
         if let pair = try? texturePool.dequeuePoolTexture(
             pool: naturalPool, width: captureSize.width, height: captureSize.height
         ) {
             _latestNaturalBuffer.store(pair.buffer)
-            _latestNaturalTex.store(pair.texture)
+            _latestNaturalTex16F.store(pair.texture)
             return pair.texture
         }
         fatalError("MetalPipeline.currentTexture: no preview texture available")
@@ -698,15 +726,18 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// Returns the latest processed texture for the right-half MTKView.
     ///
-    /// Reads `latestProcessedTex` `Mailbox<T>` (G-13 single-writer model).
-    /// Falls back to dequeuing a blank pool buffer on the first call before any frame arrives.
+    /// Reads the internal `latestProcessedTex16F` `Mailbox<T>` (G-13
+    /// single-writer model) — the RGBA16F Pass-2 graded output, sampled by
+    /// `dispatchCenterPatch` / `sampleCenterPatch` (NOT the BGRA8 preview
+    /// surface). Falls back to dequeuing a blank pool buffer on the first call
+    /// before any frame arrives.
     func currentProcessedTex() -> MTLTexture {
-        if let t = latestProcessedTex { return t }
+        if let t = latestProcessedTex16F { return t }
         if let pair = try? texturePool.dequeuePoolTexture(
             pool: processedPool, width: captureSize.width, height: captureSize.height
         ) {
             _latestProcessedBuffer.store(pair.buffer)
-            _latestProcessedTex.store(pair.texture)
+            _latestProcessedTex16F.store(pair.texture)
             return pair.texture
         }
         fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
@@ -816,7 +847,7 @@ final class MetalPipeline: @unchecked Sendable {
         // calibration sample of a blank texture is silently (0,0,0) — worse than
         // a thrown error. Single-writer invariant (delivery queue) + Metal's
         // command-buffer retention through encode make this read race-free.
-        guard let naturalTex = latestNaturalTex else {
+        guard let naturalTex = latestNaturalTex16F else {
             throw MetalError.noFrameAvailable
         }
         return try await dispatchCenterPatch(on: naturalTex)
@@ -840,7 +871,7 @@ final class MetalPipeline: @unchecked Sendable {
     func dispatchBBCalibrationSample() async throws -> RgbSample {
         // Single-writer invariant (delivery queue) + Metal command-buffer
         // retention through encode make this nonisolated(unsafe) read race-free.
-        guard let naturalTex = latestNaturalTex else {
+        guard let naturalTex = latestNaturalTex16F else {
             throw MetalError.noFrameAvailable
         }
 
@@ -994,12 +1025,12 @@ final class MetalPipeline: @unchecked Sendable {
 
     func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
         _latestNaturalBuffer.store(buffer)
-        _latestNaturalTex.store(texture)
+        _latestNaturalTex16F.store(texture)
     }
 
     func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
         _latestProcessedBuffer.store(buffer)
-        _latestProcessedTex.store(texture)
+        _latestProcessedTex16F.store(texture)
     }
 
     /// Writes color uniforms directly into the pipeline's uniforms Mutex.
