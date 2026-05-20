@@ -248,7 +248,7 @@ brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq
 cd "$(git rev-parse --show-toplevel)"
 xcode-build-server config -project ios_example_app/ios_example_app.xcodeproj \
                           -scheme ios_example_app
-git config core.hooksPath .githooks   # currently a no-op (only hook deleted 2026-05-20)
+git config core.hooksPath .githooks   # wires up .githooks/pre-commit (swift-format + SwiftLint + CONTRACTS.md regen)
 ```
 
 **What `xcode-build-server` does and why we need it.** Sourcekit-lsp (Apple's
@@ -277,6 +277,18 @@ scope" in your editor on Swift files that obviously compile fine.
 developer regenerates after cloning, after switching schemes, or after Xcode
 bumps DerivedData hash. Inside Xcode itself, none of this matters — Xcode
 uses its own build system. This is purely for external editors.
+
+**What `git config core.hooksPath .githooks` does.** Pre-commit-time validation
+lives in `.githooks/pre-commit` — it enforces swift-format / SwiftLint and
+regenerates `CameraKit/CONTRACTS.md` so the auto-generated current-shape doc
+never drifts from the sources. We keep the hook in `.githooks/` rather than
+the default `.git/hooks/` so it's version-controlled and ships with every
+clone (the default `.git/hooks/` is never committed, so hooks placed there
+don't travel); `git config core.hooksPath .githooks` is the per-clone wire-up
+that points git at it. The `pre-push` hook was removed in the 2026-05-20
+restructure (the synthetic `camerakit-only` subtree-split it ran no longer
+works now that `Package.swift` lives at the repo root). Skip a single
+commit's hooks with `--no-verify` (rare; the hooks are blocking by design).
 
 ### 6.1 Coordinator discipline
 
