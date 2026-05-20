@@ -524,13 +524,16 @@ struct RgbaConversionTrackerBgra8Tests {
     }
 }
 
-// MARK: - latestNaturalBufferRGBA16F preserves HDR precision for still capture
+// MARK: - captureNaturalPicture sources the BGRA8 natural-lane buffer
 
-@Suite("RGBA8 conversion — captureNaturalPicture sources RGBA16F")
+@Suite("RGBA8 conversion — captureNaturalPicture sources BGRA8")
 struct RgbaConversionNaturalCaptureSourceTests {
 
-    @Test("latestNaturalBufferRGBA16F is RGBA16F (still-capture HDR fidelity)")
-    func naturalCaptureBufferIsRgba16f() throws {
+    /// `captureNaturalPicture` now reads `latestNaturalBuffer` (BGRA8) — the
+    /// parallel RGBA16F still mailbox is gone (8-bit is the single delivery
+    /// format; the camera is 8-bit-locked, so there was no precision to keep).
+    @Test("latestNaturalBuffer is BGRA8 (still-capture source)")
+    func naturalCaptureBufferIsBgra8() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -546,11 +549,11 @@ struct RgbaConversionNaturalCaptureSourceTests {
         try pipeline.encode(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
-        guard let buffer = pipeline.latestNaturalBufferRGBA16F else {
-            Issue.record("RGBA16F natural-capture mailbox not populated")
+        guard let buffer = pipeline.latestNaturalBuffer else {
+            Issue.record("natural-lane buffer mailbox not populated")
             return
         }
-        #expect(CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_64RGBAHalf)
+        #expect(CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA)
     }
 }
 

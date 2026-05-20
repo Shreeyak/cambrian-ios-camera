@@ -233,34 +233,6 @@ final class TexturePoolManager: @unchecked Sendable {
         return (buffer, mtlTex)
     }
 
-    /// Creates a 1-slot CPU-readable pool for still capture readback.
-    ///
-    /// Buffers are IOSurface-backed (Metal-writable via Pass 6 blit) and CPU-readable
-    /// (CVPixelBufferLockBaseAddress for vImage) per ADR-06.
-    func makeStillCapturePool(size: Size) throws -> CVPixelBufferPool {
-        let poolAttrs: [CFString: Any] = [
-            kCVPixelBufferPoolMinimumBufferCountKey: 1
-        ]
-        let bufferAttrs: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_64RGBAHalf,
-            kCVPixelBufferWidthKey: size.width,
-            kCVPixelBufferHeightKey: size.height,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
-            kCVPixelBufferMetalCompatibilityKey: true,
-        ]
-        var pool: CVPixelBufferPool?
-        let status = CVPixelBufferPoolCreate(
-            kCFAllocatorDefault,
-            poolAttrs as CFDictionary,
-            bufferAttrs as CFDictionary,
-            &pool
-        )
-        guard status == kCVReturnSuccess, let pool else {
-            throw MetalError.unsupportedFormat
-        }
-        return pool
-    }
-
     /// Dequeues a buffer from `pool` and wraps it as an `MTLTexture` view through
     /// the shared `CVMetalTextureCache`.
     ///
