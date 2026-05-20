@@ -351,13 +351,29 @@ otherwise.
 
 ### Verification pending (human gate)
 
-- **D1 — iOS on-device smoke.** Plan §D1 cases (preview WB visibly
-  adjusts; `before` ≠ `after`; `converged: true`, `iterations: 1`;
-  concurrency-guard error rehearsals from §D1 final paragraph).
-  Requires an iPad with the example app deployed.
+- **D1 — iOS on-device smoke.** ⛔ **Attempted 2026-05-20; blocked
+  by a pre-existing Plan 2 texture-bridge issue independent of Plan
+  3.** With the example app deployed on a USB-tethered iPad (iOS
+  26.4.2), the engine opens cleanly (`state=streaming`,
+  `opened handle=1 1600×1200`) and the FPS watchdog reports frames
+  arriving at ~15fps — so frames *are* being produced — but both
+  Flutter preview lanes render solid colors (natural lane pure
+  black, processed lane mid-grey) regardless of scene content. The
+  blank-preview blocks tapping the calibrate buttons (the
+  example-app flow samples patches from the rendered frame). Plan
+  3's commit (`2de8e69`) touched zero lines of texture-bridge / GPU
+  / `AVCaptureSession` code, so this is a Plan 2 (or environment)
+  regression that surfaced during Plan 3 verification, not a Plan
+  3 defect. Debug starting point committed to
+  `cam2fd/docs/plans/2026-05-20-ios-texture-bridge-blank-preview-debug.md`
+  — covers symptoms, evidence, ruled-out hypotheses, and concrete
+  next experiments. **D1 will be re-attempted after that issue is
+  resolved on a sibling branch.**
 - **D2 — Android regression smoke.** Plan §D2 — Android still runs
   the iterative Dart loop and returns `iterations > 1` with no
-  `not_implemented` surfacing. Requires an Android device or emulator.
+  `not_implemented` surfacing. Deferred — no Android device or
+  emulator was connected during the Plan 3 verification session.
+  Requires an Android device or emulator.
 - **C1 mock-based unit test.** Plan §C1 wanted a hand-rolled mock
   asserting the iOS branch invokes the HostApi while Android runs the
   Dart loop. Deferred — `cambrian_camera` has no mock framework in
@@ -366,6 +382,39 @@ otherwise.
   scope for Plan 3's primary goal. Static type checking + smoke
   builds give structural confidence; mock test would only catch a
   caller-routing regression.
+
+### Plan 4 polish committed alongside Plan 3 on the cam2fd branch
+
+During the D1 verification attempt, several Plan-4-scoped polish
+items were needed as preconditions to *reach* a state where Plan
+3's contract could be exercised. Rather than discard the work,
+they were committed as a separately-labeled commit on the same
+branch (`phase-3-plan-3-ios-only-calibration`) so the diff seam
+is visible to reviewers:
+
+- **`ios/Runner/Info.plist`** — added `NSCameraUsageDescription`,
+  `NSMicrophoneUsageDescription`, `NSPhotoLibraryAddUsageDescription`,
+  `NSLocalNetworkUsageDescription`. Without these iOS won't prompt
+  for permissions; `permission_handler` returns `permanentlyDenied`
+  silently. Plan 4 carry-forward (§Carry-forward to Plan 4) named
+  this exact gap.
+- **`lib/main.dart` + `packages/cambrian_camera/lib/src/cambrian_camera_controller.dart`** —
+  removed the `permission_handler` dependency usage from the
+  example app; added four static methods to `CambrianCamera`
+  (`cameraPermissionStatus`, `requestCameraPermission`,
+  `photosAddPermissionStatus`, `requestPhotosAddPermission`) that
+  route through the existing Pigeon `CameraHostApi` (`§5.6` methods
+  Plan 2 already shipped) and call `AVCaptureDevice.requestAccess`
+  directly. **Diagnostic value:** confirmed `permission_handler`
+  12.0.1 returns `permanentlyDenied` on iOS 26 *without* invoking
+  `requestAccess` — the dialog never fires. The native path works
+  as expected on a fresh-install bundle.
+- **`pubspec.yaml` + `assets/icon/app_icon.png` + generated icon
+  assets** — added `flutter_launcher_icons` and generated iOS +
+  Android launcher icons from a single source PNG. Originated as a
+  recognition aid (user needed to find the app in iPad Storage
+  settings to delete it). Also fixed the broad `*.png` gitignore
+  rule to allow the icon PNGs through.
 
 ### Carry-forward to Plan 4
 
