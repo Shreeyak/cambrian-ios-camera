@@ -613,9 +613,13 @@ public actor CameraEngine {
             throw EngineError.notOpen
         }
 
-        // 1. Merge onto prior state.
+        // 1. Merge onto prior state, then promote a single-field manual request
+        //    so it pins both ISO and exposure (iOS couples them in one
+        //    setIsoExposureManual call — measurements 2026-05-20 §1, case #4).
         let prior = currentSettings ?? CameraSettings()
-        let merged = settings.merging(onto: prior)
+        let merged = SettingsCoupling.promoteSingleFieldManual(
+            request: settings,
+            merged: settings.merging(onto: prior))
 
         // 2. Couple (Rules 1/2/3). Reads the last KVO snapshot for Rule 3.
         let latched = await device.lastSnapshot
