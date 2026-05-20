@@ -143,7 +143,7 @@ struct Stage13Phase2SessionCapabilitiesTests {
             naturalTextureId: 0,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
-            streamPixelFormat: "RGBA16F",
+            streamPixelFormat: Constants.streamPixelFormatString,
             isoRange: 25...3200,
             exposureDurationRangeNs: 1_000_000...100_000_000,
             focusRange: 0.0...1.0,
