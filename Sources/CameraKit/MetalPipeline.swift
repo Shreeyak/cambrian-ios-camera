@@ -570,7 +570,8 @@ final class MetalPipeline: @unchecked Sendable {
         let stillBufForCompletion: CVPixelBuffer? = stillPairForCompletion?.buffer
         // Stage 10: extract NV12 buffer for delivery in completion handler.
         let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
-        // Pre-Phase-3 — capture converted buffers for mailbox store in handler.
+        // Capture the BGRA8-converted buffers for the mailbox store in the
+        // completion handler (natural and processed lanes only; tracker stays RGBA16F).
         let naturalEightBitBuf: CVPixelBuffer? = naturalEightBitPair?.buffer
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
 
@@ -628,12 +629,11 @@ final class MetalPipeline: @unchecked Sendable {
             if trackerBuf != nil {
                 consumers.yield(fs, stream: .tracker)
             }
-            // Update preview mailboxes for MTKView draw pass.
-            // Pre-Phase-3 — buffer mailbox stores converted BGRA8 buffer when
-            // flag is on; texture mailbox always stores RGBA16F. The parallel
-            // `_latestNaturalBufferRGBA16F` mailbox always stores the
-            // RGBA16F pool buffer so `captureNaturalPicture` keeps HDR-grade
-            // precision regardless of the flag.
+            // Update preview mailboxes for MTKView draw pass. Buffer mailboxes
+            // store the BGRA8-converted buffers unconditionally; texture mailboxes
+            // always store RGBA16F. The `_latestNaturalBufferRGBA16F` mailbox
+            // additionally preserves the RGBA16F pool buffer so that
+            // `captureNaturalPicture` retains HDR-grade precision for still capture.
             self._latestNaturalBuffer.store(naturalEightBitBuf ?? naturalBuf)
             self._latestNaturalBufferRGBA16F.store(naturalBuf)
             self._latestNaturalTex.store(naturalTexI)
@@ -981,8 +981,8 @@ final class MetalPipeline: @unchecked Sendable {
     var stillCaptureDequeueCountForTest: Int { stillCaptureDequeueCount }
 
     // RGBA8 conversion test seams.
-    var eightBitNaturalPoolForTest: CVPixelBufferPool? { eightBitNaturalPool }
-    var eightBitProcessedPoolForTest: CVPixelBufferPool? { eightBitProcessedPool }
+    var eightBitNaturalPoolForTest: CVPixelBufferPool { eightBitNaturalPool }
+    var eightBitProcessedPoolForTest: CVPixelBufferPool { eightBitProcessedPool }
     /// Always nil; tracker lane is not converted (Plan OQ #4).
     var eightBitTrackerPoolForTest: CVPixelBufferPool? { nil }
 

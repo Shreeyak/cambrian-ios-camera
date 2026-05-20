@@ -102,13 +102,34 @@ struct RgbaConversionPipelinePoolTests {
             Issue.record("no metal device")
             return
         }
+        let captureSize = Size(width: 256, height: 256)
         let pipeline = try MetalPipeline(
             device: device,
-            captureSize: Size(width: 256, height: 256),
+            captureSize: captureSize,
             gateOpen: true)
-        #expect(pipeline.eightBitNaturalPoolForTest != nil)
-        #expect(pipeline.eightBitProcessedPoolForTest != nil)
-        /// Tracker lane is not converted — no Phase-3 Pigeon counterpart (Plan OQ #4).
+
+        // Dequeue from each pool and verify the vended format — a non-nil pool
+        // that vends the wrong format would still be a bug.
+        var naturalBufOut: CVPixelBuffer?
+        var processedBufOut: CVPixelBuffer?
+        let naturalStatus = CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault, pipeline.eightBitNaturalPoolForTest, &naturalBufOut)
+        let processedStatus = CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault, pipeline.eightBitProcessedPoolForTest, &processedBufOut)
+
+        #expect(naturalStatus == kCVReturnSuccess)
+        #expect(processedStatus == kCVReturnSuccess)
+        if let nat = naturalBufOut {
+            #expect(CVPixelBufferGetPixelFormatType(nat) == kCVPixelFormatType_32BGRA)
+            #expect(CVPixelBufferGetWidth(nat) == captureSize.width)
+            #expect(CVPixelBufferGetHeight(nat) == captureSize.height)
+        }
+        if let proc = processedBufOut {
+            #expect(CVPixelBufferGetPixelFormatType(proc) == kCVPixelFormatType_32BGRA)
+            #expect(CVPixelBufferGetWidth(proc) == captureSize.width)
+            #expect(CVPixelBufferGetHeight(proc) == captureSize.height)
+        }
+        // Tracker lane is not converted — no Phase-3 Pigeon counterpart (Plan OQ #4).
         #expect(pipeline.eightBitTrackerPoolForTest == nil)
     }
 }
