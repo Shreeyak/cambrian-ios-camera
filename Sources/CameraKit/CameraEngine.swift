@@ -294,9 +294,7 @@ public actor CameraEngine {
             }
         )
         self.recovery = RecoveryCoordinator(clock: clock, hooks: hooks)
-        let token = sessionToken.load(ordering: .acquiring)
-        pair.gpu.arm(sessionToken: token)
-        pair.capture.arm(sessionToken: token)
+        armWatchdogs()
 
         startAEMonitor(device: device)
 
@@ -516,8 +514,34 @@ public actor CameraEngine {
     /// transition into `SessionState` so downstream consumers
     /// (`ErrorPresenterViewModel`, Phase-3's Pigeon adapter) see a consistent
     /// pause/resume signal.
+    ///
+    /// The mirror is guarded to the legitimate scenePhase edges only —
+    /// `streaming → paused` (and the pre-open `closed → paused`, D-2P-07) on
+    /// pause, `paused → streaming` on resume. From any other state the
+    /// OS-interruption (`.interrupted`) or recovery (`.recovering`) path is
+    /// authoritative; forcing a command transition over it is off-map and, in
+    /// DEBUG, aborts (the HITL background crash — measurements 2026-05-20 §1).
+    /// An imperfect host calling pause/resume at the wrong moment must not
+    /// crash the engine, so off-edge calls are logged and ignored.
     public func notifyScenePhasePaused(_ paused: Bool) {
-        publishState(paused ? .paused : .streaming, kind: .command)
+        let current = stateMachine.current
+        if paused {
+            guard current == .streaming || current == .closed else {
+                CameraKitLog.notice(
+                    .scenePhase,
+                    "[scenePhase] pause ignored — state=\(current.rawValue) not mirrorable")
+                return
+            }
+            publishState(.paused, kind: .command)
+        } else {
+            guard current == .paused else {
+                CameraKitLog.notice(
+                    .scenePhase,
+                    "[scenePhase] resume ignored — state=\(current.rawValue) not paused")
+                return
+            }
+            publishState(.streaming, kind: .command)
+        }
     }
 
     /// Test-only: drive the state machine into `.streaming` so teardown paths
@@ -692,11 +716,17 @@ public actor CameraEngine {
     /// Gates GPU submission, drains any in-flight
     /// frame, and stops the capture session via sessionQueue with timeout (ADR-30).
     ///
-    /// Step 1 (disarm watchdogs) is intentionally omitted: watchdogs must stay armed
-    /// during background suspension so the capture stall is detected and recovery fires.
+    /// Disarms the stall watchdogs and cancels any pending recovery retry (Inv 9):
+    /// the session is being stopped on purpose, so no frames are expected and a
+    /// stall is not a fault. Leaving them armed fires spurious recovery while
+    /// backgrounded, which collides with the OS-interruption state and aborts in
+    /// DEBUG — the HITL background crash (measurements 2026-05-20 §1). Re-armed by
+    /// `backgroundResume()`.
     public func backgroundSuspend() async {
         CameraKitLog.notice(.engine, "[bgsuspend] enter gate=false stopRunning")
         submissionGate.store(false, ordering: .sequentiallyConsistent)
+        watchdogs?.disarmAll()
+        await recovery?.cancelPendingRetry()
         if recording != nil {
             CameraKitLog.notice(
                 .engine, "[bgsuspend] active recording — finalizing via background-task drain")
@@ -725,6 +755,8 @@ public actor CameraEngine {
             CameraKitLog.notice(
                 .engine,
                 "[bgresume] startRunning returned sessionRunning=\(session.avSession.isRunning)")
+            // Frames resume — re-arm the watchdogs disarmed by backgroundSuspend().
+            armWatchdogs()
         }
     }
 
@@ -1578,6 +1610,19 @@ public actor CameraEngine {
     func publishErrorAsync(_ e: CameraError) { publishError(e) }
     func disarmWatchdogsAsync() { watchdogs?.disarmAll() }
 
+    /// Arm both stall watchdogs against the current session token.
+    ///
+    /// `Watchdog.arm` is self-canceling (it cancels any prior poller), so this
+    /// is safe to call to (re-)arm on `open()`, on `backgroundResume()`, and on
+    /// `.otherInterruptionEnded`. No-op when the engine is closed
+    /// (`watchdogs == nil`).
+    private func armWatchdogs() {
+        guard let pair = watchdogs else { return }
+        let token = sessionToken.load(ordering: .acquiring)
+        pair.gpu.arm(sessionToken: token)
+        pair.capture.arm(sessionToken: token)
+    }
+
     private func startAEMonitor(device: any CaptureDeviceProviding) {
         aeMonitorTask?.cancel()
         let clock = self.clock
@@ -1693,16 +1738,67 @@ public actor CameraEngine {
                 .engine, "[interruption] entering .interrupted (raw=\(raw))")
             // Phase-2 §2b — abort any in-flight calibration on .interrupted.
             calibrationTask?.cancel()
+            // HITL crash fix (measurements 2026-05-20 §1): the OS stopped frame
+            // delivery, so the stall watchdogs would fire spuriously and drive
+            // recovery — interrupted → recovering is off-map and aborts in DEBUG.
+            // Disarm them and cancel any pending retry (mirror of the
+            // .cameraInUseBegan path); re-armed on .otherInterruptionEnded.
+            watchdogs?.disarmAll()
+            await recovery?.cancelPendingRetry()
             publishState(.interrupted, kind: .event)
         case .otherInterruptionEnded:
             CameraKitLog.notice(
                 .engine, "[interruption] ended — reverting to .streaming")
             publishState(.streaming, kind: .event)
+            // Frames resume — re-arm the watchdogs disarmed on .otherInterruption.
+            armWatchdogs()
         }
     }
 
     /// Test-only: inject a session event directly (avoids needing avSession reference).
     func _postSessionEventForTest(_ event: CameraSession.SessionEvent) async {
         await onSessionEvent(event)
+    }
+
+    /// Test-only: current authoritative `SessionState`.
+    ///
+    /// The engine's state machine is private; tests assert lifecycle transitions
+    /// through this rather than racing the `stateStream`.
+    var _currentStateForTest: SessionState { stateMachine.current }
+
+    /// Test-only: armed token of the capture stall watchdog (nil when disarmed).
+    ///
+    /// Lets a test observe disarm-on-interruption / re-arm-on-resume directly.
+    var _captureWatchdogArmedTokenForTest: UInt64? { watchdogs?.capture.armedSessionToken }
+
+    /// Test-only: build and arm the stall watchdogs + recovery coordinator the
+    /// way `open()` does, without a real `AVCaptureSession`.
+    ///
+    /// Exercises the lifecycle disarm/re-arm paths and the watchdog→recovery
+    /// wiring under an injected clock. `performTeardownAndReopen` is a no-op —
+    /// these tests assert that recovery is NOT spuriously triggered on the
+    /// interrupted / background path.
+    func _armWatchdogsForTest() {
+        let gpu = Watchdog(kind: .gpu, clock: clock) { [weak self] fire in
+            Task { [weak self] in await self?.handleWatchdogFire(fire) }
+        }
+        let cap = Watchdog(kind: .capture, clock: clock) { [weak self] fire in
+            Task { [weak self] in await self?.handleWatchdogFire(fire) }
+        }
+        let pair = WatchdogPair(gpu: gpu, capture: cap)
+        self.watchdogs = pair
+        self.recovery = RecoveryCoordinator(
+            clock: clock,
+            hooks: RecoveryCoordinator.Hooks(
+                performTeardownAndReopen: {},
+                emitStateRecovering: { [weak self] in await self?.publishStateAsync(.recovering) },
+                emitError: { [weak self] err in await self?.publishErrorAsync(err) },
+                disarmWatchdogs: { [weak self] in await self?.disarmWatchdogsAsync() },
+                incrementSessionToken: { [weak self] in
+                    self?.sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
+                }
+            )
+        )
+        armWatchdogs()
     }
 }
