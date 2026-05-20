@@ -43,6 +43,10 @@ From `<Documents>/camerakit.log`, session `2026-05-20 04:32:40`
 
 - frame 0→300: 10.049 s ⇒ **29.85 fps**
 - frame 300→600: 10.009 s ⇒ **29.97 fps**
+- Repeatable via `scripts/hitl-fps-smoke.sh [seconds]` — launches the app,
+  pulls the log, parses fps from the frame counters, and asserts fps ∈ [27,31]
+  with 0 drops/overwrites (exit 0/1). Re-run 2026-05-20: `✓ PASS — ~29.93 fps,
+  0 drops/overwrites`.
 - **~30 fps sustained**, all three lanes delivering BGRA8 IOSurfaces
   (`surface=true`), **0 frame-drop windows, 0 mailbox overwrites** across the
   run. Matches the rgba8 baseline (30 fps, 0 degraded windows). No errors,
