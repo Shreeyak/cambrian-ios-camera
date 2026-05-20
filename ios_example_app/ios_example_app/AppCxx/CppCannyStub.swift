@@ -18,7 +18,10 @@ public final class CppCannyStub: @unchecked Sendable {
     private let handle: UnsafeMutableRawPointer
 
     public init() {
-        handle = canny_stub_create()!
+        guard let h = canny_stub_create() else {
+            fatalError("canny_stub_create() returned null — out of memory or invalid heap state")
+        }
+        self.handle = h
         log.info("CppCannyStub: created")
     }
 
