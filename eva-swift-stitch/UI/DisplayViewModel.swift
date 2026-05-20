@@ -1,5 +1,6 @@
 import CameraKit
 import CoreMedia
+import CoreVideo
 import Metal
 import SwiftUI
 
@@ -97,7 +98,13 @@ final class DisplayViewModel {
         naturalSubscriberTask?.cancel()
         naturalSubscriberTask = Task { [weak self] in
             guard let self else { return }
+            var sanityHealthyLogged = false
             for await fs in await self.engine.consumers.subscribe(stream: .natural) {
+                // ~1 Hz delivered-frame sanity check on the natural lane.
+                if fs.frameNumber % 30 == 0 {
+                    sanityHealthyLogged = checkNaturalFrameSanity(
+                        fs.natural, frame: fs.frameNumber, healthyLogged: sanityHealthyLogged)
+                }
                 guard fs.frameNumber % 10 == 0 else { continue }
                 let processed = self.cannyStub.processedCount
                 let edgeCount: UInt32? =
@@ -136,3 +143,49 @@ final class DisplayViewModel {
         }
     }
 }
+
+#if DEBUG
+/// DEBUG-only delivered-frame sanity check on the natural BGRA8 lane.
+///
+/// Samples the center pixel and warns if it's degenerate — alpha ≠ 255 or an
+/// all-zero pixel — which would signal lane-buffer corruption in the BGRA8
+/// delivery path. Logs one positive "healthy" line the first time it sees a
+/// good frame (returns `true` so the caller suppresses further positives), then
+/// stays quiet unless something goes wrong. Runs off the delivery hot path
+/// (the DEBUG natural subscription, ~1 Hz) and writes to `camerakit.log`.
+///
+/// This deliberately does NOT try to detect on-screen "green frames": those are
+/// an uninitialized-drawable artifact (CLAUDE.md §8), not lane-buffer content —
+/// the lane buffer is always fully written by Pass-7, so sampling it can't see
+/// them. Detecting that needs a screen capture, which iOS 26.4 doesn't provide.
+private func checkNaturalFrameSanity(
+    _ buffer: CVPixelBuffer, frame: UInt64, healthyLogged: Bool
+) -> Bool {
+    CVPixelBufferLockBaseAddress(buffer, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+    guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
+        let base = CVPixelBufferGetBaseAddress(buffer)
+    else { return healthyLogged }
+
+    let width = CVPixelBufferGetWidth(buffer)
+    let height = CVPixelBufferGetHeight(buffer)
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+    let offset = (height / 2) * bytesPerRow + (width / 2) * 4
+    let px = base.assumingMemoryBound(to: UInt8.self)
+    let b = px[offset], g = px[offset + 1], r = px[offset + 2], a = px[offset + 3]
+
+    if a != 255 || (b == 0 && g == 0 && r == 0) {
+        CameraKitLog.warning(
+            .consumers,
+            "[sanity] degenerate natural frame=\(frame) BGRA=[\(b),\(g),\(r),\(a)]")
+        return healthyLogged
+    }
+    if !healthyLogged {
+        CameraKitLog.notice(
+            .consumers,
+            "[sanity] natural delivery healthy frame=\(frame) BGRA=[\(b),\(g),\(r),\(a)]")
+        return true
+    }
+    return healthyLogged
+}
+#endif

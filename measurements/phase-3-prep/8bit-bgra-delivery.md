@@ -52,6 +52,20 @@ From `<Documents>/camerakit.log`, session `2026-05-20 04:32:40`
   run. Matches the rgba8 baseline (30 fps, 0 degraded windows). No errors,
   no crashes in the session log.
 
+### Live-frame sanity logger (DEBUG, objective) ✅
+
+`DisplayViewModel` (DEBUG) samples the delivered natural BGRA8 center pixel
+~1 Hz and logs to `camerakit.log`: one "healthy" line on the first good frame,
+then warns only if a frame is degenerate (alpha ≠ 255 or all-zero). Observed:
+
+```
+[sanity] natural delivery healthy frame=0 BGRA=[1,0,1,255]
+```
+
+alpha = 255 confirms correct BGRA delivery on real frames. (It cannot detect
+on-screen green frames — those are a drawable artifact, not lane-buffer
+content; see the function's doc-comment.)
+
 ### Visual correctness (subjective — user-confirmed on device 2026-05-20) 
 
 The XcodeBuildMCP `screenshot` tool is simulator-only and cannot capture a
