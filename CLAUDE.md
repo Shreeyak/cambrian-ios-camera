@@ -209,9 +209,14 @@ The second command generates `buildServer.json` at the repo root, bridging
 sourcekit-lsp to Xcode's build system. It is gitignored (contains a
 machine-specific DerivedData path); re-run after cloning or changing scheme.
 
-The third command enables the repo's `pre-push` hook, which keeps the
-`camerakit-only` synthetic branch in sync for the Flutter plugin consumer.
-See §10 for the full mechanism. Skip on a one-off push with `--no-verify`.
+The third command enables the repo's tracked hooks: `pre-push` keeps the
+`camerakit-only` synthetic branch in sync for the Flutter plugin consumer (§10),
+and `pre-commit` enforces swift-format / SwiftLint / `CONTRACTS.md` regen.
+We keep both in `.githooks/` rather than the default `.git/hooks/` so they are
+version-controlled and ship with every clone — `git config core.hooksPath
+.githooks` is the per-clone wire-up that points git at them (the default
+`.git/hooks/` is never committed, so hooks placed there don't travel). Skip on a
+one-off push with `--no-verify`.
 
 ### 6.1 Coordinator discipline
 

@@ -42,6 +42,10 @@ done
 [ "$camerakit_changed" = "0" ] && exit 0
 
 echo "→ CameraKit/ changes detected; updating camerakit-only branch"
-git subtree split --prefix=CameraKit -b camerakit-only
-git push --force origin camerakit-only
-echo "✓ camerakit-only branch updated and pushed"
+# Compute the split commit and push it straight to the remote ref. Pushing by
+# SHA (rather than `git subtree split -b camerakit-only`) is idempotent: the
+# `-b` form fails once a local camerakit-only branch exists, which it will after
+# the first run. `-q` suppresses the per-commit progress flood on every push.
+split_sha=$(git subtree split --prefix=CameraKit -q)
+git push --force origin "${split_sha}:refs/heads/camerakit-only"
+echo "✓ camerakit-only branch updated and pushed ($split_sha)"
