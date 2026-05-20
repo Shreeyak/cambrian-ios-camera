@@ -1,3 +1,46 @@
+# state.md — Flutter monorepo restructure (2026-05-20)
+
+Repo restructured for two-personality (Swift SPM + Flutter plugin) shipping.
+Spec: `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`.
+Plan: `docs/superpowers/plans/2026-05-20-flutter-plugin-monorepo-plan.md`.
+
+## Restructure 2026-05-20 — Flutter monorepo
+
+- **`Package.swift` moved to repo root**; `CameraKit/Package.swift` deleted.
+  Real `.testTarget(CameraKitTests)` dropped — SPM never built it correctly
+  anyway. `SPMTestStub` testTarget with `#error` directs `swift test` to
+  the Xcode path.
+- **`eva-swift-stitch` → `ios_example_app`** (project + scheme + 3 targets
+  + source dirs). Project relocated to `ios_example_app/ios_example_app.xcodeproj`.
+  App sources at `ios_example_app/ios_example_app/`. Bundle ID
+  `com.cambrian.eva-swift-stitch` → `com.cambrian.ios-example-app` (Tests/
+  UITests preserve their suffix). PRODUCT_NAME left as `$(TARGET_NAME)`.
+- **`measurements/` → `docs/measurements/`**. All path refs updated in source
+  comments, state.md, DECISIONS.md, current docs.
+- **`flutter/` scaffolded** with placeholder README; Phase B will populate.
+- **`.githooks/pre-push` deleted**. The synthetic-branch hook would force-
+  push broken content after Package.swift moved. `camerakit-only` branch on
+  origin (SHA `6fbdc6b`) is frozen as safety-net snapshot.
+- **Phase 3 plans + spec archived** to `docs/superpowers/{plans,specs}/archive/`
+  with SUPERSEDED-banner. cam2fd integration is no longer the architecture.
+- **GitHub repo renamed**: `eva-swift-stitch` → `cambrian-ios-camera`.
+  Auto-redirect on the old URL means existing clones still work.
+- **`fastlane/` + `Gemfile` removed** (user-authorized scope expansion;
+  fastlane unused).
+- **Verifications (A7 15-check suite)**: Build on iPad ✓ (BUILD SUCCEEDED,
+  app launched, PID 1723); Info.plist keys all present (Camera + Photos
+  + UIFileSharingEnabled + UIRequiresFullScreen + iPad orientations);
+  stage-preflight ✓; LSP buildServer.json regenerated ✓; `swift test`
+  fires `SPMTestStub` `#error` ✓; check-legacy-names.sh PASS ✓; no
+  legacy refs in live code/docs.
+- **Known issue (pre-existing)**: SwiftLint crashes on sourcekitdInProc
+  load — toolchain mismatch, unrelated to restructure.
+- Date: 2026-05-20. Pre-restructure snapshot: tag `pre-restructure-2026-05-20`
+  (main @ c4641ec). Final commits land on branch `flutter-monorepo-restructure`;
+  see `git log main..flutter-monorepo-restructure` for the full series.
+
+---
+
 # state.md — Pre-Phase-3 RGBA8 lane conversion (2026-05-15)
 
 Pre-Phase-3 additive capabilities stage outside brief discipline. Spec:
