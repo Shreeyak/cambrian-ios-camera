@@ -1,5 +1,6 @@
 import CoreMedia
 import CoreVideo
+import IOSurface
 import Metal
 import Testing
 
@@ -177,10 +178,12 @@ struct RgbaConversionMailboxFormatTests {
     }
 
     /// Load-bearing guarantee: the 16F textures survive as INTERNAL compute
-    /// intermediates (calibration sampling reads `latestNaturalTex16F`; the
-    /// diagnostic center-patch reads `latestProcessedTex16F`). They are never a
-    /// delivery surface — that is the BGRA8 mailboxes. Keep this isolated so a
-    /// future edit can't silently erode the 16F-for-the-math contract.
+    /// intermediates.
+    ///
+    /// Calibration sampling reads `latestNaturalTex16F`; the diagnostic
+    /// center-patch reads `latestProcessedTex16F`. They are never a delivery
+    /// surface — that is the BGRA8 mailboxes. Keep this isolated so a future
+    /// edit can't silently erode the 16F-for-the-math contract.
     @Test("Internal calibration/sampling textures stay .rgba16Float")
     func calibrationAndSamplingTexturesStay16F() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -234,11 +237,16 @@ struct RgbaConversionMailboxFormatTests {
         }
         #expect(natTex.pixelFormat == .bgra8Unorm)
         #expect(procTex.pixelFormat == .bgra8Unorm)
-        // Same surface ⇒ identical dimensions to the delivered lane buffer.
-        #expect(natTex.width == CVPixelBufferGetWidth(natBuf))
-        #expect(natTex.height == CVPixelBufferGetHeight(natBuf))
-        #expect(procTex.width == CVPixelBufferGetWidth(procBuf))
-        #expect(procTex.height == CVPixelBufferGetHeight(procBuf))
+        // One surface per lane: the texture and the delivered buffer must wrap
+        // the *same* IOSurface (not merely matching dimensions). This is the
+        // load-bearing Task-3 claim — a lane is one BGRA8 surface exposed two
+        // ways.
+        #expect(
+            sameIOSurface(natBuf, natTex),
+            "natural texture + buffer must share one IOSurface")
+        #expect(
+            sameIOSurface(procBuf, procTex),
+            "processed texture + buffer must share one IOSurface")
     }
 }
 
@@ -311,6 +319,11 @@ struct RgbaConversionTrackerBgra8Tests {
         #expect(
             pipeline.latestTrackerTex?.pixelFormat == .bgra8Unorm,
             "tracker texture mailbox should be bgra8Unorm")
+        if let tTex = pipeline.latestTrackerTex {
+            #expect(
+                sameIOSurface(buf, tTex),
+                "tracker texture + buffer must share one IOSurface (fused Pass-4)")
+        }
         // Keep the stream alive through assertions — early dealloc terminates the
         // continuation and removes the subscriber before encode completes.
         withExtendedLifetime(trackerStream) {}
@@ -622,4 +635,125 @@ private func makeSyntheticYUVSampleBufferForRgba8Tests(
     )
     guard let sb = sbOut else { throw MetalError.unsupportedFormat }
     return sb
+}
+
+/// True iff `buffer` and `texture` are backed by the same IOSurface.
+private func sameIOSurface(_ buffer: CVPixelBuffer, _ texture: MTLTexture) -> Bool {
+    guard let bufSurface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue(),
+        let texSurface = texture.iosurface
+    else { return false }
+    return IOSurfaceGetID(bufSurface) == IOSurfaceGetID(texSurface)
+}
+
+/// IOSurface-backed YUV biplanar (420f full-range) sample buffer whose planes
+/// are filled with a uniform `(y, cb, cr)` byte triple — so the whole image is
+/// one known color after Pass-1's YCbCr→RGB conversion.
+private func makeSolidYUVSampleBufferForRgba8Tests(
+    width: Int, height: Int, y: UInt8, cb: UInt8, cr: UInt8
+) throws -> CMSampleBuffer {
+    var pixelBuffer: CVPixelBuffer?
+    let attrs = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+    let cvStatus = CVPixelBufferCreate(
+        kCFAllocatorDefault, width, height,
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, attrs, &pixelBuffer)
+    guard cvStatus == kCVReturnSuccess, let pb = pixelBuffer else {
+        throw MetalError.unsupportedFormat
+    }
+    CVPixelBufferLockBaseAddress(pb, [])
+    // Plane 0 — luma (8-bit, full resolution).
+    if let yBase = CVPixelBufferGetBaseAddressOfPlane(pb, 0) {
+        let yRow = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
+        let yPtr = yBase.assumingMemoryBound(to: UInt8.self)
+        for row in 0..<height {
+            for col in 0..<width { yPtr[row * yRow + col] = y }
+        }
+    }
+    // Plane 1 — interleaved CbCr (8-bit each, half resolution in both dims).
+    if let cBase = CVPixelBufferGetBaseAddressOfPlane(pb, 1) {
+        let cRow = CVPixelBufferGetBytesPerRowOfPlane(pb, 1)
+        let cPtr = cBase.assumingMemoryBound(to: UInt8.self)
+        for row in 0..<(height / 2) {
+            for col in 0..<(width / 2) {
+                cPtr[row * cRow + col * 2 + 0] = cb
+                cPtr[row * cRow + col * 2 + 1] = cr
+            }
+        }
+    }
+    CVPixelBufferUnlockBaseAddress(pb, [])
+
+    var fdOut: CMFormatDescription?
+    CMVideoFormatDescriptionCreateForImageBuffer(
+        allocator: kCFAllocatorDefault, imageBuffer: pb, formatDescriptionOut: &fdOut)
+    guard let fd = fdOut else { throw MetalError.unsupportedFormat }
+    var timing = CMSampleTimingInfo(
+        duration: CMTime(value: 1, timescale: 30),
+        presentationTimeStamp: .zero,
+        decodeTimeStamp: .invalid)
+    var sbOut: CMSampleBuffer?
+    CMSampleBufferCreateReadyWithImageBuffer(
+        allocator: kCFAllocatorDefault, imageBuffer: pb, formatDescription: fd,
+        sampleTiming: &timing, sampleBufferOut: &sbOut)
+    guard let sb = sbOut else { throw MetalError.unsupportedFormat }
+    return sb
+}
+
+// MARK: - End-to-end known-color delivery
+
+@Suite("RGBA8 conversion — end-to-end known-color delivery")
+struct RgbaConversionEndToEndColorTests {
+
+    /// Drive a known YUV color through the FULL pipeline and assert the
+    /// delivered BGRA8 bytes match the expected RGB.
+    ///
+    /// Pass-1 YCbCr→RGB + identity Pass-2 + Pass-7 convert. Unlike the
+    /// convert/Pass-4 channel-order tests (which drive a kernel in isolation),
+    /// this validates the actual pixels a consumer receives end to end — a R/B
+    /// swap anywhere in the lane shows up as B≈210 vs expected 101 (off by ~109).
+    @Test("known YUV color delivers expected BGRA8 on natural + processed")
+    func knownColorDeliversExpectedBgra8() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let pipeline = try MetalPipeline(
+            device: device, captureSize: Size(width: 64, height: 64), gateOpen: true)
+
+        // Y=150, Cb=100, Cr=170 through YUVToRGBA.metal's full-range BT.601:
+        //   Y=0.5882, Cb=-0.1078, Cr=0.1667
+        //   R=0.8219·255≈210, G=0.5063·255≈129, B=0.3971·255≈101
+        // Identity Pass-2 (ProcessingParameters() defaults) ⇒ processed == natural.
+        let sample = try makeSolidYUVSampleBufferForRgba8Tests(
+            width: 64, height: 64, y: 150, cb: 100, cr: 170)
+        try pipeline.encode(sampleBuffer: sample)
+        pipeline.lastCommandBuffer?.waitUntilCompleted()
+
+        let expected = (r: 210, g: 129, b: 101)
+        let tol = 3  // 8-bit → fp16 → 8-bit rounding
+        let lanes: [(String, CVPixelBuffer?)] = [
+            ("natural", pipeline.latestNaturalBufferForTest),
+            ("processed", pipeline.latestProcessedBufferForTest),
+        ]
+        for (label, maybeBuf) in lanes {
+            guard let buf = maybeBuf else {
+                Issue.record("\(label) buffer mailbox not populated")
+                continue
+            }
+            #expect(CVPixelBufferGetPixelFormatType(buf) == kCVPixelFormatType_32BGRA)
+            CVPixelBufferLockBaseAddress(buf, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(buf, .readOnly) }
+            guard let base = CVPixelBufferGetBaseAddress(buf) else {
+                Issue.record("\(label) buffer lock failed")
+                continue
+            }
+            let bytes = base.assumingMemoryBound(to: UInt8.self)
+            let b = Int(bytes[0])
+            let g = Int(bytes[1])
+            let r = Int(bytes[2])
+            let a = Int(bytes[3])
+            #expect(abs(b - expected.b) <= tol, "\(label) B: expected ~\(expected.b), got \(b)")
+            #expect(abs(g - expected.g) <= tol, "\(label) G: expected ~\(expected.g), got \(g)")
+            #expect(abs(r - expected.r) <= tol, "\(label) R: expected ~\(expected.r), got \(r)")
+            #expect(a == 255, "\(label) A: expected 255, got \(a)")
+        }
+    }
 }
