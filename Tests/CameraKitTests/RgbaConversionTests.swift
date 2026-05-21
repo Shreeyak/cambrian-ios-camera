@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreMedia
 import CoreVideo
 import IOSurface
@@ -875,5 +876,17 @@ struct TrackerSourceFromProcessedTests {
         // Keep the stream alive through assertions — early dealloc terminates the
         // continuation and removes the subscriber before encode completes.
         withExtendedLifetime(trackerStream) {}
+    }
+}
+
+// MARK: - ISP natural capture — photo settings
+
+@Suite("ISP natural capture — photo settings")
+struct IspPhotoSettingsTests {
+    @Test("photo settings: flash off and .balanced quality")
+    func settingsKnobs() {
+        let s = StillPhotoCapture.makeSettings()
+        #expect(s.flashMode == .off)
+        #expect(s.photoQualityPrioritization == .balanced)
     }
 }
