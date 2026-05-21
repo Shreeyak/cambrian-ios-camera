@@ -434,8 +434,13 @@ reintroduced, user pause/resume must be modeled as a composed second gate, not b
   stronger structural idea: arming on the first delivered `CMSampleBuffer` after `startRunning`
   (disarm on gate-close) would delete the entire "armed while OS-stopped" class outright, making
   the `osOwnsDevice` arm-guard unnecessary. But it is more invasive (changes the arm trigger),
-  and the latest-intent-wins contract + `osOwnsDevice` guard already close the cases. Revisit as
-  a future simplification, not in this design.
+  and the latest-intent-wins contract + `osOwnsDevice` guard already close the cases. **Promoted to a committed follow-up (decided 2026-05-21):**
+  broadened beyond the watchdog to a derived-reads model — gate-as-read (a `currentPhase`
+  atomic mirror), frame-driven watchdog, and a level-triggered session actuator — that also
+  collapses the reconciliation, latest-intent-wins, and `osOwnsDevice` arm-guard machinery.
+  Ship this design's surface first, then land the structural simplification against that
+  baseline; see `docs/2026-05-21-camerakit-lifecycle-comparison.md` (§Simplification
+  follow-up — deferred).
 
 ---
 
