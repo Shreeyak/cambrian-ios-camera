@@ -61,10 +61,12 @@ Plan: `docs/superpowers/plans/2026-05-21-camerakit-lifecycle-ownership.md`.
   interrupt + dismiss resumes with no error. No off-map / spurious recovery /
   crash in any HITL session; the F2 `osOwnsDevice` deferral and Task 8 OS→phase
   reconcile both fire correctly on device. The ~500 ms Control Center resume is
-  AVF interruption-recovery latency (CC raises `rawReason=1` =
-  `videoDeviceNotAvailableInBackground`) that the F2 guard correctly defers to —
-  not a regression; background-during-use resumes faster because the interruption
-  ends while backgrounded. F4 (camera-off on background *launch*) not separately
+  **observed but not yet root-caused** — the current `yield: frame=` log is
+  sampled too coarsely (~every 300 frames) to resolve a sub-second resume;
+  app-side handling is only ~50 ms and it is confirmed **not** a session restart
+  (CC doesn't stop the session). Resume-latency instrumentation (t0/t1/t2 +
+  `startSessionIfNeeded` marker) added; re-measure pending. F4 (camera-off on
+  background *launch*) not separately
   reproduced — structurally guaranteed by `initialPhase: .background` + reconcile;
   defer to natural occurrence. Evidence:
   `measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.

@@ -14,21 +14,37 @@ with `scripts/device-log-live.sh` (the `ipad-logs` skill). Sessions
 | 1 | Cold launch, foregrounded | ✅ Preview live (sub-second; exact ≤1s to re-confirm) |
 | 2 | Foreground → background → foreground (short and >5 s) | ✅ Preview returns; resumes very quickly; camera LED off while backgrounded |
 | 3 | Start recording → background mid-recording → foreground | ✅ `.mp4` lands in Files, **uncorrupted** (finalize-before-stop) |
-| 4 | Control Center pull-down → dismiss | ✅ Preview resumes, no error dialog; ~500 ms resume (see below — expected OS latency) |
+| 4 | Control Center pull-down → dismiss | ✅ Preview resumes, no error dialog; ~500 ms resume **observed** (root cause NOT measurable from current logs — instrumentation added; see below) |
 | F4 | Camera-off on background **launch** | Not separately reproduced (needs launch-into-background); structurally guaranteed by `initialPhase: .background` + reconcile-against-`.background`, the same mechanism verified in #2/#3. Defer observable check to natural occurrence. |
 
 No off-map transitions, no spurious recovery, no crashes, no errors in any
 `2026-05-21` HITL session (the only recovery/error log lines are from an earlier
 `12:04` unit-test session with deliberate `error=boom`/`hw` injection).
 
-## Control Center resume (~500 ms) — expected, not a regression
+## Control Center resume (~500 ms) — root cause NOT yet measured
 
 Control Center on iPad fires a genuine AVF camera interruption
 (`rawReason=1` = `videoDeviceNotAvailableInBackground`); the device is OS-stopped
-while CC is open. The ~500 ms is AVF's interruption-recovery latency on the OS's
-timeline, not the app's — the F2 OS-owned guard correctly defers rather than
-fighting the OS. Background resume is faster because the interruption ends while
-backgrounded, so there is no active interruption to recover from at foreground.
+while CC is open, and the F2 OS-owned guard correctly defers rather than fighting
+the OS. **But the ~500 ms resume latency itself is not measurable from these
+logs** (an earlier draft of this file claimed "~480 ms AVF recovery" — that was
+an unsupported inference, now retracted). The `[consumers] yield: frame=` log is
+**sampled** (~every 300 frames; the `52.683` metrics tick showed `0/0` frames and
+the next *sampled* frame is ~20 s later), so it cannot resolve a sub-second
+resume. What we *can* state:
+
+- App-side lifecycle handling (scenePhase + interruption notifications +
+  reconcile) is only **~50 ms** (`52.202`→`52.257`).
+- It is **not** a session restart — a Control Center interruption does not stop
+  the session, so reconcile's `startSessionIfNeeded` is a no-op (no ~400 ms
+  `startRunning`).
+- The remaining ~450 ms lives in an un-instrumented gap: AVF re-delivering frames
+  (`t1`) and/or AE re-converging exposure (`t2`).
+
+Resume-latency instrumentation added (commit follows): `[resume] interruption
+ended (t0)`, `[resume] first frame (t1)`, `[ae] converged (t2)`, and a
+`startSessionIfNeeded — issuing startRunning` marker (absent on a CC resume
+confirms the no-restart path). Re-measure pending.
 
 ```
 21:30:50.928 [scenePhase] scenePhase: active → inactive          # CC down
@@ -40,7 +56,7 @@ backgrounded, so there is no active interruption to recover from at foreground.
              caller=reconcile() (deferring to OS-owned state)    # F2 guard fires — don't fight the OS
 21:30:52.255 [engine] [interruption] ended=true rawReason=-1
 21:30:52.257 [engine] [interruption] ended — reconciling against currentPhase   # Task 8 OS→phase
-21:30:52.683 [consumers] [metrics] window emit ...               # frames resume (~480 ms after .active)
+21:30:52.683 [consumers] [metrics] window emit ... natural=0/0   # metrics tick: ZERO frames — NOT resume (frame log is sampled ~every 300 frames; next sampled frame ~20s later)
 ```
 
 ## Background-during-use (representative)

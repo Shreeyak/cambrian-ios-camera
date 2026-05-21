@@ -1001,6 +1001,11 @@ public actor CameraEngine {
     private func startSessionIfNeeded() {
         guard !reconciledSessionRunning else { return }
         reconciledSessionRunning = true
+        // Resume-latency instrumentation: this line on a resume means a real
+        // session restart was issued (~400 ms `startRunning`); its ABSENCE
+        // confirms the cheap path — e.g. a Control Center interruption never stops
+        // the session, so no restart is on the resume critical path.
+        CameraKitLog.notice(.engine, "[resume] startSessionIfNeeded — issuing startRunning")
         if let session = cameraSession {
             session.sessionQueue.async { session.startRunning() }
         }
@@ -2005,6 +2010,14 @@ public actor CameraEngine {
                 if snap.isAdjustingExposure {
                     if searchStartMs == nil { searchStartMs = clock.nowMs() }
                 } else {
+                    // Resume-latency instrumentation (t2): log AE convergence after
+                    // a search. After a Control Center / interruption resume the
+                    // camera may re-converge exposure — if frames arrive fast (t1
+                    // small) but the preview still looks delayed, this is the cause.
+                    if let start = searchStartMs {
+                        CameraKitLog.notice(
+                            .engine, "[ae] converged (t2) after \(clock.nowMs() &- start)ms searching")
+                    }
                     searchStartMs = nil
                 }
                 if let start = searchStartMs,
@@ -2119,8 +2132,12 @@ public actor CameraEngine {
             await recovery?.cancelPendingRetry()
             publishState(.interrupted, kind: .event)
         case .otherInterruptionEnded:
+            // Resume-latency instrumentation (t0): arm the one-shot first-frame
+            // log so the capture delegate's `[resume] first frame (t1)` measures
+            // AVF's re-delivery latency after the OS ends the interruption (t1−t0).
+            captureDelegate?.logNextFrame = true
             CameraKitLog.notice(
-                .engine, "[interruption] ended — reconciling against currentPhase")
+                .engine, "[resume] interruption ended (t0) — reconciling against currentPhase")
             // OS → phase, the third `reconcile` actuation site (spec *The OS-owned
             // guard*): OS recovery must not fight the host. Clear the OS-owned
             // state FIRST with an `.event`-kind `.streaming` (the OS's
