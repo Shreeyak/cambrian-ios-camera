@@ -351,6 +351,11 @@ With the host on `setLifecyclePhase`, the old drivers have no external caller (M
 - [ ] **Step 3: Build + full test run.** Expected: `BUILD SUCCEEDED`, all suites green (tests reach internals via `@testable`).
 - [ ] **Step 4: Commit** — `refactor(camerakit): demote lifecycle drivers to internal`.
 
+**Task 11 As-built (demote-vs-remove decision per grep):**
+- **All five demoted `public → internal`; none removed.** Migration verification: zero callers in `eva-swift-stitch/`, `eva-swift-stitchTests/`, `eva-swift-stitchUITests/` (host fully on `setLifecyclePhase`). Tests reach them via `@testable import`.
+- Per-method caller findings: `setGate` (reconcile + `_markOpenForTest` + Stage02 tests), `drainSubmittedFrame` (reconcile + backgroundSuspend + Stage02), `notifyScenePhasePaused` (LifecycleTests only — kept as the thin `publishCommandLabel` wrapper the deferral tests exercise), `backgroundResume` (Stage02 `backgroundResumeIsNoopUntilInterruptionEnded` calls it) → all kept internal.
+- **`backgroundSuspend` is genuinely dead** (no call-site anywhere; the `backgroundSuspend…` hits in Stage02/Lifecycle are test *method names*, not calls). The plan preferred removing it, but the grep showed removal is **not clean**: six comment/doc references would dangle (`RecoveryCoordinator.cancelPendingRetry` doc, the file-level ADR-30 comment, `backgroundResume`'s doc + body comment, `CaptureDelegate.logNextFrame` doc) and the `logNextFrame = true` suspend diagnostic would be lost — and its documented pair `backgroundResume` must stay (tested). Kept it `internal` to preserve pair coherence and avoid unclean churn. **Follow-up (filed Task 13):** remove the whole dead `backgroundSuspend`/`backgroundResume` pair + the redundant Stage02 resume test together (their behavior is now covered by the reconciliation tests) as a clean, self-contained change.
+
 ---
 
 ## Task 12: Documentation — README + docstrings + CONTRACTS
