@@ -274,6 +274,7 @@ struct LifecycleTests {
         await engine._armWatchdogsForTest()
         #expect(await engine._captureWatchdogArmedTokenForTest != nil)
         #expect(await engine._isSessionRunningForTest == true)
+        await engine._installLifecycleTestHookForTest()  // record the suspend trace
 
         await engine.setLifecyclePhase(.background)
 

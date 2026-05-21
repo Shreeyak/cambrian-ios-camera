@@ -124,29 +124,27 @@ extension CameraEngine {
             // completing `.active` must not stop the session `.active` just kept
             // running. The pre-checkpoint gate-close + disarm are left unguarded:
             // cheap, idempotent, and overwritten by the winning `.active`.
-            // `backgroundActionTrace` records the order for the 5b test
-            // (finalize-before-stop needs a live recording → Task 13 HITL).
-            backgroundActionTrace.removeAll(keepingCapacity: true)
+            // `lifecycleTestHook` records the order for the 5b test (nil in
+            // production — finalize-before-stop needs a live recording → Task 13 HITL).
+            lifecycleTestHook?.actions.removeAll(keepingCapacity: true)
             setGate(false)
             disarmWatchdogsAsync()
-            backgroundActionTrace.append("disarm")
+            lifecycleTestHook?.actions.append("disarm")
             await backgroundReconcileParkForTest()
             guard generation == reconcileGeneration else { return }
             await recovery?.cancelPendingRetry()
             guard generation == reconcileGeneration else { return }
             if recording != nil {
                 _ = await finalizeActiveRecording(reason: .user)
-                backgroundActionTrace.append("finalize")
+                lifecycleTestHook?.actions.append("finalize")
                 guard generation == reconcileGeneration else { return }
             }
             await drainSubmittedFrame()
-            backgroundActionTrace.append("drain")
+            lifecycleTestHook?.actions.append("drain")
             guard generation == reconcileGeneration else { return }
             reconciledSessionRunning = false
-            if let session = cameraSession {
-                await session.stopRunningAsync()
-            }
-            backgroundActionTrace.append("stop")
+            await cameraSession?.stopRunningAsync()
+            lifecycleTestHook?.actions.append("stop")
         }
     }
 
@@ -177,6 +175,14 @@ extension CameraEngine {
     /// `.inactive` rows skip both `startRunning` and the watchdog arm. Reads the
     /// single source of truth — `SessionStateMachine.current` — with no parallel
     /// mirror.
+    ///
+    /// Ordering invariant (P4): a path that *exits* OS ownership and then runs
+    /// `reconcile()` — today only `onSessionEvent(.otherInterruptionEnded)` in
+    /// `CameraEngine.swift` — must first publish the OS-authoritative label (e.g.
+    /// `.streaming` as a `.event`) so this reads `false` by the time `reconcile`'s
+    /// own `publishCommandLabel` runs; otherwise that publish defers and the label
+    /// stays stuck at the OS-owned value. Keep that publish-then-reconcile order if
+    /// a second OS-exit site is ever added.
     private var osOwnsDevice: Bool {
         switch stateMachine.current {
         case .interrupted, .recovering, .error: return true
@@ -226,10 +232,10 @@ extension CameraEngine {
     /// in production (never armed). One-shot — re-arm with
     /// `_armBackgroundReconcileParkForTest()` for a second park.
     private func backgroundReconcileParkForTest() async {
-        guard backgroundParkArmed else { return }
-        backgroundParkArmed = false
-        backgroundParkedFlag = true
-        await withCheckedContinuation { backgroundParkRelease = $0 }
-        backgroundParkedFlag = false
+        guard let hook = lifecycleTestHook, hook.parkArmed else { return }
+        hook.parkArmed = false
+        hook.parked = true
+        await withCheckedContinuation { hook.parkRelease = $0 }
+        hook.parked = false
     }
 }
