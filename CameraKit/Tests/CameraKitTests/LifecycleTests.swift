@@ -504,4 +504,110 @@ struct LifecycleTests {
 
         await engine.close()
     }
+
+    // MARK: - OS-owned guard
+
+    /// F2: a `.active` reconcile while the OS owns the device neither re-arms the
+    /// watchdogs nor restarts the session, and does not overwrite the OS label.
+    ///
+    /// Two constructions. Foreground (the realistic F2): session running + armed,
+    /// an interruption disarms the watchdogs, and a host `.active` must NOT re-arm
+    /// them — a re-armed watchdog fires a spurious stall → recovery while frames
+    /// are still OS-stopped. Background: the session-start half of the guard is
+    /// observable only when the running mirror is `false` going in (a foreground
+    /// interruption leaves it `true`, so the start is a no-op there). The gate
+    /// opens unconditionally in `.active` — the guard is on start/arm/label, not
+    /// the gate (frames are OS-stopped, so an open gate has nothing to submit).
+    @Test("OS-owned guard: .active reconcile while OS-owned neither re-arms nor starts (F2)")
+    func activeReconcileDefersWhileOSOwnsDevice() async {
+        let fg = CameraEngine(initialPhase: .active)
+        await fg._markOpenForTest()  // running, gate open
+        await fg._armWatchdogsForTest()  // armed (gate open)
+        #expect(await fg._captureWatchdogArmedTokenForTest != nil)
+        await fg._postSessionEventForTest(.otherInterruption(reasonRawValue: 4))
+        #expect(await fg._currentStateForTest == .interrupted)
+        #expect(
+            await fg._captureWatchdogArmedTokenForTest == nil,
+            "interruption disarmed the watchdogs")
+
+        await fg.setLifecyclePhase(.active)
+        #expect(
+            await fg._captureWatchdogArmedTokenForTest == nil,
+            "F2: .active must not re-arm watchdogs while the OS owns the device")
+        #expect(
+            await fg._currentStateForTest == .interrupted,
+            "label stays OS truth (.interrupted), not overwritten by .streaming")
+        #expect(
+            await fg.isGateOpen == true,
+            "gate opens in .active regardless — guard is on start/arm/label, not the gate")
+        await fg.close()
+
+        let bg = CameraEngine(initialPhase: .background)
+        await bg._markOpenForTest()  // stopped, gate closed
+        await bg._postSessionEventForTest(.otherInterruption(reasonRawValue: 4))
+        #expect(await bg._currentStateForTest == .interrupted)
+        #expect(await bg._isSessionRunningForTest == false)
+        await bg.setLifecyclePhase(.active)
+        #expect(
+            await bg._isSessionRunningForTest == false,
+            "F2: no startRunning while the OS owns the device")
+        await bg.close()
+    }
+
+    /// A host command label (`setLifecyclePhase`) cannot overwrite OS truth while
+    /// the OS owns the device — parity with `notifyScenePhasePaused`.
+    ///
+    /// Both command directions defer: `.active` (would publish `.streaming`) and
+    /// `.inactive` (would publish `.paused`), covered for an `.interrupted` origin
+    /// and a terminal `.error` (`videoDeviceInUseByAnotherClient`).
+    @Test("OS-owned guard: setLifecyclePhase can't overwrite the OS label")
+    func commandLabelDefersUnderOSOwnership() async {
+        let interrupted = CameraEngine(initialPhase: .active)
+        await interrupted._markOpenForTest()
+        await interrupted._postSessionEventForTest(.otherInterruption(reasonRawValue: 4))
+        #expect(await interrupted._currentStateForTest == .interrupted)
+        await interrupted.setLifecyclePhase(.active)
+        #expect(
+            await interrupted._currentStateForTest == .interrupted,
+            ".active (.streaming) command deferred under .interrupted")
+        await interrupted.setLifecyclePhase(.inactive)
+        #expect(
+            await interrupted._currentStateForTest == .interrupted,
+            ".inactive (.paused) command deferred under .interrupted")
+        await interrupted.close()
+
+        let errored = CameraEngine(initialPhase: .active)
+        await errored._markOpenForTest()
+        await errored._postSessionEventForTest(.cameraInUseBegan)
+        #expect(await errored._currentStateForTest == .error)
+        await errored.setLifecyclePhase(.active)
+        #expect(
+            await errored._currentStateForTest == .error,
+            ".active (.streaming) command deferred under .error")
+        await errored.close()
+    }
+
+    /// Deferral parity for the `.opening → .paused` launch-race rider.
+    ///
+    /// From `.opening`, a `.paused` command defers but a `.streaming` command
+    /// publishes — the rider preserves the launch race the old
+    /// `classify(...) == .offMap` check covered (`commandMap[.opening]` has no
+    /// `.paused`), so a pre-`open()` `.inactive`/`.background` phase must not
+    /// strand the engine in `.paused` before `open()` publishes `.streaming`.
+    @Test("deferral parity: .opening → .paused defers, .opening → .streaming publishes")
+    func deferralParityOpeningToPaused() async {
+        let pausing = CameraEngine(initialPhase: .background)
+        await pausing._setStateForTest(.opening)
+        await pausing.notifyScenePhasePaused(true)  // target .paused
+        #expect(
+            await pausing._currentStateForTest == .opening,
+            ".opening → .paused deferred (launch race)")
+
+        let streaming = CameraEngine(initialPhase: .active)
+        await streaming._setStateForTest(.opening)
+        await streaming.notifyScenePhasePaused(false)  // target .streaming
+        #expect(
+            await streaming._currentStateForTest == .streaming,
+            ".opening → .streaming published (open() completing)")
+    }
 }
