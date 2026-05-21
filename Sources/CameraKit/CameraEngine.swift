@@ -604,7 +604,7 @@ public actor CameraEngine {
     /// (spec *OS-authoritative label*); this remains the legacy host entry until
     /// the host migrates (then demoted to `internal`). Thin wrapper over the same
     /// `publishCommandLabel` the routine uses, so both paths behave identically.
-    public func notifyScenePhasePaused(_ paused: Bool) {
+    func notifyScenePhasePaused(_ paused: Bool) {
         publishCommandLabel(paused ? .paused : .streaming)
     }
 
@@ -837,7 +837,7 @@ public actor CameraEngine {
     /// backgrounded, which collides with the OS-interruption state and aborts in
     /// DEBUG — the HITL background crash (measurements 2026-05-20 §1). Re-armed by
     /// `backgroundResume()`.
-    public func backgroundSuspend() async {
+    func backgroundSuspend() async {
         CameraKitLog.notice(.engine, "[bgsuspend] enter gate=false stopRunning")
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         watchdogs?.disarmAll()
@@ -859,7 +859,7 @@ public actor CameraEngine {
     ///
     /// Re-opens the GPU submission gate and restarts the capture session that was
     /// stopped by `backgroundSuspend()`.
-    public func backgroundResume() async {
+    func backgroundResume() async {
         CameraKitLog.notice(
             .engine,
             "[bgresume] enter gate=true sessionRunning=\(cameraSession?.avSession.isRunning == true)")
@@ -1896,7 +1896,7 @@ public actor CameraEngine {
 
     /// Sets the GPU submission gate (ADR-09, D-06).
     /// `.inactive` policy is strict — always gates, regardless of UIApplication state.
-    public func setGate(_ open: Bool) {
+    func setGate(_ open: Bool) {
         submissionGate.store(open, ordering: .sequentiallyConsistent)
     }
 
@@ -1904,7 +1904,7 @@ public actor CameraEngine {
     ///
     /// Bounds the drain window to FRAME_LATENCY_BUDGET_MS (ADR-09).
     /// No-op if no buffer has been committed yet this session.
-    public func drainSubmittedFrame() async {
+    func drainSubmittedFrame() async {
         metalPipeline?.drainLastBuffer()
     }
 
