@@ -322,6 +322,10 @@ Two interruption handlers (`begin`/`ended`), each dispatched as its own `Task { 
 - [ ] **Step 4: Run — pass**, full regression set green.
 - [ ] **Step 5: Commit** — `test(camerakit): OS event-vs-event interleave guard (F5)`.
 
+**Task 9 As-built (confirm-only — no implementation needed):**
+- `staleEndedDoesNotOverrideNewerBegin` **passes as written** — the existing mechanism already covers event-vs-event interleave, so the test is kept purely as a guard. **Why it holds structurally** (not via `reconcileGeneration` — a `.begin` never calls `reconcile`, so it never bumps the counter): a `.ended` handler publishes all its labels at reconcile's *top*, before the only suspension that matters (the `.background` park), and its post-suspend `.background` tail does **only stopping work** (`cancelPendingRetry`/drain/`stopRunning` — no `publishState`, no `armWatchdogs`). So a newer `.begin` admitted during the suspension publishes `.interrupted` last and wins, and the released stale `.ended` cannot republish a label or re-arm over it. The `.active`/`.inactive` reconcile rows have **no** suspension after their label/arm work (they run atomically on the actor), so there is no interleave window there either. Confirmed reachable-but-safe: `cancelPendingRetry` is `await`ed for the cross-actor hop to `RecoveryCoordinator`, a real suspension point.
+- The test asserts **both** faces of the stale-override risk (the `SessionState` label and the watchdog token), per the adversarial-review F5 framing.
+
 ---
 
 ## Task 10: Host migration — collapse `handleScenePhase`
