@@ -444,7 +444,7 @@ enum SessionState {
   streaming,
   recovering,
   paused,
-  errored,        // 'error' is reserved in Kotlin; we map back to .error in Dart facade.
+  error,
   closed,
   interrupted,
 }
@@ -677,7 +677,7 @@ class CameraError {
 }
 ```
 
-> **Naming notes:** `PSize`/`PRect` prefix avoids clashing with `dart:ui.Size`/`Rect` and SwiftUI/UIKit `CGSize`/`CGRect`. The Dart facade re-wraps them as `Size`/`Rect` in its public API. `SessionState.errored` is named to avoid the Kotlin reserved word `error`; the Dart facade maps it back to `SessionState.error` for consumer symmetry.
+> **Naming notes:** `PSize`/`PRect` prefix avoids clashing with `dart:ui.Size`/`Rect` and SwiftUI/UIKit `CGSize`/`CGRect`. The Dart facade re-wraps them as `Size`/`Rect` in its public API. `SessionState.error` is exposed 1:1 — Kotlin's `error` is a function name in the standard library, not a reserved word, so the enum case compiles cleanly without a rename.
 
 - [ ] **Step 2: Commit (DSL not yet generated — checkpoint commit)**
 
@@ -1275,7 +1275,7 @@ extension CameraKit.SessionState {
         case .streaming:    return .streaming
         case .recovering:   return .recovering
         case .paused:       return .paused
-        case .error:        return .errored
+        case .error:        return .error
         case .closed:       return .closed
         case .interrupted:  return .interrupted
         }
@@ -1460,6 +1460,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
                 let caps = try await engine.open(configuration: cfg)
                 self.engine = engine
                 self.subscribeAllStreams()
+                self.armPendingTextures()      // Per spec §3: pre-open textures get subscribers wired now
                 completion(.success(caps.toPigeon()))
             } catch {
                 completion(.failure(error.asFlutterError()))
@@ -1759,22 +1760,23 @@ import Foundation
 
 /// One FlutterTexture instance per active preview stream.
 ///
-/// `copyPixelBuffer` is called on Flutter's raster thread; it asks the engine
-/// for the current pixel buffer for this stream (mailbox lookup — cheap, no
-/// copy) and returns it +1 retained. The Flutter framework releases after
-/// rendering.
+/// `copyPixelBuffer` is called on Flutter's raster thread; it looks up the
+/// current pixel buffer for this stream from the plugin's engine (mailbox
+/// lookup — cheap, no copy) and returns it +1 retained. Flutter releases
+/// after rendering. Per Phase B spec §3 "Open-state coupling": pre-open this
+/// returns `nil` and the texture shows black until the first frame.
 final class EnginePixelBufferTexture: NSObject, FlutterTexture {
-    weak var engine: (any CameraEngineProtocol)?
+    weak var plugin: CambrianIosCameraPlugin?
     let stream: StreamId
 
-    init(engine: any CameraEngineProtocol, stream: StreamId) {
-        self.engine = engine
+    init(plugin: CambrianIosCameraPlugin, stream: StreamId) {
+        self.plugin = plugin
         self.stream = stream
         super.init()
     }
 
     func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
-        guard let engine = engine else { return nil }
+        guard let engine = plugin?.engine else { return nil }
         guard let buf = engine.currentPixelBuffer(stream: stream.toCameraKit()) else {
             return nil
         }
@@ -1784,37 +1786,18 @@ final class EnginePixelBufferTexture: NSObject, FlutterTexture {
 
 extension CambrianIosCameraPlugin {
 
+    /// Per Phase B spec §3 "Open-state coupling": calling before `open()`
+    /// returns a valid texture id; `copyPixelBuffer` returns `nil` until the
+    /// engine is open and the first frame lands. Subscriber tasks are only
+    /// spawned once the engine exists — `open()` calls `armPendingTextures()`
+    /// to start subscribers for any textures created pre-open.
     public func createPreviewTexture(
         stream: StreamId,
         completion: @escaping (Result<Int64, any Error>) -> Void
     ) {
-        guard let engine = self.engine else {
-            completion(.failure(FlutterError(
-                code: CameraErrorCode.notOpen.rawValue,
-                message: "engine not open; call open() first",
-                details: ["isFatal": false]
-            )))
-            return
-        }
-        let texture = EnginePixelBufferTexture(engine: engine, stream: stream)
+        let texture = EnginePixelBufferTexture(plugin: self, stream: stream)
         let textureId = registrar.textures().register(texture)
-        let kitStream = stream.toCameraKit()
-        let registry = registrar.textures()
-        let task = Task { [weak self] in
-            guard let self else { return }
-            let token = await engine.consumers.subscribe(stream: kitStream)
-            do {
-                for try await _ in token.stream {
-                    if Task.isCancelled { break }
-                    registry.textureFrameAvailable(textureId)
-                }
-            } catch {
-                // Subscription closed; nothing to do — the texture stays
-                // registered until destroyPreviewTexture is called.
-            }
-            // Be polite — release the consumer token when the task ends.
-            await engine.consumers.unsubscribe(token)
-        }
+        let task = makeTextureSubscriberTask(textureId: textureId, stream: stream)
         textures[textureId] = (texture, task)
         completion(.success(textureId))
     }
@@ -1832,6 +1815,40 @@ extension CambrianIosCameraPlugin {
         entry.1.cancel()
         registrar.textures().unregisterTexture(textureId)
         completion(.success(()))
+    }
+
+    /// Spawns subscriber tasks for any textures that were registered before
+    /// the engine existed. Called from `open()` after `self.engine` is set.
+    func armPendingTextures() {
+        for (textureId, entry) in textures {
+            entry.1.cancel()                          // belt-and-braces; pending task is no-op
+            let stream = entry.0.stream
+            let newTask = makeTextureSubscriberTask(textureId: textureId, stream: stream)
+            textures[textureId] = (entry.0, newTask)
+        }
+    }
+
+    /// Builds the subscriber task that fires `textureFrameAvailable` per
+    /// delivered frame. If `self.engine` is nil at call time, the task exits
+    /// immediately; `armPendingTextures()` re-spawns it later.
+    private func makeTextureSubscriberTask(
+        textureId: Int64, stream: StreamId
+    ) -> Task<Void, Never> {
+        let registry = registrar.textures()
+        let kitStream = stream.toCameraKit()
+        return Task { [weak self] in
+            guard let self, let engine = self.engine else { return }
+            let token = await engine.consumers.subscribe(stream: kitStream)
+            do {
+                for try await _ in token.stream {
+                    if Task.isCancelled { break }
+                    registry.textureFrameAvailable(textureId)
+                }
+            } catch {
+                // Subscription closed; texture stays registered until destroy.
+            }
+            await engine.consumers.unsubscribe(token)
+        }
     }
 }
 ```
@@ -2832,15 +2849,14 @@ void main() {
       expect(identical(engine.stateStream(), engine.stateStream()), isTrue);
     });
 
-    test('SessionState.errored normalizes to .error for consumer symmetry',
-        () async {
+    test('SessionState.error passes through 1:1', () async {
       // We hand-pump the underlying broadcast controller via the testing seam:
       final ctrl = CameraEngineStreamsTesting.stateSource(engine);
       final values = <g.SessionState>[];
       final sub = engine.stateStream().listen(values.add);
-      ctrl.add(g.SessionState.errored);
+      ctrl.add(g.SessionState.error);
       await pumpEventQueue();
-      expect(values, [g.SessionState.errored]); // value passes through 1:1
+      expect(values, [g.SessionState.error]);
       await sub.cancel();
     });
 
@@ -3570,13 +3586,20 @@ void main() {
     verify(api.destroyPreviewTexture(7)).called(2); // adapter no-ops the second
   });
 
-  test('createPreviewTexture rewraps PlatformException', () async {
+  // Note: per Phase B spec §3 "Open-state coupling", createPreviewTexture
+  // pre-open returns a valid texture id (no notOpen error). The Dart facade
+  // delegates 1:1; this is verified at the adapter layer in
+  // flutter/example/ios/RunnerTests/TextureMapTests.swift.
+
+  test('createPreviewTexture rewraps unrelated PlatformException', () async {
+    // E.g. an unexpected hardware error during registration; the Dart facade
+    // still has to surface it as CameraException.
     when(api.createPreviewTexture(any))
-        .thenThrow(PlatformException(code: 'notOpen', message: 'not yet open'));
+        .thenThrow(PlatformException(code: 'hardwareError', message: 'metal device init failed'));
     expect(
       () => engine.createPreviewTexture(stream: g.StreamId.processed),
       throwsA(isA<CameraException>().having(
-          (e) => e.code, 'code', CameraErrorCode.notOpen)),
+          (e) => e.code, 'code', CameraErrorCode.hardwareError)),
     );
   });
 }
@@ -4060,6 +4083,31 @@ final class TextureMapTests: XCTestCase {
         XCTAssertNotNil(plugin.textures[id])
     }
 
+    /// Per Phase B spec §3 "Open-state coupling": createPreviewTexture
+    /// before open() returns a texture id without error. The texture's
+    /// copyPixelBuffer returns nil until the engine is wired.
+    func test_createPreviewTexture_before_open_succeeds() async throws {
+        let registrar = StubRegistrar()
+        let plugin = CambrianIosCameraPlugin(registrar: registrar, engine: nil)
+        let exp = expectation(description: "create completes")
+        var id: Int64 = -1
+        var failure: Error?
+        plugin.createPreviewTexture(stream: .processed) { result in
+            switch result {
+            case .success(let value): id = value
+            case .failure(let e):     failure = e
+            }
+            exp.fulfill()
+        }
+        await fulfillment(of: [exp], timeout: 1.0)
+        XCTAssertNil(failure, "expected success; got \(String(describing: failure))")
+        XCTAssertGreaterThan(id, 0)
+        // copyPixelBuffer at this point must return nil — no crash.
+        let tex = registrar.textureRegistry.registered[id]
+        XCTAssertNotNil(tex)
+        XCTAssertNil(tex?.copyPixelBuffer())
+    }
+
     func test_destroyPreviewTexture_unregisters_and_clears_map() async throws {
         let registrar = StubRegistrar()
         let mock = MockCameraEngine()
@@ -4117,13 +4165,17 @@ Run via `mcp__XcodeBuildMCP__test_device` with `extraArgs: ["-only-testing:Runne
 ```bash
 git add flutter/example/ios/RunnerTests/TextureMapTests.swift \
         flutter/example/ios/Runner.xcodeproj/project.pbxproj
-git commit -m "test(adapter): texture map lifecycle (3)
+git commit -m "test(adapter): texture map lifecycle (4)
 
 createPreviewTexture registers a FlutterTexture and stores (id, Task)
 in the textures map. destroyPreviewTexture cancels the task, unregisters
 the texture, removes the entry. destroy-twice is idempotent.
 
-Per Phase B spec §7 'Texture map: create + lookup / destroy / destroy-twice'."
+Adds coverage for the spec §3 'Open-state coupling' clause: pre-open
+createPreviewTexture returns a valid id without error; copyPixelBuffer
+returns nil until the engine is wired.
+
+Per Phase B spec §7 'Texture map' and §3 'Open-state coupling'."
 ```
 
 ---
@@ -4189,7 +4241,7 @@ g = p.main_group.find_subpath('RunnerTests', false)
 p.save"
 ```
 
-Run `mcp__XcodeBuildMCP__test_device` with `extraArgs: ["-only-testing:RunnerTests"]` (full RunnerTests suite). Expected: 8 tests pass total (3 SceneLifecycle + 3 TextureMap + 2 NotOpenGuard).
+Run `mcp__XcodeBuildMCP__test_device` with `extraArgs: ["-only-testing:RunnerTests"]` (full RunnerTests suite). Expected: 9 tests pass total (3 SceneLifecycle + 4 TextureMap + 2 NotOpenGuard).
 
 ```bash
 git add flutter/example/ios/RunnerTests/NotOpenGuardTests.swift \
@@ -4199,7 +4251,7 @@ git commit -m "test(adapter): engine-not-open guard (2)
 Pre-open HostApi method calls return FlutterError(code: 'notOpen').
 Tests updateSettings + captureImage as representative guard sites.
 
-Full RunnerTests suite is now 8 tests.
+Full RunnerTests suite is now 9 tests.
 
 Per Phase B spec §7 'Engine-not-open guard'."
 ```
