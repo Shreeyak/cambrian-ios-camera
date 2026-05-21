@@ -174,7 +174,7 @@ methods marked `@async`:
 - Snapshots: `currentSettings() → CameraSettings?`, `currentProcessingParameters() → ProcessingParameters?`
 - Control: `updateSettings`, `setResolution`, `setProcessingParams`, `setCropRegion`
 - Capture: `captureImage(outputPath: String?, photosDestination: PhotosDestination) → String`, `captureNaturalPicture(...) → String`
-- Recording: `startRecording(RecordingOptions) → RecordingStart`, `stopRecording() → String`, `pauseRecording`, `resumeRecording`
+- Recording: `startRecording(RecordingOptions) → RecordingStart`, `stopRecording() → String` (no pause/resume — CameraKit has no recording-pause API)
 - Calibration: `calibrateWhiteBalance() → CalibrationResult`, `calibrateBlackBalance() → CalibrationResult`
 - Texture bridge: `createPreviewTexture(StreamId) → Int64`, `destroyPreviewTexture(Int64)`
 
@@ -200,12 +200,20 @@ One per stream; each is `Stream<T>` on the Dart side, fed from the corresponding
 
 Pigeon `@class` for each: `OpenConfiguration`, `SessionCapabilities`, `CameraSettings`,
 `ProcessingParameters`, `StreamConfiguration`, `FrameResult`, `RecordingOptions`,
-`RecordingStart`, `RecordingState`, `CalibrationResult`, `CameraError`, `Size`, `Rect`.
+`RecordingStart`, `CalibrationResult`, `CameraError`, `Size`, `Rect`.
 
 Pigeon `@enum` for: `SessionState`, `StreamId`, `CameraPermissionStatus`, `PhotosDestination`.
 
-Exact field shapes derived from `CameraKit/CONTRACTS.md` at implementation time. If any type
-can't flatten safely (recursive, contains CV types, contains closures), the plan flags it.
+**`RecordingState` is a Swift enum-with-associated-value** (`.idle(lastUri: String?)`,
+`.recording`, `.finalizing`) — Pigeon doesn't natively support associated values, so it gets
+mirrored as a Pigeon `@class` with a discriminator field + optional `lastUri`. Exact shape:
+`class RecordingStateValue { RecordingStateKind kind; String? lastUri; }` where
+`RecordingStateKind` is a Pigeon `@enum` of `{ idle, recording, finalizing }`. The Dart facade
+re-wraps as an idiomatic sealed class for ergonomics. `.paused` is **not** a case — removed on
+2026-05-22 (commit `4038fe4`) when the production-dead recording-pause path was deleted.
+
+Exact field shapes derived from `CameraKit/CONTRACTS.md` at implementation time. If any other
+type can't flatten safely (recursive, contains CV types, contains closures), the plan flags it.
 
 ### Not bridged
 
@@ -365,11 +373,9 @@ class CameraEngine {
   Future<String> captureImage({String? outputPath, PhotosDestination photosDestination = PhotosDestination.none});
   Future<String> captureNaturalPicture({String? outputPath, PhotosDestination photosDestination = PhotosDestination.none});
 
-  // Recording
+  // Recording (no pause/resume — CameraKit has no recording-pause API)
   Future<RecordingStart> startRecording(RecordingOptions options);
   Future<String> stopRecording();
-  Future<void> pauseRecording();
-  Future<void> resumeRecording();
 
   // Calibration
   Future<CalibrationResult> calibrateWhiteBalance();
@@ -382,9 +388,10 @@ class CameraEngine {
 ```
 
 **No `pause()` / `resume()` on the Dart class.** Lifecycle is entirely plugin-owned (native side).
-The Dart consumer has no lifecycle surface from Dart. Recording-pause/resume (`pauseRecording`
-/ `resumeRecording`) are a separate concern — they pause an active recording, not the camera
-itself.
+The Dart consumer has no lifecycle surface from Dart. **There is also no recording-pause API** —
+CameraKit's recording is start/stop only (the production-dead `Recording.StopReason.pause` path
+was removed on 2026-05-22). To pause filming, the consumer calls `stopRecording()` and starts
+a new recording on resume.
 
 **Constructor docstring contract:**
 
