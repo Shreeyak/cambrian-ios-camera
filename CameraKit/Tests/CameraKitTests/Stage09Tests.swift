@@ -305,8 +305,9 @@ struct HitlLifecycleTests {
     /// Crash #1 regression: the stall watchdog must disarm on interruption.
     ///
     /// It previously stayed armed while the OS interrupted the session, fired
-    /// with no frames, and drove `interrupted → recovering` (off-map; aborts in
-    /// DEBUG). The fix disarms watchdogs on `.otherInterruption`.
+    /// with no frames, and drove `interrupted → recovering` (off-map — it
+    /// aborted DEBUG builds before Fix 2; now logged + applied but still a
+    /// spurious recovery). The fix disarms watchdogs on `.otherInterruption`.
     @Test("interrupted disarms stall watchdog — clock past threshold emits no .recovering")
     func interruptedDisarmsWatchdog() async {
         let clock = ManualClock()
@@ -352,11 +353,55 @@ struct HitlLifecycleTests {
         await engine.close()
     }
 
+    /// Crash #3 regression: interruption-ended while backgrounded must NOT re-arm.
+    ///
+    /// On backgrounding, `stopRunning` triggers an OS interruption whose
+    /// `.otherInterruptionEnded` fires while the app is still backgrounded — the
+    /// gate is closed and no frames flow. The old unconditional re-arm armed the
+    /// stall watchdog anyway; it fired ~9 s later with no frames and drove
+    /// `interrupted → recovering` (off-map — aborted DEBUG builds before Fix 2;
+    /// now a spurious recovery — measurements 2026-05-20 §1 case #14).
+    /// `armWatchdogs()` is now gate-guarded, so the
+    /// watchdog only arms when frames can actually flow. This also pins the
+    /// "Known gap" documented on `notifyScenePhasePaused` (state reads
+    /// `.streaming` while the gate stays closed) as a tested invariant.
+    @Test("interruption-ended while backgrounded (gate closed) does not re-arm the watchdog")
+    func interruptionEndedWhileBackgroundedDoesNotRearm() async {
+        let clock = ManualClock()
+        let engine = CameraEngine(clock: clock)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        #expect(await engine._captureWatchdogArmedTokenForTest != nil)
+
+        // Background: gate closes, then the OS interrupts the session.
+        await engine.setGate(false)
+        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
+        #expect(await engine._captureWatchdogArmedTokenForTest == nil)
+
+        // The interruption "ends" while still backgrounded — must NOT re-arm.
+        await engine._postSessionEventForTest(.otherInterruptionEnded)
+        #expect(await engine._currentStateForTest == .streaming)
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest == nil,
+            "watchdog must stay disarmed while the gate is closed (backgrounded)")
+
+        // Pushing past the stall threshold must not drive a spurious recovery —
+        // the disarmed poller cannot fire, so state stays .streaming.
+        clock.advanceMs(UInt64(Constants.stallCaptureThresholdMs) + 1000)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(
+            await engine._currentStateForTest == .streaming,
+            "no spurious recovery may fire while backgrounded (gate closed)")
+
+        await engine.close()
+    }
+
     /// Crash #2 regression: a scenePhase resume while interrupted is ignored.
     ///
     /// `notifyScenePhasePaused(false)` arriving while `.interrupted` previously
-    /// forced `→ .streaming` as a command (off-map; aborts in DEBUG). The guard
-    /// makes resume a no-op unless the engine is paused.
+    /// forced `→ .streaming` as a command (off-map — it aborted DEBUG builds
+    /// before Fix 2, and would still overwrite the OS-authoritative state). The
+    /// guard makes resume a no-op unless the engine is paused.
     @Test("scenePhase resume while interrupted is ignored (no off-map command)")
     func scenePhaseResumeIgnoredWhileInterrupted() async {
         let engine = CameraEngine()
