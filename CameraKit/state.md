@@ -1098,7 +1098,7 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
 
 ## Open questions for next stage
 
-- Bug 4 from `docs/stage-11-pre-existing-bugs.md` — `processedTex` long-session freeze. Needs HITL on iPad: 5+ min run + temporary Pass 2 / pool-state logging in `MetalPipeline`. Hypotheses (unverified): silent Pass 2 error, processed pool exhaustion, uniforms.withLock contention, ObservationIgnored race on `DisplayViewModel.processedTex`. Fix before retiring `10:synchronous-drain-pause` in Stage 12.
+- ~~Bug 4 from `docs/stage-11-pre-existing-bugs.md` — `processedTex` long-session freeze. Needs HITL on iPad: 5+ min run + temporary Pass 2 / pool-state logging in `MetalPipeline`. Hypotheses (unverified): silent Pass 2 error, processed pool exhaustion, uniforms.withLock contention, ObservationIgnored race on `DisplayViewModel.processedTex`. Fix before retiring `10:synchronous-drain-pause` in Stage 12.~~ **RESOLVED (2026-05-21 audit).** Stale entry: bug was fixed 2026-04-30 / verified on iPad 2026-05-09 (live mailbox forwarding), and the strand-prone still-capture mailbox was later deleted entirely by D-2P-12 (8-bit BGRA, 2026-05-20) — grep for `stillCapturePool|armCapture|pendingCaptureContinuation` under `CameraKit/Sources/` returns 0 hits. Processed lane now uses per-frame `Mailbox` forwarding (`MetalPipeline.swift:684-686, 766-767`). See `docs/pending-issues-2026-05-21.md`.
 - `SessionState.closing` enum reconciliation (Decision #50). Either add the case in `architecture/04-state.md` and use it, or drop `.closing` from brief §8 enablement matrix.
 - HITL evidence under `measurements/stage-11/` — three slugs deferred.
 - ADR-22 error routing for `updateSettings` failures (Decision #58).
