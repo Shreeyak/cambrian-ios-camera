@@ -1,5 +1,4 @@
 import AVFoundation
-import CoreVideo
 
 /// One-shot still photo via AVCapturePhotoOutput.
 ///
@@ -8,6 +7,14 @@ import CoreVideo
 /// continuation. Photo settings honor the device's live exposure/ISO/WB/focus —
 /// there is no separate photo-settings surface; the user controls those via the
 /// existing `CameraSettings` mechanism and this capture inherits them.
+///
+/// `@unchecked Sendable`: the AVF delegate callback is nonisolated; the
+/// `continuation` write happens inside the `withCheckedThrowingContinuation`
+/// closure, which runs synchronously before `capturePhoto` returns —
+/// `capturePhoto`'s enqueue creates a happens-before edge making that write
+/// visible to the delegate callback. Single-in-flight capture is assumed:
+/// the sessionQueue caller serializes (ADR-07), so at most one continuation
+/// is live at a time.
 final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
 
     /// Builds the fixed photo settings.
@@ -26,6 +33,9 @@ final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @uncheck
         return s
     }
 
+    // Written before `capturePhoto` returns (happens-before the delegate callback);
+    // read only in the nonisolated delegate callback. Single-in-flight invariant
+    // enforced by the sessionQueue caller (ADR-07).
     private var continuation: CheckedContinuation<CVPixelBuffer, Error>?
 
     /// Must be called on sessionQueue.
