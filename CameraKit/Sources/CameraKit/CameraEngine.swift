@@ -1616,7 +1616,7 @@ public actor CameraEngine {
         else { throw EngineError.notOpen }
         let stopStartMs = clock.nowMs()
         CameraKitLog.notice(.engine, "[recording] stopRecording entry")
-        let uri = await finalizeActiveRecording(reason: .user)
+        let uri = await finalizeActiveRecording()
         try? await session.setPreviewFrameRateRange()
         let stopDurationMs = clock.nowMs() - stopStartMs
         CameraKitLog.notice(
@@ -1631,13 +1631,13 @@ public actor CameraEngine {
     /// Drains the writer — the drain is wrapped in a `UIApplication`
     /// background-task assertion inside `Recording.stop`,
     /// 06-capture-and-recording.md §Background drain — then optionally
-    /// publishes the result to Photos. Shared by `stopRecording()`, `pause()`,
-    /// and `reconcile()`'s `.background` path (the three triggers named in the
-    /// Stage 12 brief). Returns the output URI, or `""` when no recording is active.
-    func finalizeActiveRecording(reason: Recording.StopReason) async -> String {
+    /// publishes the result to Photos. Shared by `stopRecording()` and
+    /// `reconcile()`'s `.background` path. Returns the output URI, or `""`
+    /// when no recording is active.
+    func finalizeActiveRecording() async -> String {
         guard let rec = recording, let pipeline = metalPipeline else { return "" }
         pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
-        let uri = await rec.stop(reason: reason)
+        let uri = await rec.stop()
         let destination = await rec.photosDestination
         self.recording = nil
         pipeline.onEncodedBufferReady = nil
