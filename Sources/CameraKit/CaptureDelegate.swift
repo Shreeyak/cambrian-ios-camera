@@ -68,9 +68,9 @@ final class CaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
                         encoding: .ascii) ?? "????"
                 CameraKitLog.notice(
                     .engine,
-                    "[capture] first-frame after restart actual=\(w)x\(h) pf='\(four)'")
+                    "[resume] first frame (t1) actual=\(w)x\(h) pf='\(four)'")
             } else {
-                CameraKitLog.notice(.engine, "[capture] first-frame after restart (no image buffer)")
+                CameraKitLog.notice(.engine, "[resume] first frame (t1) (no image buffer)")
             }
         }
         watchdogs?.gpu.refresh()
