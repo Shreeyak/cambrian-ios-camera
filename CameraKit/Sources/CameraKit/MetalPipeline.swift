@@ -731,7 +731,11 @@ final class MetalPipeline: @unchecked Sendable {
     /// still) into a BGRA8 `outputSize` buffer — the saved natural-capture path.
     ///
     /// Reuses the live crop uniform + current ColorUniform so the result matches the
-    /// graded preview. Input dims MUST equal `captureSize` (1:1 crop mapping).
+    /// graded preview. Input dims MUST equal `captureSize`; throws
+    /// `MetalError.unsupportedFormat` otherwise (1:1 crop mapping).
+    /// Dequeues from the same `naturalPool`/`processedPool`/`eightBitNaturalPool` as
+    /// the live `encode(sampleBuffer:)` path, so under an active capture session it
+    /// can throw on transient pool exhaustion.
     func gradeOneShot(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
         guard CVPixelBufferGetWidth(pixelBuffer) == captureSize.width,
             CVPixelBufferGetHeight(pixelBuffer) == captureSize.height
@@ -782,11 +786,11 @@ final class MetalPipeline: @unchecked Sendable {
         p3.endEncoding()
 
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-            cb.addCompletedHandler { b in
-                b.status == .error
+            cb.addCompletedHandler { cb in
+                cb.status == .error
                     ? c.resume(
                         throwing: MetalError.commandBufferFailed(
-                            code: (b.error as NSError?)?.code ?? -1))
+                            code: (cb.error as NSError?)?.code ?? -1))
                     : c.resume()
             }
             cb.commit()
