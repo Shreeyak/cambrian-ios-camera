@@ -4,8 +4,7 @@ import Atomics
 // Extension of `CameraEngine` holding the App-lifecycle reconciliation cluster —
 // the *host-intent* side of lifecycle: `setLifecyclePhase(_:)` and the
 // `reconcile()` routine that actuates the gate, session, watchdogs, and
-// `SessionState` label from `currentPhase`, plus the legacy
-// `backgroundSuspend`/`backgroundResume`/`notifyScenePhasePaused` entries.
+// `SessionState` label from `currentPhase`.
 //
 // The *OS-event* side (`onSessionEvent`, `RecoveryCoordinator`, watchdog
 // handling) deliberately stays in `CameraEngine.swift`; it calls `reconcile()`
@@ -14,94 +13,10 @@ import Atomics
 // `Type+Feature.swift` split — extracted purely for file size; every member
 // remains actor-isolated on `CameraEngine`, so behaviour is unchanged.
 //
-// Refs: ADR-09 (gate guards GPU commit), ADR-30 (suspend/resume async-with-
-// timeout), spec *OS-authoritative label*, adversarial F1 (latest-intent-wins)
-// and F2 (the OS-owned guard).
+// Refs: ADR-09 (gate guards GPU commit), ADR-30 (async-with-timeout — see
+// `Recording.swift` finalize), spec *OS-authoritative label*, adversarial F1
+// (latest-intent-wins) and F2 (the OS-owned guard).
 extension CameraEngine {
-
-    // MARK: - Legacy background entries
-
-    /// Signals the app entered background.
-    ///
-    /// Gates GPU submission, drains any in-flight
-    /// frame, and stops the capture session via sessionQueue with timeout (ADR-30).
-    ///
-    /// Disarms the stall watchdogs and cancels any pending recovery retry (Inv 9):
-    /// the session is being stopped on purpose, so no frames are expected and a
-    /// stall is not a fault. Leaving them armed fires spurious recovery while
-    /// backgrounded, which collides with the OS-interruption state and aborts in
-    /// DEBUG — the HITL background crash (measurements 2026-05-20 §1). Re-armed by
-    /// `backgroundResume()`.
-    func backgroundSuspend() async {
-        CameraKitLog.notice(.engine, "[bgsuspend] enter gate=false stopRunning")
-        submissionGate.store(false, ordering: .sequentiallyConsistent)
-        watchdogs?.disarmAll()
-        await recovery?.cancelPendingRetry()
-        if recording != nil {
-            CameraKitLog.notice(
-                .engine, "[bgsuspend] active recording — finalizing via background-task drain")
-            _ = await finalizeActiveRecording(reason: .user)
-        }
-        await drainSubmittedFrame()
-        if let session = cameraSession {
-            captureDelegate?.framesToLog = 1
-            await session.stopRunningAsync()
-        }
-        CameraKitLog.notice(.engine, "[bgsuspend] stopRunning returned")
-    }
-
-    /// Signals the app returned to foreground.
-    ///
-    /// Re-opens the GPU submission gate and restarts the capture session that was
-    /// stopped by `backgroundSuspend()`.
-    func backgroundResume() async {
-        CameraKitLog.notice(
-            .engine,
-            "[bgresume] enter gate=true sessionRunning=\(cameraSession?.avSession.isRunning == true)")
-        submissionGate.store(true, ordering: .sequentiallyConsistent)
-        CameraKitLog.notice(.engine, "[bgresume] gate opened")
-        if let session = cameraSession {
-            await session.startRunningAsync()
-            CameraKitLog.notice(
-                .engine,
-                "[bgresume] startRunning returned sessionRunning=\(session.avSession.isRunning)")
-            // Frames resume — re-arm the watchdogs disarmed by backgroundSuspend().
-            armWatchdogs()
-        }
-    }
-
-    /// Publishes `.paused` (when `paused == true`) or `.streaming` for SwiftUI scenePhase pause/resume.
-    ///
-    /// Covers Control Center pull-down, Notification Center, app-switcher
-    /// peek, etc. The camera stays bound across these transitions; only GPU
-    /// submission is gated. Phase-2 follow-up to §2d.5 (distinct from the
-    /// AVF-interruption `.interrupted` case).
-    ///
-    /// Caller (the app's SwiftUI `ScenePhase` observer) is still responsible
-    /// for the gate via `setGate` — this method only mirrors the lifecycle
-    /// transition into `SessionState` so downstream consumers
-    /// (`ErrorPresenterViewModel`, Phase-3's Pigeon adapter) see a consistent
-    /// pause/resume signal.
-    ///
-    /// Defers to OS-driven events when the state machine sits in an OS-owned
-    /// origin (`.interrupted`/`.recovering`/`.error`) or the `.opening → .paused`
-    /// launch race — the `shouldDeferCommandLabel` guard, shared with the
-    /// reconciliation routine. From an OS-owned state a scenePhase-driven
-    /// `.streaming`/`.paused` is off-map and would overwrite OS truth with a
-    /// wrong value; the publish is skipped (logged) and the OS event path
-    /// restores `.streaming` (`onSessionEvent(.otherInterruptionEnded)`, recovery
-    /// completion). Caught under `test_device`, where a harness/bring-up AVF
-    /// interruption raced a `.active` scenePhase into the off-map path in
-    /// `publishState` — a wrong-value overwrite of OS-owned state (a DEBUG abort
-    /// too, before Fix 2; measurements 2026-05-20 §1, case #12).
-    ///
-    /// Superseded by `setLifecyclePhase`/`reconcile`, which now own the label
-    /// (spec *OS-authoritative label*); this remains the legacy host entry until
-    /// the host migrates (then demoted to `internal`). Thin wrapper over the same
-    /// `publishCommandLabel` the routine uses, so both paths behave identically.
-    func notifyScenePhasePaused(_ paused: Bool) {
-        publishCommandLabel(paused ? .paused : .streaming)
-    }
 
     // MARK: - App lifecycle (reconciliation)
 
@@ -144,9 +59,10 @@ extension CameraEngine {
     /// disarmed (cheap pause, ~4 ms gate-flip vs ~410 ms restart); `.background`
     /// → gate closed / session stopped + recording finalized / disarmed.
     ///
-    /// Also publishes the `SessionState` label (the job `notifyScenePhasePaused`
-    /// did) and applies the phase→OS guard (F2): while `osOwnsDevice` the
-    /// `.active`/`.inactive` rows neither `startRunning` nor re-arm the watchdogs.
+    /// Also publishes the `SessionState` label (the OS-authoritative label
+    /// publish, formerly a standalone scenePhase mirror) and applies the phase→OS
+    /// guard (F2): while `osOwnsDevice` the `.active`/`.inactive` rows neither
+    /// `startRunning` nor re-arm the watchdogs.
     func reconcile() async {
         // Latest-intent-wins (F1): each entry bumps the generation so a later
         // call supersedes an in-flight one. The `.background` path re-checks
@@ -155,7 +71,7 @@ extension CameraEngine {
         reconcileGeneration &+= 1
         let generation = reconcileGeneration
 
-        // Label half — folded in from `notifyScenePhasePaused` (spec
+        // Label half — the OS-authoritative label publish (spec
         // *OS-authoritative label*): `.active` publishes `.streaming`, every gated
         // phase publishes `.paused`; `publishCommandLabel` defers to OS truth.
         // Published before the (suspending) `.background` steps so latest-intent-
@@ -283,7 +199,7 @@ extension CameraEngine {
 
     /// Publish a host-`.command` `SessionState` label, deferring to OS truth.
     ///
-    /// The label half of reconciliation, folded in from `notifyScenePhasePaused`
+    /// The label half of reconciliation — the OS-authoritative label publish
     /// (spec *OS-authoritative label*, Bug 2): publishes `.streaming`/`.paused`
     /// as a `.command` transition unless `shouldDeferCommandLabel` holds — in
     /// which case the OS event path owns the terminal label

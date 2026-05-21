@@ -10,10 +10,11 @@ import SwiftUI
 /// `captureConfirmation`); per-feature state lives on the corresponding child VM —
 /// see `display`, `recording`, `hardware`, `processing`, `calibration`, `errors`.
 ///
-/// `handleScenePhase(_:)` enforces D-06 strict gating: `.inactive` always closes
-/// the GPU submission gate regardless of `UIApplication.applicationState`;
-/// `.background` calls `backgroundSuspend`; `.active` reopens the gate (and
-/// calls `backgroundResume` first if returning from `.background`).
+/// `handleScenePhase(_:)` is a 1:1 forward of SwiftUI `ScenePhase` to
+/// `engine.setLifecyclePhase(_:)` (mapped to `AppLifecyclePhase`). CameraKit owns
+/// all reconciliation — GPU gate, session start/stop, watchdogs, `SessionState`
+/// label — so the host neither gates nor suspends/resumes directly;
+/// `setLifecyclePhase` never throws and the latest call wins.
 @Observable @MainActor
 final class ViewModel {
 

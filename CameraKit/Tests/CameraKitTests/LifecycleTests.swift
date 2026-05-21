@@ -140,64 +140,6 @@ struct LifecycleTests {
         await engine.close()
     }
 
-    /// Crash #2 regression: a scenePhase resume while interrupted is ignored.
-    ///
-    /// `notifyScenePhasePaused(false)` arriving while `.interrupted` previously
-    /// forced `→ .streaming` as a command (off-map — it aborted DEBUG builds
-    /// before Fix 2, and would still overwrite the OS-authoritative state). The
-    /// guard makes resume a no-op unless the engine is paused.
-    @Test("scenePhase resume while interrupted is ignored (no off-map command)")
-    func scenePhaseResumeIgnoredWhileInterrupted() async {
-        let engine = CameraEngine(initialPhase: .active)
-        await engine._markOpenForTest()
-        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
-        #expect(await engine._currentStateForTest == .interrupted)
-
-        await engine.notifyScenePhasePaused(false)
-        #expect(
-            await engine._currentStateForTest == .interrupted,
-            "resume must not override the OS-authoritative .interrupted state")
-
-        await engine._postSessionEventForTest(.otherInterruptionEnded)
-        #expect(await engine._currentStateForTest == .streaming)
-    }
-
-    /// The same guard must protect `.recovering`: a resume during a real
-    /// recovery must not force `recovering → streaming` (off-map command).
-    @Test("scenePhase resume while recovering is ignored")
-    func scenePhaseResumeIgnoredWhileRecovering() async {
-        let clock = ManualClock()
-        let engine = CameraEngine(initialPhase: .active, clock: clock)
-        await engine._markOpenForTest()
-        await engine._armWatchdogsForTest()
-
-        await engine._postSessionEventForTest(.runtimeError("boom"))
-        #expect(await engine._currentStateForTest == .recovering)
-
-        await engine.notifyScenePhasePaused(false)
-        #expect(
-            await engine._currentStateForTest == .recovering,
-            "resume must not override an in-flight recovery")
-
-        await engine.close()
-    }
-
-    /// The guard must still allow the legitimate scenePhase edges, including the
-    /// pre-open `closed → paused` publish (D-2P-07).
-    @Test("scenePhase mirror still allows closed→paused (pre-open) and streaming↔paused")
-    func scenePhaseMirrorAllowsLegitEdges() async {
-        let engine = CameraEngine(initialPhase: .active)
-        // Pre-open pause publishes .paused from .closed (D-2P-07).
-        await engine.notifyScenePhasePaused(true)
-        #expect(await engine._currentStateForTest == .paused)
-        // Resume mirrors paused → streaming.
-        await engine.notifyScenePhasePaused(false)
-        #expect(await engine._currentStateForTest == .streaming)
-        // And streaming → paused round-trips.
-        await engine.notifyScenePhasePaused(true)
-        #expect(await engine._currentStateForTest == .paused)
-    }
-
     // MARK: - Relocated: interrupted-state toggle (from Stage13Phase2InterruptedStateTests)
 
     @Test(".otherInterruption publishes .interrupted; .otherInterruptionEnded reverts to .streaming")
@@ -224,61 +166,6 @@ struct LifecycleTests {
         _ = await poster.value
         #expect(observed.contains(.interrupted), "observed=\(observed)")
         #expect(observed.last == .streaming, "observed=\(observed)")
-    }
-
-    // MARK: - Relocated: scenePhase × interruption off-map guard (from Stage13Phase2ScenePhaseMirrorGuardTests)
-    //
-    // Regression for the `interrupted → streaming (command)` off-map trap.
-    // Caught under `test_device`: a harness/bring-up AVF interruption drives the
-    // engine to `.interrupted`, then a `.active` scenePhase made
-    // `notifyScenePhasePaused` publish `.streaming (command)` — off-map from
-    // `.interrupted`, which tripped the `publishState` `assertionFailure` before
-    // Fix 2 (off-map is now logged + applied, not fatal) and would still
-    // overwrite the OS-authoritative state. The mirror now defers to the
-    // classifier (`SessionStateMachine` is SSOT) when the origin is OS-owned.
-
-    /// Drive engine `.streaming → .interrupted` via the same seam the existing
-    /// interrupted-state test uses, mirroring the `test_device` precondition.
-    private func makeInterruptedEngine() async -> CameraEngine {
-        let engine = CameraEngine(initialPhase: .active)
-        await engine._markOpenForTest()
-        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 4))
-        #expect(await engine._currentStateForTest == .interrupted)
-        return engine
-    }
-
-    @Test("from .interrupted, notifyScenePhasePaused(false) does not force .streaming (command)")
-    func scenePhaseActiveFromInterruptedIsSkipped() async {
-        let engine = await makeInterruptedEngine()
-        // Pre-fix: off-map `.interrupted → .streaming (command)` overwrote the
-        // OS-authoritative state (and aborted DEBUG builds before Fix 2).
-        await engine.notifyScenePhasePaused(false)
-        #expect(await engine._currentStateForTest == .interrupted)
-    }
-
-    @Test("from .interrupted, notifyScenePhasePaused(true) does not force .paused (command)")
-    func scenePhaseInactiveFromInterruptedIsSkipped() async {
-        let engine = await makeInterruptedEngine()
-        await engine.notifyScenePhasePaused(true)
-        #expect(await engine._currentStateForTest == .interrupted)
-    }
-
-    @Test("OS event path still restores .streaming after the mirror deferred")
-    func interruptionEndStillRestoresStreaming() async {
-        let engine = await makeInterruptedEngine()
-        await engine.notifyScenePhasePaused(false)  // deferred, no-op
-        await engine._postSessionEventForTest(.otherInterruptionEnded)
-        #expect(await engine._currentStateForTest == .streaming)
-    }
-
-    @Test("positive control: from .streaming the mirror still publishes .paused (command)")
-    func scenePhaseMirrorStillWorksFromStreaming() async {
-        let engine = CameraEngine(initialPhase: .active)
-        await engine._markOpenForTest()  // .streaming
-        await engine.notifyScenePhasePaused(true)
-        #expect(await engine._currentStateForTest == .paused)
-        await engine.notifyScenePhasePaused(false)
-        #expect(await engine._currentStateForTest == .streaming)
     }
 
     // MARK: - Public surface
@@ -337,6 +224,12 @@ struct LifecycleTests {
         #expect(
             await engine._captureWatchdogArmedTokenForTest == nil,
             "watchdogs disarm at .inactive")
+        // Positive-control: the host command publishes the .paused label from a
+        // running .streaming origin (the direct-publish coverage formerly held by
+        // the retired scenePhaseMirrorStillWorksFromStreaming test).
+        #expect(
+            await engine._currentStateForTest == .paused,
+            ".inactive publishes the .paused command label from .streaming")
 
         await engine.setLifecyclePhase(.active)
         #expect(await engine._isSessionRunningForTest == true)
@@ -344,6 +237,9 @@ struct LifecycleTests {
         #expect(
             await engine._captureWatchdogArmedTokenForTest != nil,
             "watchdogs re-arm at .active")
+        #expect(
+            await engine._currentStateForTest == .streaming,
+            ".active publishes the .streaming command label")
 
         await engine.close()
     }
@@ -564,11 +460,12 @@ struct LifecycleTests {
     }
 
     /// A host command label (`setLifecyclePhase`) cannot overwrite OS truth while
-    /// the OS owns the device — parity with `notifyScenePhasePaused`.
+    /// the OS owns the device.
     ///
     /// Both command directions defer: `.active` (would publish `.streaming`) and
-    /// `.inactive` (would publish `.paused`), covered for an `.interrupted` origin
-    /// and a terminal `.error` (`videoDeviceInUseByAnotherClient`).
+    /// `.inactive` (would publish `.paused`), covered across all three OS-owned
+    /// origins — an `.interrupted` origin, a terminal `.error`
+    /// (`videoDeviceInUseByAnotherClient`), and an in-flight `.recovering`.
     @Test("OS-owned guard: setLifecyclePhase can't overwrite the OS label")
     func commandLabelDefersUnderOSOwnership() async {
         let interrupted = CameraEngine(initialPhase: .active)
@@ -594,6 +491,20 @@ struct LifecycleTests {
             await errored._currentStateForTest == .error,
             ".active (.streaming) command deferred under .error")
         await errored.close()
+
+        // In-flight recovery is OS-owned too: a resume command must not force
+        // `recovering → streaming` (folded in from the retired
+        // scenePhaseResumeIgnoredWhileRecovering test, now via setLifecyclePhase).
+        let recovering = CameraEngine(initialPhase: .active, clock: ManualClock())
+        await recovering._markOpenForTest()
+        await recovering._armWatchdogsForTest()
+        await recovering._postSessionEventForTest(.runtimeError("boom"))
+        #expect(await recovering._currentStateForTest == .recovering)
+        await recovering.setLifecyclePhase(.active)
+        #expect(
+            await recovering._currentStateForTest == .recovering,
+            ".active (.streaming) command deferred under an in-flight .recovering")
+        await recovering.close()
     }
 
     /// Deferral parity for the `.opening → .paused` launch-race rider.
@@ -605,16 +516,20 @@ struct LifecycleTests {
     /// strand the engine in `.paused` before `open()` publishes `.streaming`.
     @Test("deferral parity: .opening → .paused defers, .opening → .streaming publishes")
     func deferralParityOpeningToPaused() async {
+        // `.opening` is set via `_setStateForTest` (not `_markOpenForTest`, which
+        // lands in `.streaming` with different deferral semantics): it leaves the
+        // state machine at `.opening`, and `isOpen` (== `current != .closed`) is
+        // true, so `setLifecyclePhase` runs `reconcile` → `publishCommandLabel`.
         let pausing = CameraEngine(initialPhase: .background)
         await pausing._setStateForTest(.opening)
-        await pausing.notifyScenePhasePaused(true)  // target .paused
+        await pausing.setLifecyclePhase(.inactive)  // target .paused
         #expect(
             await pausing._currentStateForTest == .opening,
             ".opening → .paused deferred (launch race)")
 
         let streaming = CameraEngine(initialPhase: .active)
         await streaming._setStateForTest(.opening)
-        await streaming.notifyScenePhasePaused(false)  // target .streaming
+        await streaming.setLifecyclePhase(.active)  // target .streaming
         #expect(
             await streaming._currentStateForTest == .streaming,
             ".opening → .streaming published (open() completing)")
