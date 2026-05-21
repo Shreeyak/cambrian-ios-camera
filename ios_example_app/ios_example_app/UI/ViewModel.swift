@@ -10,10 +10,11 @@ import SwiftUI
 /// `captureConfirmation`); per-feature state lives on the corresponding child VM —
 /// see `display`, `recording`, `hardware`, `processing`, `calibration`, `errors`.
 ///
-/// `handleScenePhase(_:)` enforces D-06 strict gating: `.inactive` always closes
-/// the GPU submission gate regardless of `UIApplication.applicationState`;
-/// `.background` calls `backgroundSuspend`; `.active` reopens the gate (and
-/// calls `backgroundResume` first if returning from `.background`).
+/// `handleScenePhase(_:)` is a 1:1 forward of SwiftUI `ScenePhase` to
+/// `engine.setLifecyclePhase(_:)` (mapped to `AppLifecyclePhase`). CameraKit owns
+/// all reconciliation — GPU gate, session start/stop, watchdogs, `SessionState`
+/// label — so the host neither gates nor suspends/resumes directly;
+/// `setLifecyclePhase` never throws and the latest call wins.
 @Observable @MainActor
 final class ViewModel {
 
@@ -71,22 +72,17 @@ final class ViewModel {
 
     // MARK: - ScenePhase tracking (ADR-09, D-06, 08-ui.md §scenePhase wiring)
 
-    /// Tracks the previous scene phase so `.active` can distinguish a return
-    /// from `.background` (needs `backgroundResume`) from a return from
-    /// `.inactive` (gate-reopen only).
-    private var previousPhase: ScenePhase = .active
-
-    /// True when the app entered `.background` and has not yet returned to `.active`.
+    /// Previous scene phase — diagnostics only (the `scenePhase: prev → next` log).
     ///
-    /// iOS transitions `.background → .inactive → .active` on restore, so
-    /// `previousPhase == .background` is never true at the `.active` site.
-    /// This flag survives the intermediate `.inactive` hop.
-    private var cameFromBackground = false
+    /// The engine reconciles from the current phase alone (latest call wins), so
+    /// the host no longer needs the previous phase to sequence resume; it survives
+    /// purely for the transition log.
+    private var previousPhase: ScenePhase = .active
 
     // MARK: - Init
 
     init() {
-        let engine = CameraEngine()
+        let engine = CameraEngine(initialPhase: .background)
         self.engine = engine
         self.display = DisplayViewModel(engine: engine)
         let errors = ErrorPresenterViewModel(engine: engine)
@@ -312,45 +308,35 @@ final class ViewModel {
 
     // MARK: - ScenePhase handler (08-ui.md §scenePhase wiring, 02-concurrency.md §Sequence A)
 
-    /// Phase mapping per D-06 strict policy.
+    /// Forward the SwiftUI scene phase to the engine, which reconciles all
+    /// hardware (gate, session, watchdogs, label) from the phase alone.
     ///
-    ///   `.inactive`   → close gate; drain last submitted frame.
-    ///   `.background` → `backgroundSuspend()` (gate-close + drain + session stop).
-    ///   `.active`     → re-open gate; if returning from `.background`,
-    ///                   `backgroundResume()` first.
+    /// The host no longer sequences gate / drain / suspend / resume — that policy
+    /// moved into `CameraEngine.setLifecyclePhase` / `reconcile` (single owner).
+    /// This is a 1:1 forward; `setLifecyclePhase` never throws and the latest call
+    /// wins, so the intermediate `.background → .inactive → .active` restore needs
+    /// no `cameFromBackground` flag.
     func handleScenePhase(_ phase: ScenePhase) async {
         let prev = String(describing: self.previousPhase)
         let next = String(describing: phase)
         CameraKitLog.notice(.scenePhase, "scenePhase: \(prev) → \(next)")
-        switch phase {
-        case .inactive:
-            await engine.setGate(false)
-            await engine.drainSubmittedFrame()
-            await engine.notifyScenePhasePaused(true)
-            CameraKitLog.notice(
-                .scenePhase, "scenePhase inactive: gate closed, drain complete, state=.paused")
-
-        case .background:
-            cameFromBackground = true
-            await engine.backgroundSuspend()
-            await engine.notifyScenePhasePaused(true)
-            CameraKitLog.notice(
-                .scenePhase, "scenePhase background: backgroundSuspend complete, state=.paused")
-
-        case .active:
-            if cameFromBackground {
-                cameFromBackground = false
-                await engine.backgroundResume()
-            }
-            await engine.setGate(true)
-            await engine.notifyScenePhasePaused(false)
-            CameraKitLog.notice(
-                .scenePhase, "scenePhase active: gate open, state=.streaming (prevPhase=\(prev))")
-
-        @unknown default:
-            break
-        }
+        await engine.setLifecyclePhase(map(phase))
         previousPhase = phase
+    }
+
+    /// Map SwiftUI's `ScenePhase` to the engine's `AppLifecyclePhase`.
+    ///
+    /// Identity over the three cases — the only place SwiftUI types touch the
+    /// lifecycle path (CameraKit imports no SwiftUI). An `@unknown default` (a
+    /// future SwiftUI case) maps to `.inactive`, the safe middle ground (gate
+    /// closed, session kept running) — never a spurious teardown.
+    private func map(_ phase: ScenePhase) -> AppLifecyclePhase {
+        switch phase {
+        case .active: return .active
+        case .inactive: return .inactive
+        case .background: return .background
+        @unknown default: return .inactive
+        }
     }
 
     // MARK: - Capabilities dump (debug helper, written to Documents/capabilities.txt)

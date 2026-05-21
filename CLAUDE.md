@@ -199,8 +199,12 @@ xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme ios_exampl
 #   platform=macOS,arch=arm64,variant=Designed for iPad      (native Mac fallback)
 # NEVER `platform=iOS Simulator,...` — simulators are disallowed on this machine.
 
-swiftlint lint       --config .swiftlint.yml
-swiftlint lint --fix --config .swiftlint.yml
+# Style gate = swift-format (exactly what the pre-commit hook runs on staged
+# sources). SwiftLint is NOT a commit gate and crashes standalone on this
+# machine's beta toolchain ("Loading sourcekitdInProc.framework … failed"),
+# so `.swiftlint.yml` is IDE-advisory only — do not rely on the CLI here.
+swift-format lint --strict CameraKit/Sources/CameraKit/*.swift
+swift-format -i            CameraKit/Sources/CameraKit/*.swift   # auto-fix in place
 ```
 
 For programmatic xcodeproj edits (package dependencies, build-setting flips,
@@ -279,16 +283,23 @@ bumps DerivedData hash. Inside Xcode itself, none of this matters — Xcode
 uses its own build system. This is purely for external editors.
 
 **What `git config core.hooksPath .githooks` does.** Pre-commit-time validation
-lives in `.githooks/pre-commit` — it enforces swift-format / SwiftLint and
-regenerates `CameraKit/CONTRACTS.md` so the auto-generated current-shape doc
-never drifts from the sources. We keep the hook in `.githooks/` rather than
-the default `.git/hooks/` so it's version-controlled and ships with every
-clone (the default `.git/hooks/` is never committed, so hooks placed there
-don't travel); `git config core.hooksPath .githooks` is the per-clone wire-up
-that points git at it. The `pre-push` hook was removed in the 2026-05-20
-restructure (the synthetic `camerakit-only` subtree-split it ran no longer
-works now that `Package.swift` lives at the repo root). Skip a single
-commit's hooks with `--no-verify` (rare; the hooks are blocking by design).
+lives in `.githooks/pre-commit` — it runs `swift-format lint --strict` on
+staged `CameraKit/Sources/**.swift` and regenerates `CameraKit/CONTRACTS.md`
+so the auto-generated current-shape doc never drifts from the sources.
+**SwiftLint is NOT a commit gate** — it was dropped from the hook (it flags
+CameraKit/Sources' deliberate patterns, e.g. the test-seam `_*ForTest`
+identifiers and the large `CameraEngine` actor, as errors); `swift-format
+--strict` is the authoritative style gate. SwiftLint also crashes when run
+standalone on this machine's beta toolchain (`Loading sourcekitdInProc.framework
+… failed`), so `.swiftlint.yml` is IDE-advisory only. We keep the hook in
+`.githooks/` rather than the default `.git/hooks/` so it's version-controlled
+and ships with every clone (the default `.git/hooks/` is never committed, so
+hooks placed there don't travel); `git config core.hooksPath .githooks` is the
+per-clone wire-up that points git at it. The `pre-push` hook was removed in
+the 2026-05-20 restructure (the synthetic `camerakit-only` subtree-split it
+ran no longer works now that `Package.swift` lives at the repo root). Skip a
+single commit's hooks with `--no-verify` (rare; the hooks are blocking by
+design).
 
 ### 6.1 Coordinator discipline
 
