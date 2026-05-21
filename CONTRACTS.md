@@ -151,6 +151,8 @@ public init(before: RgbSample, after: RgbSample, converged: Bool, iterations: In
 ## File: CameraKit/Sources/CameraKit/Mailbox.swift
 ```swift
 public final class Mailbox<T>: @unchecked Sendable {
+⋮----
+private let lock = OSAllocatedUnfairLock()
 private var _value: T?
 ⋮----
 public init(_ initial: T? = nil) {
@@ -470,75 +472,6 @@ public var b: Double
 public init(r: Double, g: Double, b: Double) {
 ```
 
-## File: CameraKit/Sources/CameraKit/SessionState.swift
-```swift
-public enum SessionState: String, Sendable, Hashable {
-⋮----
-public enum RecordingState: Sendable, Hashable {
-⋮----
-public enum StreamId: String, Sendable, Hashable, CaseIterable {
-⋮----
-public struct RecordingOptions: Sendable, Hashable {
-⋮----
-public var bitrateBps: Int?
-⋮----
-public var fps: Int?
-⋮----
-public var outputURL: URL?
-⋮----
-public var photosDestination: PhotosDestination
-⋮----
-public init(
-⋮----
-public struct RecordingStart: Sendable, Hashable {
-⋮----
-public let uri: String
-⋮----
-public let displayName: String
-public init(uri: String, displayName: String) {
-```
-
-## File: CameraKit/Sources/CameraKit/Settings.swift
-```swift
-public func merging(onto prior: CameraSettings) -> CameraSettings {
-var out = prior
-⋮----
-enum SettingsCoupling {
-⋮----
-static func apply(rules merged: CameraSettings, latched: DeviceStateSnapshot?) throws -> CameraSettings {
-var out = merged
-⋮----
-static func promoteSingleFieldManual(
-```
-
-## File: CameraKit/Sources/CameraKit/PhotosLibraryClient.swift
-```swift
-public enum PhotosDestination: String, Sendable, Hashable, Codable {
-⋮----
-enum PhotosLibraryClient {
-⋮----
-nonisolated(unsafe) static var authorizationProvider: @Sendable () async -> PHAuthorizationStatus = {
-⋮----
-static func resolve(outputURL: URL?, defaultExt: String) throws -> URL {
-let resolved: URL
-⋮----
-let timestamp = ISO8601DateFormatter().string(from: Date())
-⋮----
-let home = NSHomeDirectory()
-let homeFromPrivate = "/private" + home
-⋮----
-static func publish(
-⋮----
-let req = PHAssetCreationRequest.forAsset()
-let opts = PHAssetResourceCreationOptions()
-⋮----
-static func describe(_ error: Error) -> String {
-let ns = error as NSError
-⋮----
-let codeName: String
-let hint: String
-```
-
 ## File: CameraKit/Sources/CameraKit/PixelSink.swift
 ```swift
 public struct ConsumerToken: Sendable, Hashable {
@@ -664,6 +597,75 @@ let shouldLog = lastLogged.withLock { last -> Bool in
 let perLane = StreamId.allCases.map { lane in
 ⋮----
 func finish() { continuation.finish() }
+```
+
+## File: CameraKit/Sources/CameraKit/SessionState.swift
+```swift
+public enum SessionState: String, Sendable, Hashable {
+⋮----
+public enum RecordingState: Sendable, Hashable {
+⋮----
+public enum StreamId: String, Sendable, Hashable, CaseIterable {
+⋮----
+public struct RecordingOptions: Sendable, Hashable {
+⋮----
+public var bitrateBps: Int?
+⋮----
+public var fps: Int?
+⋮----
+public var outputURL: URL?
+⋮----
+public var photosDestination: PhotosDestination
+⋮----
+public init(
+⋮----
+public struct RecordingStart: Sendable, Hashable {
+⋮----
+public let uri: String
+⋮----
+public let displayName: String
+public init(uri: String, displayName: String) {
+```
+
+## File: CameraKit/Sources/CameraKit/Settings.swift
+```swift
+public func merging(onto prior: CameraSettings) -> CameraSettings {
+var out = prior
+⋮----
+enum SettingsCoupling {
+⋮----
+static func apply(rules merged: CameraSettings, latched: DeviceStateSnapshot?) throws -> CameraSettings {
+var out = merged
+⋮----
+static func promoteSingleFieldManual(
+```
+
+## File: CameraKit/Sources/CameraKit/PhotosLibraryClient.swift
+```swift
+public enum PhotosDestination: String, Sendable, Hashable, Codable {
+⋮----
+enum PhotosLibraryClient {
+⋮----
+nonisolated(unsafe) static var authorizationProvider: @Sendable () async -> PHAuthorizationStatus = {
+⋮----
+static func resolve(outputURL: URL?, defaultExt: String) throws -> URL {
+let resolved: URL
+⋮----
+let timestamp = ISO8601DateFormatter().string(from: Date())
+⋮----
+let home = NSHomeDirectory()
+let homeFromPrivate = "/private" + home
+⋮----
+static func publish(
+⋮----
+let req = PHAssetCreationRequest.forAsset()
+let opts = PHAssetResourceCreationOptions()
+⋮----
+static func describe(_ error: Error) -> String {
+let ns = error as NSError
+⋮----
+let codeName: String
+let hint: String
 ```
 
 ## File: CameraKit/Sources/CameraKit/Recording.swift
@@ -1898,6 +1900,17 @@ var isGateOpen: Bool {
 ⋮----
 let classification = stateMachine.transition(to: state, kind: kind)
 ⋮----
+// Observability-first: log with full context, then apply. Off-map is
+// NOT fatal in any config — the OS event space (interruptions,
+// runtime errors, system-pressure orderings) is not fully
+// enumerable, and a DEBUG-only `assertionFailure` here aborted device
+// builds on legitimate-but-rare lifecycle races while RELEASE handled
+// the same transition gracefully (measurements 2026-05-20 §1: the
+// DEBUG/RELEASE divergence was itself the bug-amplifier). The log is
+// the diagnostic instrument; correlate an off-map entry with the
+// preceding OS notification to tell a legitimate ordering from a
+// genuine state-logic regression.
+⋮----
 // MARK: - Stage 09 internal hooks
 ⋮----
 /// Used by `RecoveryCoordinator.emitStateRecovering` — that hook always
@@ -1913,6 +1926,16 @@ func disarmWatchdogsAsync() { watchdogs?.disarmAll() }
 /// is safe to call to (re-)arm on `open()`, on `backgroundResume()`, and on
 /// `.otherInterruptionEnded`. No-op when the engine is closed
 /// (`watchdogs == nil`).
+⋮----
+/// Gate-guarded: if `submissionGate` is closed, arming is skipped (HITL
+/// 2026-05-20 §1 case #14). On backgrounding, `stopRunning` triggers an OS
+/// interruption whose `.otherInterruptionEnded` fires while the app is still
+/// backgrounded; the unconditional re-arm armed the stall watchdog with no
+/// frames flowing, it fired ~9 s later, and drove `interrupted → recovering`
+/// (off-map — it aborted DEBUG builds before Fix 2, and still spuriously
+/// recovers a backgrounded session). The watchdog must only arm when frames
+/// can actually flow, which the gate tracks. `open()` and `backgroundResume()`
+/// both open the gate before calling this, so they are unaffected.
 private func armWatchdogs() {
 ⋮----
 let token = sessionToken.load(ordering: .acquiring)
