@@ -61,11 +61,14 @@ Plan: `docs/superpowers/plans/2026-05-21-camerakit-lifecycle-ownership.md`.
   interrupt + dismiss resumes with no error. No off-map / spurious recovery /
   crash in any HITL session; the F2 `osOwnsDevice` deferral and Task 8 OS→phase
   reconcile both fire correctly on device. The ~500 ms Control Center resume is
-  **observed but not yet root-caused** — the current `yield: frame=` log is
-  sampled too coarsely (~every 300 frames) to resolve a sub-second resume;
-  app-side handling is only ~50 ms and it is confirmed **not** a session restart
-  (CC doesn't stop the session). Resume-latency instrumentation (t0/t1/t2 +
-  `startSessionIfNeeded` marker) added; re-measure pending. F4 (camera-off on
+  **root-caused as iOS/iPadOS platform behavior** (not an app defect): with
+  full-pipeline instrumentation, AVF delivery resumes at +10 ms, the preview
+  texture is live at +38 ms, and fresh frames are blitted + GPU-presented at
+  +13–19 ms — but the system holds a snapshot of the app during the Control
+  Center transition, so the last frame stays visible ~500–1000 ms. Confirmed
+  against Apple's first-party Camera app, which shows the identical delay on the
+  same device. Not app-fixable; an optional cosmetic match (blur-while-`.inactive`)
+  is noted in the measurements doc. F4 (camera-off on
   background *launch*) not separately
   reproduced — structurally guaranteed by `initialPhase: .background` + reconcile;
   defer to natural occurrence. Evidence:
