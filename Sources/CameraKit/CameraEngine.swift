@@ -115,7 +115,16 @@ public actor CameraEngine {
 
     // MARK: - Public API
 
-    public init(clock: any CameraKitClock = SystemClock()) {
+    /// The host's current lifecycle phase — the single source of truth the
+    /// reconciliation routine reads.
+    ///
+    /// Set at construction (`initialPhase`) and on every `setLifecyclePhase(_:)`;
+    /// no `previousPhase`, no sticky flag. Mutated by the reconciliation path
+    /// (Task 5+); at construction it is only recorded.
+    private var currentPhase: AppLifecyclePhase
+
+    public init(initialPhase: AppLifecyclePhase, clock: any CameraKitClock = SystemClock()) {
+        self.currentPhase = initialPhase
         self.clock = clock
         // Bug 5 (docs/stage-11-pre-existing-bugs.md): eagerly construct each
         // cached stream so its continuation is installed in the box *before*
@@ -594,6 +603,9 @@ public actor CameraEngine {
 
     /// Test-only: read the state machine's current `SessionState` (stateStream only yields on publish).
     var _currentStateForTest: SessionState { stateMachine.current }
+
+    /// Test-only: read the engine's current lifecycle phase.
+    var _currentPhaseForTest: AppLifecyclePhase { currentPhase }
 
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
     nonisolated func tickFrame() {
