@@ -688,4 +688,51 @@ struct LifecycleTests {
 
         await engine.close()
     }
+
+    // MARK: - Event-vs-event (F5)
+
+    /// F5: a stale interruption-ended handler must not override a newer
+    /// interruption-begin event.
+    ///
+    /// Both interruption handlers dispatch as their own `Task { await
+    /// onSessionEvent(...) }` and interleave on the actor. With the engine
+    /// backgrounded, the `.ended` handler suspends inside reconcile's `.background`
+    /// path (the existing park seam); a newer `.begin` is admitted and publishes
+    /// `.interrupted`; the released `.ended` must not override it. Passes
+    /// structurally: `.ended`'s label publishes happen at reconcile's top (before
+    /// the suspend), and its post-suspend `.background` tail only stops the session
+    /// — no label publish, no re-arm — so the newer `.begin` wins. Asserts both
+    /// faces of the stale-override risk: the label and the watchdog.
+    @Test("event-vs-event (F5): stale interruption-ended does not override newer begin")
+    func staleEndedDoesNotOverrideNewerBegin() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        await engine.setLifecyclePhase(.background)  // backgrounded: stopped, disarmed
+
+        // Park the stale .ended mid-reconcile (post-disarm, pre-stop).
+        await engine._armBackgroundReconcileParkForTest()
+        let ended = Task { await engine._postSessionEventForTest(.otherInterruptionEnded) }
+        while await engine._isBackgroundReconcileParkedForTest == false {
+            await Task.yield()
+        }
+
+        // Admit the newer .begin while .ended is parked — it publishes .interrupted.
+        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
+        #expect(await engine._currentStateForTest == .interrupted)
+
+        // Release the stale .ended — it must not republish a label over the newer
+        // .interrupted, nor re-arm the watchdogs.
+        await engine._releaseBackgroundReconcileParkForTest()
+        await ended.value
+
+        #expect(
+            await engine._currentStateForTest == .interrupted,
+            "stale .ended must not republish a label over the newer .begin")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest == nil,
+            "stale .ended must not re-arm the watchdogs over the newer .begin")
+
+        await engine.close()
+    }
 }
