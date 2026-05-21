@@ -52,8 +52,25 @@ $SCAFFOLDS
 ## Compressed source snapshot
 
 EOF
-  # Strip leading blank lines / any residual summary, keep from first "# Files" header.
-  sed -n '/^# Files$/,$p' "$TMP/sources.md"
+  # Keep from the "# Files" header onward, then sort the per-file "## File:"
+  # blocks alphabetically by path. repomix emits sections in an unstable
+  # (mtime-derived) order, which produced large spurious reorder diffs on every
+  # commit; sorting makes the snapshot deterministic so diffs reflect real
+  # contract changes only. (requires perl ≥ 5.10 for -0777 + lookahead split.)
+  perl -0777 -ne '
+    next unless /^(.*?# Files\n)(.*)$/s;
+    my ($head, $rest) = ($1, $2);
+    my @parts  = split /(?=^## File: )/m, $rest;
+    my @blocks = grep {  /^## File: / } @parts;
+    my ($pre)  = grep { !/^## File: / } @parts;
+    print $head;
+    print $pre if defined $pre;
+    print sort {
+      my ($pa) = $a =~ m{^## File: (\S+)};
+      my ($pb) = $b =~ m{^## File: (\S+)};
+      $pa cmp $pb
+    } @blocks;
+  ' "$TMP/sources.md"
 } > "$OUT"
 
 echo "wrote $OUT ($(wc -l < "$OUT") lines)"
