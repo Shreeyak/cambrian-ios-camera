@@ -881,9 +881,23 @@ public actor CameraEngine {
     ///
     /// Never throws; safe on every transition and before `open()`. Writes
     /// `currentPhase` unconditionally and reconciles hardware (gate, session,
-    /// watchdogs) only when the engine is open — before `open()` the phase is
-    /// recorded, and `open()` applies it by running the same routine against
-    /// `currentPhase`. (Full calling convention + Flutter mapping: Task 12.)
+    /// watchdogs, label) only when the engine is open — before `open()` the phase
+    /// is recorded, and `open()` applies it by running the same routine against
+    /// `currentPhase`.
+    ///
+    /// Concurrency: the **latest call wins** — a superseded, still-in-flight
+    /// reconciliation is abandoned rather than allowed to apply stale work, so
+    /// rapid bounces (lock/unlock, app-switch) are safe.
+    ///
+    /// Calling convention:
+    /// - **SwiftUI:** observe `@Environment(\.scenePhase)` and forward the
+    ///   matching case — `.active` / `.inactive` / `.background` map 1:1.
+    /// - **Flutter (cam2fd):** the plugin's *native* Swift layer
+    ///   (`FlutterSceneLifeCycleDelegate`) maps the UIScene callbacks and calls
+    ///   this — `resumed → .active`, `inactive → .inactive`, `hidden` / `paused →
+    ///   .background`, `detached →` don't call. Do **not** forward lifecycle from
+    ///   Dart over the method channel: observe natively so a backgrounding can't
+    ///   outrun an in-flight recording's finalize and corrupt the `.mp4`.
     public func setLifecyclePhase(_ phase: AppLifecyclePhase) async {
         currentPhase = phase
         guard isOpen else { return }
