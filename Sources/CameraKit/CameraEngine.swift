@@ -377,17 +377,22 @@ public actor CameraEngine {
             }
         }
 
-        // 9b. Reconcile hardware to the host's current phase. Opening into
-        //     `.background` skips `startRunning` (F4 — no camera with no
-        //     foreground UI); `.inactive` starts with the gate closed; `.active`
-        //     goes fully live. The eager gate-open (step 7) and watchdog arm
-        //     (step 8) are idempotent for `.active` and overridden by `reconcile`
-        //     for the gated phases. (ADR-07: `startRunning` runs on sessionQueue
-        //     inside the routine.)
+        // 9b. Reconcile hardware to the host's current phase, and publish the
+        //     phase-appropriate `SessionState` label. Opening into `.background`
+        //     skips `startRunning` (F4 — no camera with no foreground UI) and
+        //     publishes `.paused`; `.inactive` starts with the gate closed and
+        //     publishes `.paused`; `.active` goes fully live and publishes
+        //     `.streaming`. The eager gate-open (step 7) and watchdog arm (step 8)
+        //     are idempotent for `.active` and overridden by `reconcile` for the
+        //     gated phases. (ADR-07: `startRunning` runs on sessionQueue inside
+        //     the routine.)
+        //
+        //     `reconcile` owns the post-open label now (spec *OS-authoritative
+        //     label*): no separate `publishState(.streaming)` follows — that would
+        //     clobber the gated phases' `.paused` back to `.streaming` (the old
+        //     background-launch label-vs-gate mismatch). open() reaches here at
+        //     `.closed`, so the `.opening → .paused` defer rider does not bite.
         await reconcile()
-
-        // 10. Publish .streaming state.
-        publishState(.streaming, kind: .command)
 
         // Apply persisted ProcessingParameters if any (07-settings.md §Persistence).
         if let persistedProcessing = SettingsPersistence.loadProcessing() {
@@ -583,40 +588,24 @@ public actor CameraEngine {
     /// (`ErrorPresenterViewModel`, Phase-3's Pigeon adapter) see a consistent
     /// pause/resume signal.
     ///
-    /// The mirror defers to OS-driven events when the state machine sits in an
-    /// OS-owned origin (`.interrupted`, `.recovering`, `.error`). From those
-    /// states the only legitimate `.command` transition is `.closed`, so a
-    /// scenePhase-driven `.streaming`/`.paused` is off-map — and worse, would
-    /// overwrite the OS's truth with a wrong value. `SessionStateMachine` is the
-    /// single source of truth: if `classify` rejects the mirrored transition we
-    /// skip the publish (logged) and let the OS event path restore `.streaming`
-    /// (`onSessionEvent(.otherInterruptionEnded)`, recovery completion). This
-    /// also closes the symmetric `.opening → .paused` hole. Caught under
-    /// `test_device`, where a harness/bring-up AVF interruption races a
-    /// `.active` scenePhase into the off-map path in `publishState` — a
-    /// wrong-value overwrite of OS-owned state (a DEBUG abort too, before Fix 2). The
-    /// background stall-watchdog disarm (`.otherInterruption` / `backgroundSuspend`)
-    /// is the complementary half of the HITL background-crash fix (measurements
-    /// 2026-05-20 §1, case #12).
+    /// Defers to OS-driven events when the state machine sits in an OS-owned
+    /// origin (`.interrupted`/`.recovering`/`.error`) or the `.opening → .paused`
+    /// launch race — the `shouldDeferCommandLabel` guard, shared with the
+    /// reconciliation routine. From an OS-owned state a scenePhase-driven
+    /// `.streaming`/`.paused` is off-map and would overwrite OS truth with a
+    /// wrong value; the publish is skipped (logged) and the OS event path
+    /// restores `.streaming` (`onSessionEvent(.otherInterruptionEnded)`, recovery
+    /// completion). Caught under `test_device`, where a harness/bring-up AVF
+    /// interruption raced a `.active` scenePhase into the off-map path in
+    /// `publishState` — a wrong-value overwrite of OS-owned state (a DEBUG abort
+    /// too, before Fix 2; measurements 2026-05-20 §1, case #12).
     ///
-    /// Known gap (out of scope — D-06 gate owns correctness): if an interruption
-    /// ends while the app is backgrounded, the OS publishes `.streaming (event)`
-    /// but the ViewModel won't re-issue `notifyScenePhasePaused(true)` until the
-    /// next scenePhase change — the machine reads `.streaming` while the gate is
-    /// still closed. A truthfulness gap, not a crash.
+    /// Superseded by `setLifecyclePhase`/`reconcile`, which now own the label
+    /// (spec *OS-authoritative label*); this remains the legacy host entry until
+    /// the host migrates (then demoted to `internal`). Thin wrapper over the same
+    /// `publishCommandLabel` the routine uses, so both paths behave identically.
     public func notifyScenePhasePaused(_ paused: Bool) {
-        let target: SessionState = paused ? .paused : .streaming
-        let from = stateMachine.current
-        if SessionStateMachine.classify(from: from, to: target, kind: .command) == .offMap {
-            CameraKitLog.notice(
-                .engine,
-                "[scenePhase] skipping mirror from=\(from.rawValue) "
-                    + "to=\(target.rawValue) kind=command caller=\(#function) "
-                    + "(deferring to OS-driven state)"
-            )
-            return
-        }
-        publishState(target, kind: .command)
+        publishCommandLabel(paused ? .paused : .streaming)
     }
 
     /// Test-only: drive the state machine into `.streaming` so teardown paths
@@ -649,6 +638,14 @@ public actor CameraEngine {
 
     /// Test-only: read the engine's current lifecycle phase.
     var _currentPhaseForTest: AppLifecyclePhase { currentPhase }
+
+    /// Test-only: drive the state machine to an arbitrary `SessionState` without emission.
+    ///
+    /// Mirrors `_markOpenForTest`'s direct poke. The only way to observe the
+    /// `.opening` origin — no engine command publishes `.opening` (`open()`
+    /// jumps `.closed → .streaming`), so the `shouldDeferCommandLabel`
+    /// `.opening → .paused` rider is otherwise untestable at the engine level.
+    func _setStateForTest(_ state: SessionState) { stateMachine._setCurrentForTest(state) }
 
     /// Test-only: reconcile's last session-running decision.
     ///
@@ -902,6 +899,10 @@ public actor CameraEngine {
     /// running / watchdogs armed; `.inactive` → gate closed / session running /
     /// disarmed (cheap pause, ~4 ms gate-flip vs ~410 ms restart); `.background`
     /// → gate closed / session stopped + recording finalized / disarmed.
+    ///
+    /// Also publishes the `SessionState` label (the job `notifyScenePhasePaused`
+    /// did) and applies the phase→OS guard (F2): while `osOwnsDevice` the
+    /// `.active`/`.inactive` rows neither `startRunning` nor re-arm the watchdogs.
     private func reconcile() async {
         // Latest-intent-wins (F1): each entry bumps the generation so a later
         // call supersedes an in-flight one. The `.background` path re-checks
@@ -910,14 +911,36 @@ public actor CameraEngine {
         reconcileGeneration &+= 1
         let generation = reconcileGeneration
 
+        // Label half — folded in from `notifyScenePhasePaused` (spec
+        // *OS-authoritative label*): `.active` publishes `.streaming`, every gated
+        // phase publishes `.paused`; `publishCommandLabel` defers to OS truth.
+        // Published before the (suspending) `.background` steps so latest-intent-
+        // wins covers the label too: only `.background` suspends, and it aborts
+        // without republishing, so a superseding `.active`'s `.streaming` is the
+        // last word.
+        publishCommandLabel(currentPhase == .active ? .streaming : .paused)
+
         switch currentPhase {
         case .active:
             setGate(true)
-            startSessionIfNeeded()
-            armWatchdogs()
+            // Phase → OS guard (F2; spec *The OS-owned guard*): while the OS owns
+            // the device (`.interrupted`/`.recovering`/`.error`) the host command
+            // must not fight it — no `startRunning`, no watchdog re-arm. A re-armed
+            // watchdog fires a spurious stall → `RecoveryCoordinator` teardown
+            // while frames are still OS-stopped (and for the terminal `.error`
+            // case escalates toward a fatal `maxRetriesExceeded` the OS would
+            // otherwise let self-heal).
+            if !osOwnsDevice {
+                startSessionIfNeeded()
+                armWatchdogs()
+            }
         case .inactive:
             setGate(false)
-            startSessionIfNeeded()
+            // F2: same OS-owned guard on the session-start (the `.inactive` row
+            // restarts the session unless the OS owns the device).
+            if !osOwnsDevice {
+                startSessionIfNeeded()
+            }
             disarmWatchdogsAsync()
         case .background:
             // Field-guide §5 ordered suspend: gate close (synchronous, before any
@@ -966,6 +989,55 @@ public actor CameraEngine {
         if let session = cameraSession {
             session.sessionQueue.async { session.startRunning() }
         }
+    }
+
+    /// True when the OS owns the device: a foreground interruption, an in-flight
+    /// recovery, or a terminal error.
+    ///
+    /// The reconciliation must not fight the OS for the device while this holds
+    /// (spec *The OS-owned guard*, adversarial review F2): the `.active`/
+    /// `.inactive` rows skip both `startRunning` and the watchdog arm. Reads the
+    /// single source of truth — `SessionStateMachine.current` — with no parallel
+    /// mirror.
+    private var osOwnsDevice: Bool {
+        switch stateMachine.current {
+        case .interrupted, .recovering, .error: return true
+        case .opening, .streaming, .paused, .closed: return false
+        }
+    }
+
+    /// True when a host `.command` label publish must defer to OS truth.
+    ///
+    /// `osOwnsDevice` plus the `.opening → .paused` launch race (a pre-`open()`
+    /// `.inactive`/`.background` phase arriving before `open()` publishes
+    /// `.streaming`). The rider is the one off-map edge `osOwnsDevice` alone does
+    /// not cover but the prior `classify(...) == .offMap` check did
+    /// (`commandMap[.opening]` has no `.paused`); honestly named separately
+    /// because the watchdog/start guard must NOT carry it (spec: a single shared
+    /// helper would hide the `.opening` clause at the device-guard site).
+    private func shouldDeferCommandLabel(target: SessionState) -> Bool {
+        osOwnsDevice || (stateMachine.current == .opening && target == .paused)
+    }
+
+    /// Publish a host-`.command` `SessionState` label, deferring to OS truth.
+    ///
+    /// The label half of reconciliation, folded in from `notifyScenePhasePaused`
+    /// (spec *OS-authoritative label*, Bug 2): publishes `.streaming`/`.paused`
+    /// as a `.command` transition unless `shouldDeferCommandLabel` holds — in
+    /// which case the OS event path owns the terminal label
+    /// (`onSessionEvent`/recovery) and this publish is skipped (logged), so a UI
+    /// command can't overwrite `.interrupted`/`.recovering`/`.error` with a stale
+    /// `.paused`/`.streaming`.
+    private func publishCommandLabel(_ target: SessionState, function: String = #function) {
+        guard !shouldDeferCommandLabel(target: target) else {
+            CameraKitLog.notice(
+                .engine,
+                "[lifecycle] skipping command label from=\(stateMachine.current.rawValue) "
+                    + "to=\(target.rawValue) caller=\(function) (deferring to OS-owned state)"
+            )
+            return
+        }
+        publishState(target, kind: .command)
     }
 
     /// Test interleave seam (F1): park the in-flight `.background` reconcile at
