@@ -99,24 +99,39 @@ current phase alone. See the field guide `docs/ios-camera-lifecycle.md`.
 
 ### Seam-adjacent — but really a different subsystem
 
-- **`StopReason.pause` production-dead** ⚠️ — surfaced because recording-finalize
-  is the `.background` suspend step (and we edited `finalizeActiveRecording`'s
-  doc), but the dead `.pause` case is a Recording-API artifact (no `pause()`
-  caller; the suspend uses `.user`). Fix it as recording dead-code cleanup, not as
-  part of the lifecycle phase model — file under recording, not here.
+- **`StopReason.pause` production-dead** ✅ **(resolved on branch
+  `followup-recording-cleanup-test-flake`, full removal)** — surfaced because
+  recording-finalize is the `.background` suspend step (and we edited
+  `finalizeActiveRecording`'s doc), but the dead `.pause` case was a Recording-API
+  artifact (no `pause()` caller; the suspend uses `.user`). Removed end-to-end:
+  the `StopReason` enum, the `reason:` parameter on `Recording.stop()` and
+  `finalizeActiveRecording()`, and the never-produced public `RecordingState.paused`
+  case; the two Stage10 `.pause` suites were deleted. The package has no
+  pause/resume recording API (only `start`/`stop`), so nothing was lost. **Downstream
+  follow-up (separate repo, not this branch):** re-sync the vendored CameraKit copy
+  in `camera2_flutter_demo/packages/cambrian_camera/ios/cambrian_camera/CameraKit/`
+  and delete `FlutterApiPump.swift`'s `case .paused: return "paused"` arm (exhaustive
+  switch — won't compile otherwise). The Dart `RecordingState` enum already lacks
+  `paused`, so no Dart change is needed.
 
 ### Does not fit — orthogonal
 
-- **`Stage06Tests.frameSetPublication` cold-build flake** ❌ — a pre-existing
-  test-reliability bug in the tracker/frame-publication path (force-unwrap of a
-  not-yet-delivered frame at `:61`). No connection to lifecycle, not in code we
-  touched — a test-infra/timing issue; track it separately. Root cause: a clean
-  build's first run finds the tracker `FrameSet` hasn't arrived within the fixed
-  200 ms `Task.sleep` because uncached Metal shader compilation slows the first
-  `pipeline.encode` (the test drives `MetalPipeline` directly with `gateOpen:
-  true`, no engine lifecycle); the crash cascades to the 4 parallel timing tests,
-  and a warm re-run is green. Harden: force-unwrap → `#require`/guarded `XCTFail`,
-  fixed sleep → bounded polling.
+- **`Stage06Tests.frameSetPublication` cold-build flake** ✅ **(resolved on branch
+  `followup-recording-cleanup-test-flake`)** — a pre-existing test-reliability bug
+  in the tracker/frame-publication path (force-unwrap of a not-yet-delivered frame
+  at `:61`). Root cause: a clean build's first run found the tracker `FrameSet`
+  hadn't arrived within the fixed 200 ms `Task.sleep` because uncached Metal shader
+  compilation slows the first `pipeline.encode` (the test drives `MetalPipeline`
+  directly with `gateOpen: true`, no engine lifecycle); the crash cascaded to the 4
+  parallel timing tests, and a warm re-run was green. Fixed exactly as prescribed:
+  the pre-encode fixed sleep → a bounded poll on `registry.subscriberCount(for:)`;
+  the post-encode fixed sleep + `.cancel()` removed in favor of awaiting each
+  subscriber task directly (resolves whenever the lane delivers, however slow the
+  cold compile); force-unwraps → `try #require`; and a `.timeLimit(.minutes(1))`
+  trait so genuine non-delivery fails cleanly instead of hanging. Verified green on
+  device (warm); cold-build repro deferred (would require a full OpenCV rebuild —
+  the fix eliminates the timing dependency that caused it, so a cold run can no
+  longer force-unwrap nil).
 
 ## Downstream — cam2fd Flutter plugin (documented, not edited here)
 
