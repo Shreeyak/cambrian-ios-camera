@@ -196,7 +196,7 @@ def verdict_for(summary):
         notes.append(f"skip rate {skip_rate:.1%} > 5% — staleness vector")
     if pull_deficit > 0.05:
         notes.append(f"signal:pull deficit {pull_deficit:.1%} > 5% — Flutter dropped nudges")
-    if lat["p95"] and lat["p95"] > 50:
+    if lat["p95"] is not None and lat["p95"] > 50:
         notes.append(f"P95 first-pull latency {lat['p95']} ms > 50 ms — sustained staleness")
     if h["skip_max_jump"] > 3:
         notes.append(f"max skip jump {h['skip_max_jump']} frames — burst staleness")

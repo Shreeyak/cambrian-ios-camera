@@ -18,13 +18,16 @@ public final class CppCannyStub: @unchecked Sendable {
     private let handle: UnsafeMutableRawPointer
 
     public init() {
-        handle = canny_stub_create()!
-        log.info("CppCannyStub: created")
+        guard let h = canny_stub_create() else {
+            fatalError("canny_stub_create() returned null — out of memory or invalid heap state")
+        }
+        self.handle = h
+        log.notice("CppCannyStub: created")
     }
 
     deinit {
         let count = canny_stub_processed_count(handle)
-        log.info("CppCannyStub: destroying — total frames processed: \(count)")
+        log.notice("CppCannyStub: destroying — total frames processed: \(count, privacy: .public)")
         canny_stub_destroy(handle)
     }
 
