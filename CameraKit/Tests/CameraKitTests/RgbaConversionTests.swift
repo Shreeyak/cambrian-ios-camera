@@ -884,7 +884,7 @@ struct TrackerSourceFromProcessedTests {
 @Suite("ISP natural capture — photo settings")
 struct IspPhotoSettingsTests {
     @Test("photo settings: flash off and .balanced quality")
-    func settingsKnobs() {
+    func makeSettingsFlashOffAndBalancedQuality() {
         let s = StillPhotoCapture.makeSettings()
         #expect(s.flashMode == .off)
         #expect(s.photoQualityPrioritization == .balanced)
