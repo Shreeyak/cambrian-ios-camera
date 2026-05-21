@@ -321,9 +321,15 @@ With the host on `setLifecyclePhase`, the old drivers have no external caller (M
 - Regenerate: `CameraKit/CONTRACTS.md`.
 
 - [ ] **Step 1: Create `CameraKit/README.md`** with a "Lifecycle" section — use the verbatim prose block under spec *Documentation deliverables* (SwiftUI 1:1 forward; Flutter native-layer mapping `resumed→.active`, `inactive→.inactive`, `hidden`/`paused→.background`, `detached→`skip; "never throws, latest call wins"; construct with `initialPhase`, no default). Keep it in sync with the docstrings.
-- [ ] **Step 2: Confirm the docstrings** on `setLifecyclePhase(_:)` and `AppLifecyclePhase` carry the same calling convention (source text in spec *Public API*). Mind the swift-format `--strict` rule: blank `///` line after the first sentence of any multi-sentence doc comment.
-- [ ] **Step 3: Regenerate CONTRACTS** — `bash scripts/regen-contracts.sh` (also auto-runs on pre-commit). Confirm `setLifecyclePhase` + `AppLifecyclePhase` appear and the demoted methods no longer show as `public`.
-- [ ] **Step 4: Commit** — `docs(camerakit): add README Lifecycle section; regen CONTRACTS`.
+- [ ] **Step 2: Add the Dart-side lifecycle guidance for Flutter consumers.** In the README's "Lifecycle" section, immediately after the Flutter native-layer mapping, add a short note telling Flutter apps what their Dart layer should — and should not — do about app lifecycle. Mirror it into the cam2fd plugin's Flutter-facing README as part of the downstream change noted in Task 13 Step 4 (the CameraKit README is the source of truth; cam2fd points at it). Use this verbatim:
+
+  > The Dart side still sees the lifecycle changes, it just doesn't need to act on them for camera purposes. The only thing the Dart layer should use its own lifecycle awareness for is managing its own rendering — like whether to paint the Texture widget or show a placeholder. And even that is better driven by the stateStream coming up from CameraKit through the EventChannel, since that reflects what the camera is actually doing rather than what the OS said a few milliseconds ago.
+
+  This completes the Flutter picture the native-layer mapping starts: the **native** plugin layer owns the single camera-lifecycle forward (UIScene → `AppLifecyclePhase` → `setLifecyclePhase`); the **Dart** layer must not duplicate that forward, and drives its own widget rendering off `stateStream` / `EventChannel`, not a raw `WidgetsBindingObserver`.
+
+- [ ] **Step 3: Confirm the docstrings** on `setLifecyclePhase(_:)` and `AppLifecyclePhase` carry the same calling convention (source text in spec *Public API*). Mind the swift-format `--strict` rule: blank `///` line after the first sentence of any multi-sentence doc comment.
+- [ ] **Step 4: Regenerate CONTRACTS** — `bash scripts/regen-contracts.sh` (also auto-runs on pre-commit). Confirm `setLifecyclePhase` + `AppLifecyclePhase` appear and the demoted methods no longer show as `public`.
+- [ ] **Step 5: Commit** — `docs(camerakit): add README Lifecycle section + Flutter Dart-side guidance; regen CONTRACTS`.
 
 ---
 
