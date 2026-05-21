@@ -816,7 +816,7 @@ public actor CameraEngine {
         // during a resolution change (measurements 2026-05-20 §1, P2b).
         pipeline.seedPreviewMailboxes()
 
-        captureDelegate?.logNextFrame = true
+        captureDelegate?.framesToLog = 1
         submissionGate.store(true, ordering: .sequentiallyConsistent)
         await session.startRunningAsync()
         CameraKitLog.notice(
@@ -849,7 +849,7 @@ public actor CameraEngine {
         }
         await drainSubmittedFrame()
         if let session = cameraSession {
-            captureDelegate?.logNextFrame = true
+            captureDelegate?.framesToLog = 1
             await session.stopRunningAsync()
         }
         CameraKitLog.notice(.engine, "[bgsuspend] stopRunning returned")
@@ -938,6 +938,19 @@ public actor CameraEngine {
         switch currentPhase {
         case .active:
             setGate(true)
+            CameraKitLog.notice(.engine, "[resume] gate opened (t0b)")
+            // Arm the pipeline's one-shot commit/texture probes (t1b/t1c): the first
+            // frame past the now-open gate logs its commit and texture-store, which
+            // splits AVF delivery-resume (t1) from GPU/commit cost downstream.
+            metalPipeline?.logNextCommit = true
+            // Resume-latency probe: arm the one-shot first-frame log so
+            // `[resume] first frame (t1)` also covers a pure `.inactive → .active`
+            // (Control Center, no interruption) resume. t1 minus the `scenePhase:
+            // … → active` time (t0) splits "OS throttled delivery while .inactive"
+            // (t1 ≈ 500 ms) from a downstream submit/draw delay (t1 ≈ one frame) —
+            // ADR-09: the gate gates GPU commit, not delivery, so framesToLog
+            // (capture delegate) logs delivery cadence — continuous vs stall.
+            captureDelegate?.framesToLog = 1
             // Phase → OS guard (F2; spec *The OS-owned guard*): while the OS owns
             // the device (`.interrupted`/`.recovering`/`.error`) the host command
             // must not fight it — no `startRunning`, no watchdog re-arm. A re-armed
@@ -2135,7 +2148,7 @@ public actor CameraEngine {
             // Resume-latency instrumentation (t0): arm the one-shot first-frame
             // log so the capture delegate's `[resume] first frame (t1)` measures
             // AVF's re-delivery latency after the OS ends the interruption (t1−t0).
-            captureDelegate?.logNextFrame = true
+            captureDelegate?.framesToLog = 1
             CameraKitLog.notice(
                 .engine, "[resume] interruption ended (t0) — reconciling against currentPhase")
             // OS → phase, the third `reconcile` actuation site (spec *The OS-owned
