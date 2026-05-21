@@ -107,11 +107,13 @@ public struct CameraView: View {
         HStack(spacing: 0) {
             MTKViewRepresentable(
                 textureAccessor: { viewModel.display.naturalTex },
-                label: "natural"
+                label: "natural",
+                isPaused: scenePhase != .active
             )
             MTKViewRepresentable(
                 textureAccessor: { viewModel.display.processedTex },
-                label: "processed"
+                label: "processed",
+                isPaused: scenePhase != .active
             )
         }
         .background(Color.black)
@@ -533,7 +535,8 @@ public struct CameraView: View {
                 HStack {
                     MTKViewRepresentable(
                         textureAccessor: { viewModel.display.trackerTex.latest },
-                        label: "tracker"
+                        label: "tracker",
+                        isPaused: scenePhase != .active
                     )
                     .frame(width: 160, height: 120)
                     .border(.yellow, width: 1)
@@ -633,6 +636,15 @@ struct MTKViewRepresentable: UIViewRepresentable {
     let textureAccessor: () -> MTLTexture?
     // bug6: identifies which preview lane this view renders, for log correlation.
     var label: String = "preview"
+    /// Pause the DisplayLink draw loop when the scene is not active.
+    ///
+    /// The draw
+    /// loop reads the pipeline's `Mailbox` lane textures on the main thread; left
+    /// running through a background/inactive transition it races the engine's
+    /// teardown of those textures → EXC_BAD_ACCESS in `Mailbox.latest`
+    /// (measurements 2026-05-20 §1). Don't render a camera preview while
+    /// suspended anyway. Caller passes `scenePhase != .active`.
+    var isPaused: Bool = false
 
     func makeUIView(context: Context) -> MTKView {
         let mtkView = MTKView()
@@ -646,10 +658,13 @@ struct MTKViewRepresentable: UIViewRepresentable {
         mtkView.preferredFramesPerSecond = 30
         mtkView.backgroundColor = .black
         mtkView.delegate = context.coordinator
+        mtkView.isPaused = isPaused
         return mtkView
     }
 
-    func updateUIView(_ uiView: MTKView, context: Context) {}
+    func updateUIView(_ uiView: MTKView, context: Context) {
+        uiView.isPaused = isPaused
+    }
 
     func makeCoordinator() -> MTKViewCoordinator {
         MTKViewCoordinator(textureAccessor: textureAccessor, label: label)
