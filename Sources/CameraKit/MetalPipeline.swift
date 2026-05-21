@@ -727,6 +727,73 @@ final class MetalPipeline: @unchecked Sendable {
         }
     }
 
+    /// One-shot crop+grade of an arbitrary YUV buffer (e.g. an AVCapturePhotoOutput
+    /// still) into a BGRA8 `outputSize` buffer — the saved natural-capture path.
+    ///
+    /// Reuses the live crop uniform + current ColorUniform so the result matches the
+    /// graded preview. Input dims MUST equal `captureSize` (1:1 crop mapping).
+    func gradeOneShot(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
+        guard CVPixelBufferGetWidth(pixelBuffer) == captureSize.width,
+            CVPixelBufferGetHeight(pixelBuffer) == captureSize.height
+        else {
+            throw MetalError.unsupportedFormat
+        }
+        let yTex = try texturePool.makeYTexture(from: pixelBuffer)
+        let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
+        let nat = try texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: outputSize.width, height: outputSize.height)
+        let proc = try texturePool.dequeuePoolTexture(
+            pool: processedPool, width: outputSize.width, height: outputSize.height)
+        let out = try texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height)
+
+        let (color, crop) = uniforms.withLock { ($0.color, $0.crop) }
+        let cb = commandQueue.makeCommandBuffer()!
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (outputSize.width + 15) / 16,
+            height: (outputSize.height + 15) / 16,
+            depth: 1)
+
+        let p1 = cb.makeComputeCommandEncoder()!  // Pass-1: YUV→RGB + crop
+        p1.setComputePipelineState(yuvToRgbaPSO)
+        p1.setTexture(yTex, index: 0)
+        p1.setTexture(cbcrTex, index: 1)
+        p1.setTexture(nat.texture, index: 2)
+        var cropLocal = crop
+        p1.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
+        p1.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+        p1.endEncoding()
+
+        let p2 = cb.makeComputeCommandEncoder()!  // Pass-2: grade
+        p2.setComputePipelineState(colorTransformPSO)
+        p2.setTexture(nat.texture, index: 0)
+        p2.setTexture(proc.texture, index: 1)
+        var colorLocal = color
+        p2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
+        p2.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+        p2.endEncoding()
+
+        let p3 = cb.makeComputeCommandEncoder()!  // convert RGBA16F→BGRA8
+        p3.setComputePipelineState(rgba16fToBgra8PSO)
+        p3.setTexture(proc.texture, index: 0)
+        p3.setTexture(out.texture, index: 1)
+        p3.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
+        p3.endEncoding()
+
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            cb.addCompletedHandler { b in
+                b.status == .error
+                    ? c.resume(
+                        throwing: MetalError.commandBufferFailed(
+                            code: (b.error as NSError?)?.code ?? -1))
+                    : c.resume()
+            }
+            cb.commit()
+        }
+        return out.buffer
+    }
+
     /// Blocks until the most recently committed command buffer has been scheduled.
     ///
     /// Called from CameraEngine.drainSubmittedFrame() on .inactive.
