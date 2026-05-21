@@ -892,9 +892,10 @@ public actor CameraEngine {
 
     /// Reconcile actual hardware state to the target `currentPhase` implies.
     ///
-    /// The single routine behind the lifecycle actuation sites
-    /// (`setLifecyclePhase`, `open()`; the OS-recovery exit is wired in a later
-    /// task). Derives the target from `currentPhase` alone — no previous-phase
+    /// The single routine behind the three lifecycle actuation sites:
+    /// `setLifecyclePhase`, `open()`, and the OS-recovery exit
+    /// (`onSessionEvent(.otherInterruptionEnded)`). Derives the target from
+    /// `currentPhase` alone — no previous-phase
     /// tracking — per the design's target table: `.active` → gate open / session
     /// running / watchdogs armed; `.inactive` → gate closed / session running /
     /// disarmed (cheap pause, ~4 ms gate-flip vs ~410 ms restart); `.background`
@@ -2105,10 +2106,21 @@ public actor CameraEngine {
             publishState(.interrupted, kind: .event)
         case .otherInterruptionEnded:
             CameraKitLog.notice(
-                .engine, "[interruption] ended — reverting to .streaming")
+                .engine, "[interruption] ended — reconciling against currentPhase")
+            // OS → phase, the third `reconcile` actuation site (spec *The OS-owned
+            // guard*): OS recovery must not fight the host. Clear the OS-owned
+            // state FIRST with an `.event`-kind `.streaming` (the OS's
+            // authoritative "interruption ended"), so `osOwnsDevice` is already
+            // false when `reconcile` runs — otherwise `reconcile`'s own
+            // `publishCommandLabel(.streaming)` would defer under `osOwnsDevice`
+            // and the label would stay stuck at `.interrupted`. THEN reconcile
+            // against `currentPhase`: while `.background` the session stays
+            // stopped (no camera LED — the gate gates GPU submission, not
+            // `AVCaptureSession` running) and the label settles at `.paused`;
+            // while `.inactive` it restarts gate-closed; only `.active` goes fully
+            // live (re-arming the watchdogs disarmed on `.otherInterruption`).
             publishState(.streaming, kind: .event)
-            // Frames resume — re-arm the watchdogs disarmed on .otherInterruption.
-            armWatchdogs()
+            await reconcile()
         }
     }
 

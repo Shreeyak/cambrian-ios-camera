@@ -91,16 +91,18 @@ struct LifecycleTests {
     /// Crash #3 regression: interruption-ended while backgrounded must NOT re-arm.
     ///
     /// On backgrounding, `stopRunning` triggers an OS interruption whose
-    /// `.otherInterruptionEnded` fires while the app is still backgrounded — the
-    /// gate is closed and no frames flow. The old unconditional re-arm armed the
-    /// stall watchdog anyway; it fired ~9 s later with no frames and drove
-    /// `interrupted → recovering` (off-map — aborted DEBUG builds before Fix 2;
-    /// now a spurious recovery — measurements 2026-05-20 §1 case #14).
-    /// `armWatchdogs()` is now gate-guarded, so the
-    /// watchdog only arms when frames can actually flow. This also pins the
-    /// "Known gap" documented on `notifyScenePhasePaused` (state reads
-    /// `.streaming` while the gate stays closed) as a tested invariant.
-    @Test("interruption-ended while backgrounded (gate closed) does not re-arm the watchdog")
+    /// `.otherInterruptionEnded` can fire while the app is still backgrounded. The
+    /// old unconditional re-arm armed the stall watchdog anyway; it fired ~9 s
+    /// later with no frames and drove `interrupted → recovering` (off-map —
+    /// aborted DEBUG builds before Fix 2; now a spurious recovery — measurements
+    /// 2026-05-20 §1 case #14). Now the OS-recovery exit reconciles against
+    /// `currentPhase` (Task 8): while `.background` the session stays stopped and
+    /// the watchdogs disarmed, so no spurious recovery can fire. The terminal
+    /// label settles at `.paused` — Task 7's reconcile-owned label CLOSES the old
+    /// "Known gap" (state used to read `.streaming` while the gate stayed closed).
+    /// Migrated from a direct `setGate(false)` to the lifecycle API, the new-model
+    /// equivalent of backgrounding.
+    @Test("interruption-ended while backgrounded does not re-arm; settles at .paused")
     func interruptionEndedWhileBackgroundedDoesNotRearm() async {
         let clock = ManualClock()
         let engine = CameraEngine(initialPhase: .active, clock: clock)
@@ -108,25 +110,32 @@ struct LifecycleTests {
         await engine._armWatchdogsForTest()
         #expect(await engine._captureWatchdogArmedTokenForTest != nil)
 
-        // Background: gate closes, then the OS interrupts the session.
-        await engine.setGate(false)
-        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
+        // Background via the lifecycle API: session stops, watchdogs disarm, gate
+        // closes (reconcile against `.background`).
+        await engine.setLifecyclePhase(.background)
         #expect(await engine._captureWatchdogArmedTokenForTest == nil)
 
-        // The interruption "ends" while still backgrounded — must NOT re-arm.
+        // The OS interrupts the (already stopped) session, then "ends" while still
+        // backgrounded — the OS-recovery exit must NOT re-arm or restart.
+        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
         await engine._postSessionEventForTest(.otherInterruptionEnded)
-        #expect(await engine._currentStateForTest == .streaming)
+        #expect(
+            await engine._currentStateForTest == .paused,
+            "backgrounded interruption-ended reconciles to .paused (gap closed)")
+        #expect(
+            await engine._isSessionRunningForTest == false,
+            "session stays stopped while backgrounded (no camera LED)")
         #expect(
             await engine._captureWatchdogArmedTokenForTest == nil,
-            "watchdog must stay disarmed while the gate is closed (backgrounded)")
+            "watchdog must stay disarmed while backgrounded")
 
         // Pushing past the stall threshold must not drive a spurious recovery —
-        // the disarmed poller cannot fire, so state stays .streaming.
+        // the disarmed poller cannot fire, so state stays .paused.
         clock.advanceMs(UInt64(Constants.stallCaptureThresholdMs) + 1000)
         for _ in 0..<50 { await Task.yield() }
         #expect(
-            await engine._currentStateForTest == .streaming,
-            "no spurious recovery may fire while backgrounded (gate closed)")
+            await engine._currentStateForTest == .paused,
+            "no spurious recovery may fire while backgrounded")
 
         await engine.close()
     }
@@ -609,5 +618,74 @@ struct LifecycleTests {
         #expect(
             await streaming._currentStateForTest == .streaming,
             ".opening → .streaming published (open() completing)")
+    }
+
+    // MARK: - Third actuation site (OS→phase)
+
+    /// Third actuation site: interruption-ended while backgrounded leaves the
+    /// session stopped.
+    ///
+    /// The OS→phase direction of the OS-owned guard — OS recovery must not fight
+    /// the host. `.otherInterruptionEnded` reconciles against `.background`: no
+    /// `startRunning` (no camera LED), watchdogs stay disarmed, label settles at
+    /// `.paused`. A live recording would also be finalized before stop (the
+    /// ordered `.background` suspend), but that needs a real writer — verified on
+    /// device (Task 13 HITL); here the hardware-free invariants are asserted.
+    @Test("OS→phase: interruption-ended while backgrounded stays stopped")
+    func interruptionEndedWhileBackgroundStaysStopped() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        await engine.setLifecyclePhase(.background)
+        #expect(await engine._isSessionRunningForTest == false)
+
+        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
+        await engine._postSessionEventForTest(.otherInterruptionEnded)
+
+        #expect(
+            await engine._isSessionRunningForTest == false,
+            "session must stay stopped (no startRunning → no camera LED)")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest == nil,
+            "watchdogs stay disarmed while backgrounded")
+        #expect(await engine.isGateOpen == false, "gate stays closed while backgrounded")
+        #expect(
+            await engine._currentStateForTest == .paused,
+            "label settles at .paused, not .streaming (no recovery restart)")
+
+        await engine.close()
+    }
+
+    /// Third actuation site: interruption-ended while inactive restarts the
+    /// session with the gate closed.
+    ///
+    /// Contrast with the `.background` case (session stopped): the OS-recovery
+    /// exit applies the phase's target, not unconditional `.streaming`. "Restart"
+    /// here means reconcile guarantees the `.inactive` target; the literal
+    /// stopped→running flip is unobservable without a synthetic seam (acceptable —
+    /// the end-state matches the spec's target table).
+    @Test("OS→phase: interruption-ended while inactive restarts gate-closed")
+    func interruptionEndedWhileInactiveRestartsGateClosed() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        await engine.setLifecyclePhase(.inactive)
+        #expect(await engine.isGateOpen == false)
+
+        await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
+        await engine._postSessionEventForTest(.otherInterruptionEnded)
+
+        #expect(
+            await engine._isSessionRunningForTest == true,
+            "session runs for .inactive (contrast with .background stopped)")
+        #expect(await engine.isGateOpen == false, "gate stays closed at .inactive")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest == nil,
+            "watchdogs stay disarmed at .inactive")
+        #expect(
+            await engine._currentStateForTest == .paused,
+            "label settles at .paused for .inactive")
+
+        await engine.close()
     }
 }
