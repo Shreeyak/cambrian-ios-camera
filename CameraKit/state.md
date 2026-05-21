@@ -1,3 +1,101 @@
+# state.md — Lifecycle ownership (2026-05-21)
+
+Single declarative lifecycle API: the host forwards `AppLifecyclePhase` via
+`CameraEngine.setLifecyclePhase(_:)`; the package owns one reconciliation routine
+that derives all hardware state (gate, session, watchdogs, label) from the
+current phase alone. Spec:
+`docs/superpowers/specs/2026-05-21-camerakit-lifecycle-ownership-design.md`.
+Plan: `docs/superpowers/plans/2026-05-21-camerakit-lifecycle-ownership.md`.
+
+## What's now permanent — lifecycle ownership
+
+- **Public API:** `AppLifecyclePhase` (`.active`/`.inactive`/`.background`,
+  `Sendable`); `CameraEngine.setLifecyclePhase(_:) async` (never throws, latest
+  call wins); a **required** `initialPhase: AppLifecyclePhase` init parameter —
+  no default (an `.active` default would turn the camera on before any foreground
+  UI; adversarial review F4).
+- **One reconciliation routine, three actuation sites** — `open()`,
+  `setLifecyclePhase`, and the OS-recovery exit
+  (`onSessionEvent(.otherInterruptionEnded)`). Each reads `currentPhase` alone
+  (no previous-phase tracking) and reconciles to the target table: `.active` →
+  gate open / session running / watchdogs armed; `.inactive` → gate closed /
+  running / disarmed (cheap ~4 ms pause); `.background` → gate closed / session
+  stopped (recording finalized first) / disarmed.
+- **latest-intent-wins (F1):** a monotonic `reconcileGeneration` captured at
+  entry and re-checked after each suspending `.background` step; a superseded
+  in-flight reconcile aborts before applying stale work.
+- **OS-owned guard (F2), both directions:** `osOwnsDevice` (`current ∈
+  {.interrupted,.recovering,.error}`) blocks `startRunning` + watchdog-arm in
+  `.active`/`.inactive`; the OS-recovery exit reconciles against `currentPhase`,
+  so `interruptionEnded` while backgrounded leaves the session stopped (no camera
+  LED). `shouldDeferCommandLabel` (adds the `.opening→.paused` rider) defers the
+  reconcile-owned `.streaming`/`.paused` label to OS truth.
+- **Host migrated:** `ViewModel.handleScenePhase` is a 1:1
+  `setLifecyclePhase(map(scenePhase))` forward; `cameFromBackground` removed.
+
+## What changed / was removed — lifecycle ownership
+
+- `open()`'s step-10 unconditional `publishState(.streaming)` removed — reconcile
+  owns the post-open label (a `.background`/`.inactive` launch now publishes
+  `.paused`, closing the old label-vs-gate launch gap).
+- `setGate` / `drainSubmittedFrame` / `notifyScenePhasePaused` /
+  `backgroundSuspend` / `backgroundResume` demoted `public → internal` (host no
+  longer calls them; tests reach them via `@testable import`).
+- `pause()` / `resume()` removed (committed earlier; baseline-verified).
+
+## Public API exposed — lifecycle additions
+
+- `enum AppLifecyclePhase: Sendable { case active, inactive, background }`
+- `CameraEngine.init(initialPhase:clock:)` — `initialPhase` required, no default.
+- `func setLifecyclePhase(_ phase: AppLifecyclePhase) async`
+
+## Manual test evidence — lifecycle
+
+- **210/210** unit tests green on device (iPad Pro 11", iPad8,9, iOS 26.4),
+  including the `LifecycleTests` suite (25 tests: reconciliation, latest-intent-
+  wins F1, OS-owned guard F2, third actuation site OS→phase, event-vs-event F5).
+- **Device HITL: _pending_** (Task 13 §2) — foreground/background/lock-unlock,
+  recording across a background, foreground interruption + resume; confirm no
+  black preview, no spurious recovery, no corrupt `.mp4`, and camera LED off
+  while backgrounded — including the deferred F4 (camera-off on background
+  launch) and finalize-before-stop claims. Evidence →
+  `measurements/lifecycle-ownership/`.
+
+## Follow-ups (out of scope this PR)
+
+- **Dead `backgroundSuspend`/`backgroundResume` pair** — both subsumed by
+  `reconcile`; `backgroundSuspend` has no caller, `backgroundResume` only the
+  Stage02 `backgroundResumeIsNoopUntilInterruptionEnded` test (behavior now
+  covered by the reconciliation tests). Remove the pair + that test as a clean,
+  self-contained change (kept this PR to avoid dangling six doc refs and losing
+  the `logNextFrame` diagnostic).
+- **`StopReason.pause`** is now production-dead (no caller after the migration) —
+  candidate for removal.
+- **`sensitiveContentMitigationActivated`** interruption reason is unenumerated
+  in `onSessionEvent`.
+- **Permission / camera-route revocation mid-session** is unmodeled (no phase
+  covers a permission revoke or route loss during a live session).
+- **Pre-existing cold-build test flake** (not lifecycle-related): a clean build's
+  first run crashed `Stage06Tests.frameSetPublication` at the `t!.tracker`
+  force-unwrap (`:61`) — the tracker `FrameSet` hadn't arrived within the fixed
+  200 ms `Task.sleep` because uncached Metal shader compilation slowed the first
+  `pipeline.encode` (the test drives `MetalPipeline` directly with `gateOpen:
+  true`, no engine lifecycle). The crash cascaded to the 4 parallel timing tests;
+  a warm re-run is 210/210 green. Harden: force-unwrap → `#require`/guarded
+  `XCTFail`, and replace the fixed sleep with bounded polling.
+
+## Downstream — cam2fd Flutter plugin (documented, not edited here)
+
+The plugin's **native** Swift layer (`FlutterSceneLifeCycleDelegate`) maps
+UIScene callbacks → `AppLifecyclePhase` → `setLifecyclePhase`
+(`resumed→.active`, `inactive→.inactive`, `hidden`/`paused→.background`,
+`detached→`skip); the **Dart** layer stops forwarding lifecycle and drives its
+own widget rendering off `stateStream`/`EventChannel`. Mirror
+`CameraKit/README.md`'s Dart-side guidance into the cam2fd Flutter-facing README
+(the CameraKit README is the source of truth).
+
+---
+
 # state.md — 8-bit BGRA end-to-end delivery (2026-05-20)
 
 Pre-Phase-3 cleanup that commits CameraKit to a single delivery format.
