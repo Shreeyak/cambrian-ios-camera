@@ -15,6 +15,27 @@ import UniformTypeIdentifiers
 /// ADR-22: stateStream() returns AsyncStream<SessionState> buffered with .bufferingOldest.
 /// ADR-30: async-with-timeout (runOnQueue) for session lifecycle — see Recording.swift finalize.
 /// ADR-32: Production code never creates AVCaptureDevice directly — CameraSession handles that.
+
+/// Test-only seam for the `.background` reconcile path (P2).
+///
+/// Nil in production, so the ordered suspend pays no array allocation and no park
+/// `await`. Consolidates the action trace and the one-shot latest-intent-wins
+/// interleave park that the suspend path used to thread through four standalone
+/// actor fields. Mutated only from `CameraEngine`'s actor-isolated methods, so it
+/// needs no `Sendable` conformance — the actor serializes every access and the
+/// instance never crosses an isolation boundary.
+final class LifecycleTestHook {
+    /// Ordered trace of the suspend steps (`disarm` / `finalize` / `drain` / `stop`).
+    var actions: [String] = []
+    /// One-shot: when set, the next `.background` reconcile parks at its
+    /// post-disarm checkpoint and suspends until released.
+    var parkArmed = false
+    /// True once an armed reconcile has parked.
+    var parked = false
+    /// Continuation the parked reconcile suspends on.
+    var parkRelease: CheckedContinuation<Void, Never>?
+}
+
 public actor CameraEngine {
 
     // MARK: - Private state
@@ -115,7 +136,7 @@ public actor CameraEngine {
 
     // MARK: - Public API
 
-    // Lifecycle reconciliation state (this block through `backgroundParkRelease`).
+    // Lifecycle reconciliation state (this block through `lifecycleTestHook`).
     // The methods that read and mutate it live in `CameraEngine+Lifecycle.swift`;
     // these are `internal` rather than `private` only so that extension can reach
     // them. The "only the reconciliation path mutates phase/generation" invariant
@@ -145,22 +166,15 @@ public actor CameraEngine {
     /// aborts a superseded reconcile before it applies stale work.
     var reconcileGeneration: UInt64 = 0
 
-    /// Ordered trace of the `.background` reconcile steps — test observability.
+    /// Test-only seam for the `.background` reconcile path — nil in production (P2).
     ///
-    /// Cleared at the start of each suspend and appended as each step runs, so a
-    /// unit test can assert `disarm < drain < stop` without real hardware. Read
-    /// via `_backgroundActionsForTest`.
-    var backgroundActionTrace: [String] = []
-
-    /// Test interleave seam (F1) — see `backgroundReconcileParkForTest()`.
-    ///
-    /// `backgroundParkArmed` is a one-shot: when set, the next `.background`
-    /// reconcile parks at its post-disarm checkpoint (`backgroundParkedFlag`
-    /// flips true) and suspends on `backgroundParkRelease` until a test resumes
-    /// it. No-op in production (never armed).
-    var backgroundParkArmed = false
-    var backgroundParkedFlag = false
-    var backgroundParkRelease: CheckedContinuation<Void, Never>?
+    /// Holds the ordered action trace (so a unit test can assert
+    /// `disarm < drain < stop` without real hardware) and the one-shot
+    /// latest-intent-wins interleave park. Installed by
+    /// `_installLifecycleTestHookForTest()` / `_armBackgroundReconcileParkForTest()`;
+    /// when nil the suspend records nothing and the park is a no-op. See
+    /// `LifecycleTestHook`.
+    var lifecycleTestHook: LifecycleTestHook?
 
     public init(initialPhase: AppLifecyclePhase, clock: any CameraKitClock = SystemClock()) {
         self.currentPhase = initialPhase
@@ -322,10 +336,11 @@ public actor CameraEngine {
         // Install KVO ingest so `lastSnapshot` is populated for Rule 3.
         await device.installKVOIngest()
 
-        // 7. Open the gate (idempotent — starts true; explicit after any prior close).
-        submissionGate.store(true, ordering: .sequentiallyConsistent)
-
-        // 8. Stage 09: watchdogs + recovery coordinator.
+        // 7. Stage 09: watchdogs + recovery coordinator. Construct the pair +
+        //    coordinator here (reconcile()/armWatchdogs reference self.watchdogs);
+        //    the gate-open and watchdog *arm* are deferred to the reconcile() below
+        //    — it is the sole lifecycle actuator (P1), so open() no longer eagerly
+        //    actuates state the gated phases would immediately undo.
         let gpu = Watchdog(kind: .gpu, clock: clock) { [weak self] fire in
             Task { [weak self] in await self?.handleWatchdogFire(fire) }
         }
@@ -354,7 +369,6 @@ public actor CameraEngine {
             }
         )
         self.recovery = RecoveryCoordinator(clock: clock, hooks: hooks)
-        armWatchdogs()
 
         startAEMonitor(device: device)
 
@@ -384,14 +398,14 @@ public actor CameraEngine {
         }
 
         // 9b. Reconcile hardware to the host's current phase, and publish the
-        //     phase-appropriate `SessionState` label. Opening into `.background`
-        //     skips `startRunning` (F4 — no camera with no foreground UI) and
-        //     publishes `.paused`; `.inactive` starts with the gate closed and
-        //     publishes `.paused`; `.active` goes fully live and publishes
-        //     `.streaming`. The eager gate-open (step 7) and watchdog arm (step 8)
-        //     are idempotent for `.active` and overridden by `reconcile` for the
-        //     gated phases. (ADR-07: `startRunning` runs on sessionQueue inside
-        //     the routine.)
+        //     phase-appropriate `SessionState` label. This is the SOLE lifecycle
+        //     actuator at open (P1): it sets the gate, starts the session, arms
+        //     the watchdogs, and publishes the label from `currentPhase` alone.
+        //     Opening into `.background` skips `startRunning` (F4 — no camera with
+        //     no foreground UI) and publishes `.paused`; `.inactive` starts with
+        //     the gate closed and publishes `.paused`; `.active` goes fully live
+        //     (gate open + watchdogs armed) and publishes `.streaming`. (ADR-07:
+        //     `startRunning` runs on sessionQueue inside the routine.)
         //
         //     `reconcile` owns the post-open label now (spec *OS-authoritative
         //     label*): no separate `publishState(.streaming)` follows — that would
@@ -626,23 +640,34 @@ public actor CameraEngine {
     /// `_markOpenForTest` seeds it from `currentPhase`.
     var _isSessionRunningForTest: Bool { reconciledSessionRunning }
 
+    /// Test-only: install the `.background` reconcile seam (idempotent).
+    ///
+    /// Required before a test reads `_backgroundActionsForTest` after a plain
+    /// `.background` transition; the park accessors install it implicitly.
+    func _installLifecycleTestHookForTest() {
+        if lifecycleTestHook == nil { lifecycleTestHook = LifecycleTestHook() }
+    }
+
     /// Test-only: ordered trace of the most recent `.background` reconcile.
-    var _backgroundActionsForTest: [String] { backgroundActionTrace }
+    var _backgroundActionsForTest: [String] { lifecycleTestHook?.actions ?? [] }
 
     /// Test-only: arm a one-shot park of the next `.background` reconcile at its
     /// post-disarm checkpoint (latest-intent-wins interleave test).
     ///
-    /// One-shot — call again to re-arm for a second park.
-    func _armBackgroundReconcileParkForTest() { backgroundParkArmed = true }
+    /// Installs the seam if needed. One-shot — call again to re-arm for a second park.
+    func _armBackgroundReconcileParkForTest() {
+        _installLifecycleTestHookForTest()
+        lifecycleTestHook?.parkArmed = true
+    }
 
     /// Test-only: true once the armed `.background` reconcile has parked.
-    var _isBackgroundReconcileParkedForTest: Bool { backgroundParkedFlag }
+    var _isBackgroundReconcileParkedForTest: Bool { lifecycleTestHook?.parked ?? false }
 
     /// Test-only: release a parked `.background` reconcile so it resumes (and
     /// aborts if a later phase superseded it).
     func _releaseBackgroundReconcileParkForTest() {
-        backgroundParkRelease?.resume()
-        backgroundParkRelease = nil
+        lifecycleTestHook?.parkRelease?.resume()
+        lifecycleTestHook?.parkRelease = nil
     }
 
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
