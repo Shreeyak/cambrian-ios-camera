@@ -72,28 +72,51 @@ current phase alone. See the field guide `docs/ios-camera-lifecycle.md`.
   defer to natural occurrence. Evidence:
   `measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
 
-## Follow-ups (out of scope this PR)
+## Follow-ups
 
-- **Dead `backgroundSuspend`/`backgroundResume` pair** — both subsumed by
-  `reconcile`; `backgroundSuspend` has no caller, `backgroundResume` only the
-  Stage02 `backgroundResumeIsNoopUntilInterruptionEnded` test (behavior now
-  covered by the reconciliation tests). Remove the pair + that test as a clean,
-  self-contained change (kept this PR to avoid dangling six doc refs and losing
-  the `logNextFrame` diagnostic).
-- **`StopReason.pause`** is now production-dead (no caller after the migration) —
-  candidate for removal.
-- **`sensitiveContentMitigationActivated`** interruption reason is unenumerated
-  in `onSessionEvent`.
-- **Permission / camera-route revocation mid-session** is unmodeled (no phase
-  covers a permission revoke or route loss during a live session).
-- **Pre-existing cold-build test flake** (not lifecycle-related): a clean build's
-  first run crashed `Stage06Tests.frameSetPublication` at the `t!.tracker`
-  force-unwrap (`:61`) — the tracker `FrameSet` hadn't arrived within the fixed
-  200 ms `Task.sleep` because uncached Metal shader compilation slowed the first
+### Closed (this branch)
+
+- **Dead `backgroundSuspend`/`backgroundResume` pair** — ✅ removed (commit
+  `7f6e6c4`), along with `notifyScenePhasePaused` and the redundant tests; the
+  doc refs were repointed and coverage folded into the `setLifecyclePhase`-driven
+  tests. `reconcile`'s `.active`/`.background` paths own the behavior.
+- **`sensitiveContentMitigationActivated` interruption reason** — ✅ addressed
+  (diagnostics): `CameraSession.interruptionReasonName` decodes every
+  `AVCaptureSession.InterruptionReason` (incl. this one) in the `[interruption]`
+  log. No control-flow change, because the reason **cannot fire for CameraKit** —
+  it requires an `SCVideoStreamAnalyzer` associated with the device input (we
+  attach none) and would not auto-recover via `interruptionEndedNotification`
+  (it needs the analyzer's `continueStream`). Marked N/A inline.
+- **Mid-session permission revocation** — ✅ modeled (camera): `reconcile`'s
+  `.active` path re-checks `permissionStatusProvider()`; if not `.authorized` it
+  skips the session restart and emits `.permissionDenied` on the error stream
+  (state stays `.paused`) — matching `open()`'s `cameraDenied` precedent. Only the
+  `.background → .active` resume is reachable (backgrounding stops the session, so
+  the app survives a Settings revocation that would otherwise terminate a process
+  holding a live session; revocation *while active* kills the app — unmodelable).
+  **Route revocation is N/A — CameraKit captures no audio.** Test:
+  `LifecycleTests.activeResumeBlockedWhenPermissionRevoked`.
+
+### Seam-adjacent — but really a different subsystem
+
+- **`StopReason.pause` production-dead** ⚠️ — surfaced because recording-finalize
+  is the `.background` suspend step (and we edited `finalizeActiveRecording`'s
+  doc), but the dead `.pause` case is a Recording-API artifact (no `pause()`
+  caller; the suspend uses `.user`). Fix it as recording dead-code cleanup, not as
+  part of the lifecycle phase model — file under recording, not here.
+
+### Does not fit — orthogonal
+
+- **`Stage06Tests.frameSetPublication` cold-build flake** ❌ — a pre-existing
+  test-reliability bug in the tracker/frame-publication path (force-unwrap of a
+  not-yet-delivered frame at `:61`). No connection to lifecycle, not in code we
+  touched — a test-infra/timing issue; track it separately. Root cause: a clean
+  build's first run finds the tracker `FrameSet` hasn't arrived within the fixed
+  200 ms `Task.sleep` because uncached Metal shader compilation slows the first
   `pipeline.encode` (the test drives `MetalPipeline` directly with `gateOpen:
-  true`, no engine lifecycle). The crash cascaded to the 4 parallel timing tests;
-  a warm re-run is 210/210 green. Harden: force-unwrap → `#require`/guarded
-  `XCTFail`, and replace the fixed sleep with bounded polling.
+  true`, no engine lifecycle); the crash cascades to the 4 parallel timing tests,
+  and a warm re-run is green. Harden: force-unwrap → `#require`/guarded `XCTFail`,
+  fixed sleep → bounded polling.
 
 ## Downstream — cam2fd Flutter plugin (documented, not edited here)
 

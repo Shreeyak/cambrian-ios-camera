@@ -166,6 +166,17 @@ public actor CameraEngine {
     /// aborts a superseded reconcile before it applies stale work.
     var reconcileGeneration: UInt64 = 0
 
+    /// Camera-permission probe the `.active` reconcile reads to detect mid-session
+    /// revocation — injectable for tests (defaults to the live AVFoundation check).
+    ///
+    /// See `_setPermissionStatusForTest`. Only relevant on a `.background → .active`
+    /// resume: backgrounding stops the session, so the app survives a permission
+    /// revocation in Settings that would otherwise terminate a process holding a
+    /// live capture session.
+    var permissionStatusProvider: () -> CameraPermissionStatus = {
+        CameraEngine.cameraPermissionStatus()
+    }
+
     /// Test-only seam for the `.background` reconcile path — nil in production (P2).
     ///
     /// Holds the ordered action trace (so a unit test can assert
@@ -586,7 +597,9 @@ public actor CameraEngine {
         return stream
     }
 
-    private func publishError(_ err: CameraError) {
+    // Internal (not private) so the reconciliation extension can surface a
+    // `.permissionDenied` on mid-session revocation — mirrors `publishState`.
+    func publishError(_ err: CameraError) {
         errorContinuationBox.withLock { $0?.yield(err) }
     }
 
@@ -646,6 +659,12 @@ public actor CameraEngine {
     /// `.background` transition; the park accessors install it implicitly.
     func _installLifecycleTestHookForTest() {
         if lifecycleTestHook == nil { lifecycleTestHook = LifecycleTestHook() }
+    }
+
+    /// Test-only: override the camera-permission probe the `.active` reconcile
+    /// reads (drives the mid-session-revocation guard without real Settings).
+    func _setPermissionStatusForTest(_ status: CameraPermissionStatus) {
+        permissionStatusProvider = { status }
     }
 
     /// Test-only: ordered trace of the most recent `.background` reconcile.
