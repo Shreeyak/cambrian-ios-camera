@@ -123,6 +123,39 @@ public actor CameraEngine {
     /// (Task 5+); at construction it is only recorded.
     private var currentPhase: AppLifecyclePhase
 
+    /// Reconcile's last session-running *decision* — observability only.
+    ///
+    /// Never read by `reconcile` (so it is not a "sticky flag" the design
+    /// forbids — that rule bans reconcile *reading* prior phase/state). The test
+    /// pattern has no real `AVCaptureSession` to mirror (`_markOpenForTest`
+    /// leaves `cameraSession` nil), so this records the decision instead; tests
+    /// read it via `_isSessionRunningForTest`.
+    private var reconciledSessionRunning = false
+
+    /// Monotonic generation for latest-intent-wins (F1).
+    ///
+    /// Bumped on every `reconcile` entry so a later call supersedes an in-flight
+    /// one; the `.background` path re-checks it after each suspending step and
+    /// aborts a superseded reconcile before it applies stale work.
+    private var reconcileGeneration: UInt64 = 0
+
+    /// Ordered trace of the `.background` reconcile steps — test observability.
+    ///
+    /// Cleared at the start of each suspend and appended as each step runs, so a
+    /// unit test can assert `disarm < drain < stop` without real hardware. Read
+    /// via `_backgroundActionsForTest`.
+    private var backgroundActionTrace: [String] = []
+
+    /// Test interleave seam (F1) — see `backgroundReconcileParkForTest()`.
+    ///
+    /// `backgroundParkArmed` is a one-shot: when set, the next `.background`
+    /// reconcile parks at its post-disarm checkpoint (`backgroundParkedFlag`
+    /// flips true) and suspends on `backgroundParkRelease` until a test resumes
+    /// it. No-op in production (never armed).
+    private var backgroundParkArmed = false
+    private var backgroundParkedFlag = false
+    private var backgroundParkRelease: CheckedContinuation<Void, Never>?
+
     public init(initialPhase: AppLifecyclePhase, clock: any CameraKitClock = SystemClock()) {
         self.currentPhase = initialPhase
         self.clock = clock
@@ -344,10 +377,14 @@ public actor CameraEngine {
             }
         }
 
-        // 9b. Start running on sessionQueue (ADR-07).
-        session.sessionQueue.async {
-            session.startRunning()
-        }
+        // 9b. Reconcile hardware to the host's current phase. Opening into
+        //     `.background` skips `startRunning` (F4 — no camera with no
+        //     foreground UI); `.inactive` starts with the gate closed; `.active`
+        //     goes fully live. The eager gate-open (step 7) and watchdog arm
+        //     (step 8) are idempotent for `.active` and overridden by `reconcile`
+        //     for the gated phases. (ADR-07: `startRunning` runs on sessionQueue
+        //     inside the routine.)
+        await reconcile()
 
         // 10. Publish .streaming state.
         publishState(.streaming, kind: .command)
@@ -599,6 +636,12 @@ public actor CameraEngine {
     /// running session, i.e. an already-open engine.
     func _markOpenForTest() {
         stateMachine._setCurrentForTest(.streaming)
+        // Seed the phase-derived hardware mirror the way open()-then-reconcile
+        // would leave it for `currentPhase`, so phase-dependent tests (cheap
+        // pause, F4) start from a faithful post-open state without real hardware
+        // (`cameraSession` stays nil). Task 5 as-built.
+        reconciledSessionRunning = (currentPhase != .background)
+        setGate(currentPhase == .active)
     }
 
     /// Test-only: read the state machine's current `SessionState` (stateStream only yields on publish).
@@ -606,6 +649,31 @@ public actor CameraEngine {
 
     /// Test-only: read the engine's current lifecycle phase.
     var _currentPhaseForTest: AppLifecyclePhase { currentPhase }
+
+    /// Test-only: reconcile's last session-running decision.
+    ///
+    /// Logical mirror, not a hardware probe — see `reconciledSessionRunning`.
+    /// `_markOpenForTest` seeds it from `currentPhase`.
+    var _isSessionRunningForTest: Bool { reconciledSessionRunning }
+
+    /// Test-only: ordered trace of the most recent `.background` reconcile.
+    var _backgroundActionsForTest: [String] { backgroundActionTrace }
+
+    /// Test-only: arm a one-shot park of the next `.background` reconcile at its
+    /// post-disarm checkpoint (latest-intent-wins interleave test).
+    ///
+    /// One-shot — call again to re-arm for a second park.
+    func _armBackgroundReconcileParkForTest() { backgroundParkArmed = true }
+
+    /// Test-only: true once the armed `.background` reconcile has parked.
+    var _isBackgroundReconcileParkedForTest: Bool { backgroundParkedFlag }
+
+    /// Test-only: release a parked `.background` reconcile so it resumes (and
+    /// aborts if a later phase superseded it).
+    func _releaseBackgroundReconcileParkForTest() {
+        backgroundParkRelease?.resume()
+        backgroundParkRelease = nil
+    }
 
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
     nonisolated func tickFrame() {
@@ -808,6 +876,111 @@ public actor CameraEngine {
             // Frames resume — re-arm the watchdogs disarmed by backgroundSuspend().
             armWatchdogs()
         }
+    }
+
+    // MARK: - App lifecycle (reconciliation)
+
+    /// Update the host's current lifecycle phase.
+    ///
+    /// Never throws; safe on every transition and before `open()`. Writes
+    /// `currentPhase` unconditionally and reconciles hardware (gate, session,
+    /// watchdogs) only when the engine is open — before `open()` the phase is
+    /// recorded, and `open()` applies it by running the same routine against
+    /// `currentPhase`. (Full calling convention + Flutter mapping: Task 12.)
+    public func setLifecyclePhase(_ phase: AppLifecyclePhase) async {
+        currentPhase = phase
+        guard isOpen else { return }
+        await reconcile()
+    }
+
+    /// Reconcile actual hardware state to the target `currentPhase` implies.
+    ///
+    /// The single routine behind the lifecycle actuation sites
+    /// (`setLifecyclePhase`, `open()`; the OS-recovery exit is wired in a later
+    /// task). Derives the target from `currentPhase` alone — no previous-phase
+    /// tracking — per the design's target table: `.active` → gate open / session
+    /// running / watchdogs armed; `.inactive` → gate closed / session running /
+    /// disarmed (cheap pause, ~4 ms gate-flip vs ~410 ms restart); `.background`
+    /// → gate closed / session stopped + recording finalized / disarmed.
+    private func reconcile() async {
+        // Latest-intent-wins (F1): each entry bumps the generation so a later
+        // call supersedes an in-flight one. The `.background` path re-checks
+        // `generation` after each suspending step and aborts if a newer call
+        // bumped it.
+        reconcileGeneration &+= 1
+        let generation = reconcileGeneration
+
+        switch currentPhase {
+        case .active:
+            setGate(true)
+            startSessionIfNeeded()
+            armWatchdogs()
+        case .inactive:
+            setGate(false)
+            startSessionIfNeeded()
+            disarmWatchdogsAsync()
+        case .background:
+            // Field-guide §5 ordered suspend: gate close (synchronous, before any
+            // suspending step) → disarm + cancel retry → finalize any active
+            // recording → drain → stopRunning. After each suspending step a
+            // latest-intent-wins re-check (F1) aborts a superseded reconcile
+            // before it applies stale work — a `.background` straggled by a
+            // completing `.active` must not stop the session `.active` just kept
+            // running. The pre-checkpoint gate-close + disarm are left unguarded:
+            // cheap, idempotent, and overwritten by the winning `.active`.
+            // `backgroundActionTrace` records the order for the 5b test
+            // (finalize-before-stop needs a live recording → Task 13 HITL).
+            backgroundActionTrace.removeAll(keepingCapacity: true)
+            setGate(false)
+            disarmWatchdogsAsync()
+            backgroundActionTrace.append("disarm")
+            await backgroundReconcileParkForTest()
+            guard generation == reconcileGeneration else { return }
+            await recovery?.cancelPendingRetry()
+            guard generation == reconcileGeneration else { return }
+            if recording != nil {
+                _ = await finalizeActiveRecording(reason: .user)
+                backgroundActionTrace.append("finalize")
+                guard generation == reconcileGeneration else { return }
+            }
+            await drainSubmittedFrame()
+            backgroundActionTrace.append("drain")
+            guard generation == reconcileGeneration else { return }
+            reconciledSessionRunning = false
+            if let session = cameraSession {
+                await session.stopRunningAsync()
+            }
+            backgroundActionTrace.append("stop")
+        }
+    }
+
+    /// Start the capture session unless `reconcile` already decided it runs.
+    ///
+    /// Records the decision in `reconciledSessionRunning` *before* dispatching so
+    /// the mirror reflects intent (the start itself is fire-and-forget on
+    /// sessionQueue, matching `open()`'s original step-9b timing). No-op without
+    /// a live `cameraSession` (the test pattern).
+    private func startSessionIfNeeded() {
+        guard !reconciledSessionRunning else { return }
+        reconciledSessionRunning = true
+        if let session = cameraSession {
+            session.sessionQueue.async { session.startRunning() }
+        }
+    }
+
+    /// Test interleave seam (F1): park the in-flight `.background` reconcile at
+    /// the post-disarm checkpoint until a test releases it.
+    ///
+    /// Lets a test deterministically admit a second `setLifecyclePhase` while a
+    /// `.background` reconcile is suspended, to prove the straggler aborts. No-op
+    /// in production (never armed). One-shot — re-arm with
+    /// `_armBackgroundReconcileParkForTest()` for a second park.
+    private func backgroundReconcileParkForTest() async {
+        guard backgroundParkArmed else { return }
+        backgroundParkArmed = false
+        backgroundParkedFlag = true
+        await withCheckedContinuation { backgroundParkRelease = $0 }
+        backgroundParkedFlag = false
     }
 
     /// Debug: dump every `AVCaptureDevice.Format` the active device exposes.
