@@ -547,7 +547,8 @@ public actor CameraEngine {
     /// (`onSessionEvent(.otherInterruptionEnded)`, recovery completion). This
     /// also closes the symmetric `.opening → .paused` hole. Caught under
     /// `test_device`, where a harness/bring-up AVF interruption races a
-    /// `.active` scenePhase into the off-map trap in `publishState`. The
+    /// `.active` scenePhase into the off-map path in `publishState` — a
+    /// wrong-value overwrite of OS-owned state (a DEBUG abort too, before Fix 2). The
     /// background stall-watchdog disarm (`.otherInterruption` / `backgroundSuspend`)
     /// is the complementary half of the HITL background-crash fix (measurements
     /// 2026-05-20 §1, case #12).
@@ -1685,17 +1686,21 @@ public actor CameraEngine {
         let from = stateMachine.current
         let classification = stateMachine.transition(to: state, kind: kind)
         if classification == .offMap {
+            // Observability-first: log with full context, then apply. Off-map is
+            // NOT fatal in any config — the OS event space (interruptions,
+            // runtime errors, system-pressure orderings) is not fully
+            // enumerable, and a DEBUG-only `assertionFailure` here aborted device
+            // builds on legitimate-but-rare lifecycle races while RELEASE handled
+            // the same transition gracefully (measurements 2026-05-20 §1: the
+            // DEBUG/RELEASE divergence was itself the bug-amplifier). The log is
+            // the diagnostic instrument; correlate an off-map entry with the
+            // preceding OS notification to tell a legitimate ordering from a
+            // genuine state-logic regression.
             CameraKitLog.warning(
                 .engine,
                 "[state] off-map transition from=\(from.rawValue) "
                     + "to=\(state.rawValue) kind=\(kind.rawValue) caller=\(function)"
             )
-            #if DEBUG
-            assertionFailure(
-                "off-map SessionState transition: \(from) → \(state) "
-                    + "(kind=\(kind)) from \(function)"
-            )
-            #endif
         }
         stateContinuationBox.withLock { $0?.yield(state) }
     }
@@ -1716,8 +1721,23 @@ public actor CameraEngine {
     /// is safe to call to (re-)arm on `open()`, on `backgroundResume()`, and on
     /// `.otherInterruptionEnded`. No-op when the engine is closed
     /// (`watchdogs == nil`).
+    ///
+    /// Gate-guarded: if `submissionGate` is closed, arming is skipped (HITL
+    /// 2026-05-20 §1 case #14). On backgrounding, `stopRunning` triggers an OS
+    /// interruption whose `.otherInterruptionEnded` fires while the app is still
+    /// backgrounded; the unconditional re-arm armed the stall watchdog with no
+    /// frames flowing, it fired ~9 s later, and drove `interrupted → recovering`
+    /// (off-map — it aborted DEBUG builds before Fix 2, and still spuriously
+    /// recovers a backgrounded session). The watchdog must only arm when frames
+    /// can actually flow, which the gate tracks. `open()` and `backgroundResume()`
+    /// both open the gate before calling this, so they are unaffected.
     private func armWatchdogs() {
         guard let pair = watchdogs else { return }
+        guard submissionGate.load(ordering: .acquiring) else {
+            CameraKitLog.notice(
+                .engine, "[watchdog] arm skipped — submission gate closed (HITL §1 #14)")
+            return
+        }
         let token = sessionToken.load(ordering: .acquiring)
         pair.gpu.arm(sessionToken: token)
         pair.capture.arm(sessionToken: token)
@@ -1840,9 +1860,10 @@ public actor CameraEngine {
             calibrationTask?.cancel()
             // HITL crash fix (measurements 2026-05-20 §1): the OS stopped frame
             // delivery, so the stall watchdogs would fire spuriously and drive
-            // recovery — interrupted → recovering is off-map and aborts in DEBUG.
-            // Disarm them and cancel any pending retry (mirror of the
-            // .cameraInUseBegan path); re-armed on .otherInterruptionEnded.
+            // recovery — interrupted → recovering is off-map (it aborted DEBUG
+            // builds before Fix 2; still a spurious recovery). Disarm them and
+            // cancel any pending retry (mirror of the .cameraInUseBegan path);
+            // re-armed on .otherInterruptionEnded only when the gate is open.
             watchdogs?.disarmAll()
             await recovery?.cancelPendingRetry()
             publishState(.interrupted, kind: .event)
