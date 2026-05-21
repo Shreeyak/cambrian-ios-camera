@@ -1625,27 +1625,6 @@ public actor CameraEngine {
         return uri
     }
 
-    /// Pauses capture and finalizes any active recording.
-    ///
-    /// The finalize runs through `Recording.stop`, whose drain is wrapped in a
-    /// `UIApplication` background-task assertion (06-capture-and-recording.md
-    /// §Background drain) so a concurrent backgrounding cannot truncate it
-    /// into a corrupt MP4.
-    public func pause() async throws {
-        _ = await finalizeActiveRecording(reason: .pause)
-        await cameraSession?.stopRunningAsync()
-        publishState(.paused, kind: .command)
-    }
-
-    /// Resumes capture after a pause().
-    ///
-    /// - Throws: `EngineError.notOpen` if the engine has not been opened.
-    public func resume() async throws {
-        guard isOpen, let session = cameraSession else { throw EngineError.notOpen }
-        await session.startRunningAsync()
-        publishState(.streaming, kind: .command)
-    }
-
     func publishRecordingStateFromHook(_ s: RecordingState) {
         publishRecordingState(s)
     }
