@@ -22,6 +22,7 @@
 - **New test file → run `scripts/sync-test-target.sh`** (idempotent) before testing, so the Xcode `eva-swift-stitchTests` dual-member target picks it up.
 - **Commits (CLAUDE.md §7):** each `git` op needs explicit user approval; hooks are never skipped (`--no-verify` is forbidden). The pre-commit hook runs swift-format `--strict` (a blank `///` line is required after the first sentence of any multi-sentence doc comment), SwiftLint, and `CONTRACTS.md` regen. "Commit" steps below are checkpoints — surface them for approval rather than committing autonomously.
 - **SourceKit cross-file errors are advisory.** Trust the build log, not the Issue Navigator (CLAUDE.md §6.1).
+- **Worktree setup — verify before trusting build/commit automation.** In a fresh worktree confirm (1) XcodeBuildMCP's `projectPath` points at the *worktree* xcodeproj (`session_show_defaults`) — a stale default builds the **main** repo and silently ignores your edits; (2) `git config --get core.hooksPath` is `.githooks`, not `.git/hooks` — otherwise commits skip the swift-format gate **and** the `CONTRACTS.md` regen. Both bit this session; see project memory `feedback_worktree_xcodebuild_projectpath`.
 - **Test seam in place:** `_postSessionEventForTest(_:)` (`CameraEngine.swift:1859`) injects `CameraSession.SessionEvent`s; `_markOpenForTest()` (`:591`), `_armWatchdogsForTest()` (`:1875`), `_captureWatchdogArmedTokenForTest` (`:1866`) exist. Add new test-only seams in the same style (clearly-named, `_…ForTest`).
 
 ---
@@ -162,6 +163,12 @@ public init(initialPhase: AppLifecyclePhase, clock: any CameraKitClock = SystemC
 
 - [ ] **Step 6: Commit** — `feat(camerakit)!: require initialPhase at CameraEngine construction`.
 
+**As-built (done 2026-05-21, in combined commit `4e9a811`).** Implemented as a *store-only* change per spec lines 125–132 (`open()`-runs-reconcile is Task 5, so Task 4 only records `currentPhase`). Deviations applied during execution, all advisor-confirmed:
+- **F4 behavioral test deferred to Task 5a.** "Construct `.background` + `open()` → no `startRunning`" needs the reconcile routine `open()` gains in Task 5, so Step 1's runtime assertion moved there. Task 4's actual test, `initialPhaseIsRecordedAtConstruction`, asserts the phase is *recorded* via the new `_currentPhaseForTest` seam.
+- **`AppLifecyclePhase` is plain `Sendable`, no `Equatable`** (spec lines 111–112) — tests compare via a `switch`-to-`String`, not `==`.
+- **Full-suite regression deferred to Task 13.** Build success already proves all 35 call sites compile; `.active` is behavior-neutral (nothing reads `currentPhase` until Task 5), so only `LifecycleTests` + `SessionStateMachineTests` were run (20/20 green on device).
+- The Task 2 name collision the plan predicted did not exist — no rename was needed.
+
 ---
 
 ## Task 5: The shared reconciliation routine + `setLifecyclePhase`
@@ -188,10 +195,17 @@ Also: `open()` (`:180`) and `close()` (`:391`) — `open()` runs the same routin
 
 > Sub-tasks 5a–5d each add one `@Test` to `LifecycleTests` (MARK `// MARK: - Reconciliation`) and the minimal routine code to pass it. 5a builds the skeleton (`.active`/`.inactive` cheap-pause path); later sub-tasks extend it. Assert against the **target table** (gate state, session running, watchdog armed, recording finalized) **and** `stateStream()` output, reusing the gate/session/watchdog probes already in the suite.
 
+**Carried forward from the Task 4 pause (advisor-flagged — do these in 5a):**
+- **Add a `_isSessionRunningForTest` seam** mirroring `cameraSession?.avSession.isRunning`. No session-running probe exists today (tests use `_currentStateForTest` / watchdog tokens / `stateStream`); the F4 and session-start assertions need a direct one — indirect probes ("state stays `.opening`") are brittle.
+- **Home the deferred F4 test here** (moved from Task 4): construct `initialPhase: .background`, run `open()` (which now runs `reconcile`), assert session **not** running (`_isSessionRunningForTest == false`) + gate closed. This *is* the F4 safe-construction guarantee — do not drop it.
+- **Leave a no-op latest-intent-wins checkpoint at `reconcile`'s entry** — capture a generation token even though Task 6 fills in the abort logic. Otherwise Task 6 forces a `reconcile` refactor between sub-tasks.
+
 ### Task 5a: `.active → .inactive → .active` cheap pause
-- [ ] **Step 1: Failing test** — `cheapPauseDoesNotStopSession`. Drive the sequence; assert the session **never** stopped (no `stopRunning`), gate closed at `.inactive` then open at `.active`, watchdogs disarmed at `.inactive` then armed at `.active`. (~4 ms gate-flip path, spec *Rejected* S2 rationale.)
-- [ ] **Step 2: Run — fail** (`setLifecyclePhase` undefined).
-- [ ] **Step 3: Implement** `setLifecyclePhase` + the `reconcile` skeleton + the `.active`/`.inactive` branches (gate, session-start-if-not, watchdog arm/disarm), reusing primitives. Gate-close synchronous-first.
+- [ ] **Step 1: Failing tests** —
+  - `cheapPauseDoesNotStopSession`: drive `.active → .inactive → .active`; assert the session **never** stopped (no `stopRunning`), gate closed at `.inactive` then open at `.active`, watchdogs disarmed at `.inactive` then armed at `.active`. (~4 ms gate-flip path, spec *Rejected* S2 rationale.)
+  - `openIntoBackgroundDoesNotStartSession` (F4, deferred from Task 4): construct `initialPhase: .background`, `open()`, assert session **not** running (`_isSessionRunningForTest == false`) and gate closed.
+- [ ] **Step 2: Run — fail** (`setLifecyclePhase` / `_isSessionRunningForTest` undefined).
+- [ ] **Step 3: Implement** `setLifecyclePhase` + the `reconcile` skeleton + the `.active`/`.inactive` branches (gate, session-start-if-not, watchdog arm/disarm), reusing primitives. Gate-close synchronous-first. **Also: wire `open()` to run `reconcile` against `currentPhase`** (so opening into `.background` skips `startRunning` — the F4 test); **add the `_isSessionRunningForTest` seam**; and **leave a no-op generation capture at `reconcile`'s entry** (latest-intent-wins hook; Task 6 fills the abort logic).
 - [ ] **Step 4: Run — pass.**
 - [ ] **Step 5: Commit** — `feat(camerakit): setLifecyclePhase + reconciliation (active/inactive)`.
 
