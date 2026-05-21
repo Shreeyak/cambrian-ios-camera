@@ -71,6 +71,28 @@ extension CameraEngine {
         reconcileGeneration &+= 1
         let generation = reconcileGeneration
 
+        // Mid-session permission revocation: a `.background → .active` resume after
+        // camera permission was revoked in Settings (backgrounding stopped the
+        // session, so the app survived the revocation that would otherwise kill a
+        // process holding a live session). Don't restart a session whose input is
+        // now unauthorized — surface `.permissionDenied` on the error stream
+        // (matching `open()`'s `cameraDenied` precedent) and leave the state as-is
+        // (`.paused` from the prior `.background`); the `.streaming` label below is
+        // skipped by returning early. Other phases need no guard (gate stays closed,
+        // nothing to start). Route revocation is N/A — CameraKit captures no audio.
+        if currentPhase == .active, permissionStatusProvider() != .authorized {
+            CameraKitLog.error(
+                .engine,
+                "[lifecycle] .active reconcile blocked — camera permission not authorized "
+                    + "(mid-session revocation); emitting .permissionDenied")
+            publishError(
+                CameraError(
+                    code: .permissionDenied,
+                    message: "Camera permission was revoked; re-enable it in Settings.",
+                    isFatal: false))
+            return
+        }
+
         // Label half — the OS-authoritative label publish (spec
         // *OS-authoritative label*): `.active` publishes `.streaming`, every gated
         // phase publishes `.paused`; `publishCommandLabel` defers to OS truth.

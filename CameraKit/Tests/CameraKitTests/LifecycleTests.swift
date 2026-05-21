@@ -536,6 +536,46 @@ struct LifecycleTests {
             ".opening → .streaming published (open() completing)")
     }
 
+    // MARK: - Mid-session permission revocation
+
+    /// A `.background → .active` resume after camera permission was revoked must
+    /// not restart the session: it surfaces `.permissionDenied` on the error
+    /// stream and leaves the state at `.paused` (the prior `.background` label).
+    ///
+    /// Backgrounding stops the session, so the app survives a revocation in
+    /// Settings that would otherwise terminate a process holding a live session.
+    /// Route revocation is N/A — CameraKit captures no audio.
+    @Test("mid-session revocation: .active resume with revoked permission blocks start, emits permissionDenied")
+    func activeResumeBlockedWhenPermissionRevoked() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        await engine.setLifecyclePhase(.background)  // session stops, label .paused
+        #expect(await engine._isSessionRunningForTest == false)
+
+        let errors = await engine.errorStream()
+        await engine._setPermissionStatusForTest(.denied)
+        await engine.setLifecyclePhase(.active)
+
+        #expect(
+            await engine._isSessionRunningForTest == false,
+            "no startRunning when permission was revoked")
+        #expect(await engine.isGateOpen == false, "gate stays closed on a blocked resume")
+        #expect(
+            await engine._currentStateForTest == .paused,
+            "state stays .paused — permission denial is an error-stream signal, not a state")
+
+        var received: CameraError?
+        for await e in errors {
+            received = e
+            break
+        }
+        #expect(received?.code == .permissionDenied, "blocked resume emits .permissionDenied")
+
+        await engine._setPermissionStatusForTest(.authorized)
+        await engine.close()
+    }
+
     // MARK: - Third actuation site (OS→phase)
 
     /// Third actuation site: interruption-ended while backgrounded leaves the
