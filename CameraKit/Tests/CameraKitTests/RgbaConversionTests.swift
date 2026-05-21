@@ -758,6 +758,47 @@ struct RgbaConversionEndToEndColorTests {
     }
 }
 
+// MARK: - ISP natural capture — one-shot Metal grade
+
+@Suite("ISP natural capture — one-shot Metal grade")
+struct IspGradeOneShotTests {
+
+    // Reuses the YUV pixel buffer behind a solid sample buffer (R≈210,G≈129,B≈101).
+    private func solidYUVBuffer(_ w: Int, _ h: Int) throws -> CVPixelBuffer {
+        let sb = try makeSolidYUVSampleBufferForRgba8Tests(width: w, height: h, y: 150, cb: 100, cr: 170)
+        return CMSampleBufferGetImageBuffer(sb)!
+    }
+
+    @Test("gradeOneShot applies the live grade (gray on full desaturate) at outputSize BGRA8")
+    func gradeOneShotAppliesGrade() async throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { Issue.record("no metal device"); return }
+        let pipeline = try MetalPipeline(device: device, captureSize: Size(width: 64, height: 64), gateOpen: true)
+        var params = ProcessingParameters.identity
+        params.saturation = -1.0
+        pipeline.setColorUniformsForTest(params)
+
+        let out = try await pipeline.gradeOneShot(pixelBuffer: try solidYUVBuffer(64, 64))
+
+        #expect(CVPixelBufferGetPixelFormatType(out) == kCVPixelFormatType_32BGRA)
+        #expect(CVPixelBufferGetWidth(out) == 64 && CVPixelBufferGetHeight(out) == 64)
+        CVPixelBufferLockBaseAddress(out, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(out, .readOnly) }
+        let p = CVPixelBufferGetBaseAddress(out)!.assumingMemoryBound(to: UInt8.self)
+        let idx = (CVPixelBufferGetHeight(out) / 2) * CVPixelBufferGetBytesPerRow(out) + (CVPixelBufferGetWidth(out) / 2) * 4
+        let b = Int(p[idx]), g = Int(p[idx + 1]), r = Int(p[idx + 2])
+        #expect(abs(r - b) <= 4 && abs(r - g) <= 4, "desaturated grade ⇒ gray; got R=\(r) G=\(g) B=\(b)")
+    }
+
+    @Test("gradeOneShot errors cleanly when buffer dims != captureSize")
+    func gradeOneShotDimensionGuard() async throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { Issue.record("no metal device"); return }
+        let pipeline = try MetalPipeline(device: device, captureSize: Size(width: 64, height: 64), gateOpen: true)
+        await #expect(throws: (any Error).self) {
+            _ = try await pipeline.gradeOneShot(pixelBuffer: try solidYUVBuffer(32, 32))
+        }
+    }
+}
+
 // MARK: - Tracker lane sources from the processed (graded) image
 
 @Suite("Tracker lane sources from the processed (graded) image")
