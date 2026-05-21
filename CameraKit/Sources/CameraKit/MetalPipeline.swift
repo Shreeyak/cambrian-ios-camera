@@ -91,6 +91,25 @@ final class MetalPipeline: @unchecked Sendable {
     private let rgba16fToBgra8PSO: MTLComputePipelineState
 
     private(set) var captureSize: Size
+
+    /// P2a true crop — the output (natural/processed/still/encoder/8-bit) texture
+    /// size.
+    ///
+    /// Equals `captureSize` when uncropped. When a crop is active, this is the
+    /// crop-region size: the AVCaptureSession keeps producing `captureSize`
+    /// sensor buffers, and Pass-1 reads the `cropOrigin`-offset sub-region into
+    /// these `outputSize` output textures (a sub-region resolution change, not a
+    /// zoom). The SOURCE Y/CbCr textures still derive their size from the
+    /// incoming sample buffer (= sensor).
+    private(set) var outputSize: Size
+
+    /// P2a true crop — top-left of the sub-region read from the sensor, in
+    /// sensor pixels.
+    ///
+    /// `(0, 0)` when uncropped. Carried into Pass-1's `CropUniform.origin*` so
+    /// the shader offsets every source read by it.
+    private(set) var cropOrigin: (x: Int, y: Int)
+
     private let trackerSize: Size
 
     /// Internal RGBA16F "latest" textures — Metal-compute intermediates, NOT a
@@ -241,7 +260,12 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// - Parameters:
     ///   - device: From `MTLCreateSystemDefaultDevice()`.
-    ///   - captureSize: Dimensions reported by `CameraSession.configure()`.
+    ///   - captureSize: Sensor/source dimensions reported by `CameraSession.configure()`.
+    ///   - outputSize: P2a true-crop output texture size. `nil` (default) means
+    ///     no crop — output equals `captureSize`. When a crop is active, this is
+    ///     the crop-region size.
+    ///   - cropOrigin: P2a true-crop top-left in sensor pixels. `(0, 0)` (default)
+    ///     when uncropped.
     ///   - gate: Shared `ManagedAtomic<Bool>` owned by `CameraEngine` (ADR-09).
     ///   - consumers: `ConsumerRegistry` owned by `CameraEngine`; used to publish
     ///     `FrameSet` values on the delivery queue.
@@ -250,6 +274,8 @@ final class MetalPipeline: @unchecked Sendable {
     init(
         device: MTLDevice,
         captureSize: Size,
+        outputSize: Size? = nil,
+        cropOrigin: (x: Int, y: Int) = (0, 0),
         gate: ManagedAtomic<Bool>,
         consumers: ConsumerRegistry,
         engineSessionToken: ManagedAtomic<UInt64>
@@ -258,10 +284,15 @@ final class MetalPipeline: @unchecked Sendable {
         self.engineSessionToken = engineSessionToken
         self.consumers = consumers
         self.captureSize = captureSize
+        let resolvedOutputSize = outputSize ?? captureSize
+        self.outputSize = resolvedOutputSize
+        self.cropOrigin = cropOrigin
 
-        // Tracker dimensions: preserve capture aspect ratio, scale to trackerHeightPx.
+        // Tracker dimensions: preserve OUTPUT aspect ratio, scale to trackerHeightPx.
+        // P2a — the tracker downsamples the rendered natural (which is now
+        // outputSize), so its aspect must follow outputSize, not the sensor.
         let trackerH = Constants.trackerHeightPx
-        let aspect = Double(captureSize.width) / Double(captureSize.height)
+        let aspect = Double(resolvedOutputSize.width) / Double(resolvedOutputSize.height)
         let rawW = Int((Double(trackerH) * aspect).rounded())
         let trackerW = rawW - (rawW % 2)
         self.trackerSize = Size(width: trackerW, height: trackerH)
@@ -324,18 +355,31 @@ final class MetalPipeline: @unchecked Sendable {
         patchBufferB = bufB
 
         // 4d. Host-side uniforms — Stage 05 mutex-protected storage (ADR-34, D-17).
+        //     P2a — the crop uniform is now set ONCE at construction and carries
+        //     the sensor-pixel origin of the sub-region Pass-1 reads. It is no
+        //     longer mutated per-frame (the Stage-04 black-out masking retired).
+        //     `width`/`height` mirror the output (crop-region) size; the shader
+        //     ignores them and uses the output texture's own dims.
         uniforms = Mutex(
             UniformStorage(
                 color: .identity,
-                crop: .full(width: captureSize.width, height: captureSize.height)
+                crop: CropUniform(
+                    originX: UInt32(cropOrigin.x),
+                    originY: UInt32(cropOrigin.y),
+                    width: UInt32(resolvedOutputSize.width),
+                    height: UInt32(resolvedOutputSize.height)
+                )
             ))
 
         // 5. Command queue.
         commandQueue = device.makeCommandQueue()!
 
         // 6. Per-stream CVPixelBufferPools (Stage 06 pool-backed lineage).
-        naturalPool = try texturePool.makeWorkingFormatPool(size: captureSize)
-        processedPool = try texturePool.makeWorkingFormatPool(size: captureSize)
+        //    P2a — natural/processed pools size to `outputSize` (the crop region),
+        //    NOT the sensor. Tracker derives from `trackerSize` (already scaled
+        //    to the output aspect above).
+        naturalPool = try texturePool.makeWorkingFormatPool(size: resolvedOutputSize)
+        processedPool = try texturePool.makeWorkingFormatPool(size: resolvedOutputSize)
         // Tracker pool is BGRA8 — Pass-4's kernel writes `float4` via
         // `texture2d<float, access::write>`, so a `.bgra8Unorm` output texture
         // clamps [0,1] and stores BGRA8 with no shader edit (Task 2, 8-bit
@@ -343,15 +387,17 @@ final class MetalPipeline: @unchecked Sendable {
         trackerPool = try texturePool.makeBgra8LanePool(size: trackerSize)
 
         // 6b. RGBA8 lane conversion — unconditional for natural + processed.
-        self.eightBitNaturalPool = try texturePool.makeBgra8LanePool(size: captureSize)
-        self.eightBitProcessedPool = try texturePool.makeBgra8LanePool(size: captureSize)
+        //     P2a — sized to outputSize (the crop region), not the sensor.
+        self.eightBitNaturalPool = try texturePool.makeBgra8LanePool(size: resolvedOutputSize)
+        self.eightBitProcessedPool = try texturePool.makeBgra8LanePool(size: resolvedOutputSize)
         guard let fnConvert = library.makeFunction(name: "rgba16fToBgra8") else {
             throw MetalError.pipelineStateCompilation("rgba16fToBgra8 missing")
         }
         self.rgba16fToBgra8PSO = try device.makeComputePipelineState(function: fnConvert)
 
         // 9. Stage 10: encoder NV12 pool + rgba16fToNV12 PSO (Pass 5).
-        encoderPool = try texturePool.makeEncoderNV12Pool(size: captureSize)
+        //    P2a — Pass-5 encodes processedTexI (outputSize); NV12 pool follows.
+        encoderPool = try texturePool.makeEncoderNV12Pool(size: resolvedOutputSize)
         guard let fnEncode = library.makeFunction(name: "rgba16fToNV12") else {
             throw MetalError.pipelineStateCompilation("rgba16fToNV12 missing")
         }
@@ -403,9 +449,9 @@ final class MetalPipeline: @unchecked Sendable {
         let processedPair: (buffer: CVPixelBuffer, texture: MTLTexture)
         do {
             naturalPair = try texturePool.dequeuePoolTexture(
-                pool: naturalPool, width: captureSize.width, height: captureSize.height)
+                pool: naturalPool, width: outputSize.width, height: outputSize.height)
             processedPair = try texturePool.dequeuePoolTexture(
-                pool: processedPool, width: captureSize.width, height: captureSize.height)
+                pool: processedPool, width: outputSize.width, height: outputSize.height)
         } catch {
             return  // pool exhausted — drop frame
         }
@@ -515,7 +561,7 @@ final class MetalPipeline: @unchecked Sendable {
         var naturalEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
         var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
         if let pair = try? texturePool.dequeueEightBitPoolTexture(
-            pool: eightBitNaturalPool, width: captureSize.width, height: captureSize.height
+            pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height
         ) {
             let pass7n = commandBuffer.makeComputeCommandEncoder()!
             pass7n.setComputePipelineState(rgba16fToBgra8PSO)
@@ -527,7 +573,7 @@ final class MetalPipeline: @unchecked Sendable {
             naturalEightBitPair = pair
         }
         if let pair = try? texturePool.dequeueEightBitPoolTexture(
-            pool: eightBitProcessedPool, width: captureSize.width, height: captureSize.height
+            pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height
         ) {
             let pass7p = commandBuffer.makeComputeCommandEncoder()!
             pass7p.setComputePipelineState(rgba16fToBgra8PSO)
@@ -670,7 +716,7 @@ final class MetalPipeline: @unchecked Sendable {
     func currentProcessedTex() -> MTLTexture {
         if let t = latestProcessedTex16F { return t }
         if let pair = try? texturePool.dequeuePoolTexture(
-            pool: processedPool, width: captureSize.width, height: captureSize.height
+            pool: processedPool, width: outputSize.width, height: outputSize.height
         ) {
             // Pre-first-frame fallback: retain the RGBA16F scratch buffer in a
             // dedicated slot (NOT `_latestProcessedBuffer`, which is the BGRA8
@@ -681,6 +727,45 @@ final class MetalPipeline: @unchecked Sendable {
             return pair.texture
         }
         fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
+    }
+
+    /// Pre-seed the natural + processed preview mailboxes with blank pool
+    /// buffers so both lanes are non-nil immediately after `open()`.
+    ///
+    /// Without this, `CameraEngine.currentTexture()` / `currentPixelBuffer(stream:)`
+    /// are nil on the first `open()` until a frame is encoded, so the Flutter
+    /// texture bridge registers id 0 and the natural lane stays black until a
+    /// close→open cycle (measurements 2026-05-20 §1, P2b). Mirrors the mailboxes
+    /// `encode()` writes: the RGBA16F texture (calibration sampling), the BGRA8
+    /// texture (bridge accessors), and the BGRA8 buffer (FlutterTexture). Sizes to
+    /// `outputSize` so a seeded crop matches its frames. Idempotent and
+    /// best-effort — a no-op once a frame has populated the mailboxes, and a pool
+    /// miss simply leaves the mailbox nil (today's behavior). Fresh pool buffers
+    /// are zero-filled, so the seeded frame is black, never uninitialized garbage.
+    func seedPreviewMailboxes() {
+        guard latestNaturalTex16F == nil else { return }
+        if let nat = try? texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: outputSize.width, height: outputSize.height)
+        {
+            _latestNaturalTex16F.store(nat.texture)
+        }
+        if let nat8 = try? texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height)
+        {
+            _latestNaturalBgra8Tex.store(nat8.texture)
+            _latestNaturalBuffer.store(nat8.buffer)
+        }
+        if let proc = try? texturePool.dequeuePoolTexture(
+            pool: processedPool, width: outputSize.width, height: outputSize.height)
+        {
+            _latestProcessedTex16F.store(proc.texture)
+        }
+        if let proc8 = try? texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height)
+        {
+            _latestProcessedBgra8Tex.store(proc8.texture)
+            _latestProcessedBuffer.store(proc8.buffer)
+        }
     }
 
     /// Returns the center-patch sample size in pixels, scaled with capture
@@ -704,7 +789,10 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// Encodes the center-patch sampler over a caller-supplied texture and returns one RgbSample.
     private func dispatchCenterPatch(on tex: MTLTexture) async throws -> RgbSample {
-        let patchSize = Self.scaledCenterPatchSize(captureSize: captureSize)
+        // P2a — patch scales to the OUTPUT (crop-region) size, since the natural/
+        // processed textures sampled here are now `outputSize`. The static
+        // method's `captureSize:` label is kept to avoid cross-file churn.
+        let patchSize = Self.scaledCenterPatchSize(captureSize: outputSize)
         let texW = tex.width
         let texH = tex.height
         guard texW >= patchSize, texH >= patchSize else {
@@ -816,10 +904,11 @@ final class MetalPipeline: @unchecked Sendable {
         }
 
         // Allocate scratch texture (released at function exit).
+        // P2a — match the natural texture being graded, i.e. `outputSize`.
         let desc = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba16Float,
-            width: captureSize.width,
-            height: captureSize.height,
+            width: outputSize.width,
+            height: outputSize.height,
             mipmapped: false
         )
         desc.usage = [.shaderWrite, .shaderRead]
@@ -894,11 +983,15 @@ final class MetalPipeline: @unchecked Sendable {
     convenience init(
         device: MTLDevice,
         captureSize: Size,
+        outputSize: Size? = nil,
+        cropOrigin: (x: Int, y: Int) = (0, 0),
         gateOpen: Bool = true
     ) throws {
         try self.init(
             device: device,
             captureSize: captureSize,
+            outputSize: outputSize,
+            cropOrigin: cropOrigin,
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: ConsumerRegistry(),
             engineSessionToken: ManagedAtomic<UInt64>(0)
@@ -912,12 +1005,16 @@ final class MetalPipeline: @unchecked Sendable {
     convenience init(
         device: MTLDevice,
         captureSize: Size,
+        outputSize: Size? = nil,
+        cropOrigin: (x: Int, y: Int) = (0, 0),
         gateOpen: Bool = true,
         consumers: ConsumerRegistry
     ) throws {
         try self.init(
             device: device,
             captureSize: captureSize,
+            outputSize: outputSize,
+            cropOrigin: cropOrigin,
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: consumers,
             engineSessionToken: ManagedAtomic<UInt64>(0)

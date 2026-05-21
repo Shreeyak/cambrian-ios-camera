@@ -192,9 +192,10 @@ struct Stage13Phase2OpenConfigurationTests {
 /// Caught under `test_device`: a harness/bring-up AVF interruption drives the
 /// engine to `.interrupted`, then a `.active` scenePhase made
 /// `notifyScenePhasePaused` publish `.streaming (command)` — off-map from
-/// `.interrupted`, tripping the `publishState` `assertionFailure`. The mirror
-/// now defers to the classifier (`SessionStateMachine` is SSOT) when the origin
-/// is OS-owned.
+/// `.interrupted`, which tripped the `publishState` `assertionFailure` before
+/// Fix 2 (off-map is now logged + applied, not fatal) and would still overwrite
+/// the OS-authoritative state. The mirror now defers to the classifier
+/// (`SessionStateMachine` is SSOT) when the origin is OS-owned.
 @Suite("Stage 13 Phase 2 — scenePhase mirror off-map guard")
 struct Stage13Phase2ScenePhaseMirrorGuardTests {
 
@@ -211,7 +212,8 @@ struct Stage13Phase2ScenePhaseMirrorGuardTests {
     @Test("from .interrupted, notifyScenePhasePaused(false) does not force .streaming (command)")
     func scenePhaseActiveFromInterruptedIsSkipped() async {
         let engine = await makeInterruptedEngine()
-        // Pre-fix: off-map `.interrupted → .streaming (command)` → assertion trap.
+        // Pre-fix: off-map `.interrupted → .streaming (command)` overwrote the
+        // OS-authoritative state (and aborted DEBUG builds before Fix 2).
         await engine.notifyScenePhasePaused(false)
         #expect(await engine._currentStateForTest == .interrupted)
     }

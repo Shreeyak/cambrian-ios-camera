@@ -209,9 +209,25 @@ public actor CameraEngine {
         guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
             throw EngineError.metal(MetalError.unsupportedFormat)
         }
+        // P2a — honor OpenConfiguration.cropRegion as a TRUE crop: validate it
+        // against the sensor (same constraints as setCropRegion — in-bounds,
+        // even coords for 4:2:0), then size the output textures to the crop.
+        // nil → full-frame output (captureSize), the default.
+        let openOutputSize: Size?
+        let openCropOrigin: (x: Int, y: Int)
+        if let crop = configuration.cropRegion {
+            try validateCropRegion(crop, sensor: captureSize)
+            openOutputSize = Size(width: crop.width, height: crop.height)
+            openCropOrigin = (crop.x, crop.y)
+        } else {
+            openOutputSize = nil
+            openCropOrigin = (0, 0)
+        }
         let pipeline = try MetalPipeline(
             device: mtlDevice,
             captureSize: captureSize,
+            outputSize: openOutputSize,
+            cropOrigin: openCropOrigin,
             gate: submissionGate,
             consumers: consumers,
             engineSessionToken: sessionToken
@@ -247,6 +263,11 @@ public actor CameraEngine {
         self.captureDelegate = delegate
         self.metalPipeline = pipeline
         self._metalPipeline.store(pipeline)
+        // Seed the preview mailboxes with blank pool buffers so the natural and
+        // processed lanes are non-nil on first open(), before the first frame —
+        // otherwise the Flutter texture bridge registers id 0 and the natural
+        // lane stays black until a close→open cycle (measurements 2026-05-20 §1, P2b).
+        pipeline.seedPreviewMailboxes()
         stillCapture = StillCapture()
         self.deliveryQueue = delivery
 
@@ -285,9 +306,7 @@ public actor CameraEngine {
             }
         )
         self.recovery = RecoveryCoordinator(clock: clock, hooks: hooks)
-        let token = sessionToken.load(ordering: .acquiring)
-        pair.gpu.arm(sessionToken: token)
-        pair.capture.arm(sessionToken: token)
+        armWatchdogs()
 
         startAEMonitor(device: device)
 
@@ -329,14 +348,17 @@ public actor CameraEngine {
             await self.setProcessingParams(persistedProcessing)
         }
 
+        // Mirror the requested crop into `currentCropRegion` so subsequent
+        // `publishStreamConfiguration()` callers reflect the open-time crop even
+        // before any `setCropRegion(_:)`. Source of truth for published config is
+        // pipeline state (`Self.activeCropRect(for:)`), not this mirror.
+        currentCropRegion = configuration.cropRegion
+
         // 11. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
-        let activeCropRegion = Rect(
-            x: 0,
-            y: 0,
-            width: Constants.cropDefaultWidthPx,
-            height: Constants.cropDefaultHeightPx
-        )
+        // P2a — the REAL crop rect, derived from the pipeline's outputSize +
+        // cropOrigin: full-frame Rect(0,0,sensorW,sensorH) when uncropped.
+        let activeCropRegion = Self.activeCropRect(for: pipeline)
         let isoRange = await device.isoRange
         let exposureDurationRangeNs = await device.exposureDurationRangeNs
         let zoomMin = await device.minAvailableVideoZoomFactor
@@ -453,17 +475,27 @@ public actor CameraEngine {
         return stream
     }
 
+    /// P2a — the REAL active crop rect for a pipeline: the sub-region the output
+    /// textures cover.
+    ///
+    /// `Rect(cropOrigin.x, cropOrigin.y, outputSize.width, outputSize.height)`,
+    /// which collapses to full-frame `Rect(0, 0, sensorW, sensorH)` when
+    /// uncropped. Single source of truth for `activeCropRegion` in both
+    /// `open()`'s `SessionCapabilities` and `publishStreamConfiguration()` —
+    /// derived from pipeline state, not the `currentCropRegion` mirror.
+    private static func activeCropRect(for pipeline: MetalPipeline) -> Rect {
+        Rect(
+            x: pipeline.cropOrigin.x,
+            y: pipeline.cropOrigin.y,
+            width: pipeline.outputSize.width,
+            height: pipeline.outputSize.height)
+    }
+
     private func publishStreamConfiguration() {
         guard let pipeline = metalPipeline else { return }
-        let crop =
-            currentCropRegion
-            ?? Rect(
-                x: 0, y: 0,
-                width: pipeline.captureSize.width,
-                height: pipeline.captureSize.height)
         let cfg = StreamConfiguration(
             activeCaptureResolution: pipeline.captureSize,
-            activeCropRegion: crop)
+            activeCropRegion: Self.activeCropRect(for: pipeline))
         streamConfigContinuationBox.withLock { $0?.yield(cfg) }
     }
 
@@ -515,7 +547,11 @@ public actor CameraEngine {
     /// (`onSessionEvent(.otherInterruptionEnded)`, recovery completion). This
     /// also closes the symmetric `.opening → .paused` hole. Caught under
     /// `test_device`, where a harness/bring-up AVF interruption races a
-    /// `.active` scenePhase into the off-map trap in `publishState`.
+    /// `.active` scenePhase into the off-map path in `publishState` — a
+    /// wrong-value overwrite of OS-owned state (a DEBUG abort too, before Fix 2). The
+    /// background stall-watchdog disarm (`.otherInterruption` / `backgroundSuspend`)
+    /// is the complementary half of the HITL background-crash fix (measurements
+    /// 2026-05-20 §1, case #12).
     ///
     /// Known gap (out of scope — D-06 gate owns correctness): if an interruption
     /// ends while the app is backgrounded, the OS publishes `.streaming (event)`
@@ -609,9 +645,13 @@ public actor CameraEngine {
             throw EngineError.notOpen
         }
 
-        // 1. Merge onto prior state.
+        // 1. Merge onto prior state, then promote a single-field manual request
+        //    so it pins both ISO and exposure (iOS couples them in one
+        //    setIsoExposureManual call — measurements 2026-05-20 §1, case #4).
         let prior = currentSettings ?? CameraSettings()
-        let merged = settings.merging(onto: prior)
+        let merged = SettingsCoupling.promoteSingleFieldManual(
+            request: settings,
+            merged: settings.merging(onto: prior))
 
         // 2. Couple (Rules 1/2/3). Reads the last KVO snapshot for Rule 3.
         let latched = await device.lastSnapshot
@@ -695,6 +735,9 @@ public actor CameraEngine {
         }
         metalPipeline = pipeline
         _metalPipeline.store(pipeline)
+        // Seed preview mailboxes for the new pipeline so the lanes don't blank
+        // during a resolution change (measurements 2026-05-20 §1, P2b).
+        pipeline.seedPreviewMailboxes()
 
         captureDelegate?.logNextFrame = true
         submissionGate.store(true, ordering: .sequentiallyConsistent)
@@ -711,11 +754,17 @@ public actor CameraEngine {
     /// Gates GPU submission, drains any in-flight
     /// frame, and stops the capture session via sessionQueue with timeout (ADR-30).
     ///
-    /// Step 1 (disarm watchdogs) is intentionally omitted: watchdogs must stay armed
-    /// during background suspension so the capture stall is detected and recovery fires.
+    /// Disarms the stall watchdogs and cancels any pending recovery retry (Inv 9):
+    /// the session is being stopped on purpose, so no frames are expected and a
+    /// stall is not a fault. Leaving them armed fires spurious recovery while
+    /// backgrounded, which collides with the OS-interruption state and aborts in
+    /// DEBUG — the HITL background crash (measurements 2026-05-20 §1). Re-armed by
+    /// `backgroundResume()`.
     public func backgroundSuspend() async {
         CameraKitLog.notice(.engine, "[bgsuspend] enter gate=false stopRunning")
         submissionGate.store(false, ordering: .sequentiallyConsistent)
+        watchdogs?.disarmAll()
+        await recovery?.cancelPendingRetry()
         if recording != nil {
             CameraKitLog.notice(
                 .engine, "[bgsuspend] active recording — finalizing via background-task drain")
@@ -744,6 +793,8 @@ public actor CameraEngine {
             CameraKitLog.notice(
                 .engine,
                 "[bgresume] startRunning returned sessionRunning=\(session.avSession.isRunning)")
+            // Frames resume — re-arm the watchdogs disarmed by backgroundSuspend().
+            armWatchdogs()
         }
     }
 
@@ -848,34 +899,92 @@ public actor CameraEngine {
         Task.detached { SettingsPersistence.saveProcessing(toSave) }
     }
 
-    /// Stage 04: writes the Pass-1 crop rectangle into the pipeline's `UniformsHost.crop` field.
+    /// Validates a P2a true-crop rect against the sensor bounds and the 4:2:0
+    /// chroma-alignment constraint.
     ///
-    /// Coordinates are pixel-space within the active capture size; pixels outside the rect render as black.
-    ///
-    /// - Throws: `EngineError.notOpen` if the session is not open.
-    /// - Throws: `EngineError.settingsConflict` if the rect is degenerate
-    ///   (zero width/height) or extends past the capture bounds.
-    public func setCropRegion(_ rect: Rect) async throws {
-        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-        let texW = pipeline.captureSize.width
-        let texH = pipeline.captureSize.height
+    /// - Throws: `EngineError.settingsConflict` if the rect is degenerate (zero
+    ///   width/height), extends past the sensor bounds, or has any odd
+    ///   coordinate. Odd luma offsets/extents skew the half-resolution chroma
+    ///   plane sampling and cause color fringing, so all four fields must be
+    ///   even (4:2:0). Shared by `open()` and `setCropRegion(_:)`.
+    private func validateCropRegion(_ rect: Rect, sensor: Size) throws {
         guard rect.width > 0, rect.height > 0,
             rect.x >= 0, rect.y >= 0,
-            rect.x + rect.width <= texW,
-            rect.y + rect.height <= texH
+            rect.x + rect.width <= sensor.width,
+            rect.y + rect.height <= sensor.height
         else {
             throw EngineError.settingsConflict(
-                reason: "crop rect \(rect) outside capture bounds \(texW)x\(texH)")
+                reason: "crop rect \(rect) outside sensor bounds \(sensor.width)x\(sensor.height)")
         }
-        // Route through the mutex so the delivery-queue snapshot in encode() is always coherent (Inv 6).
-        pipeline.uniforms.withLock { storage in
-            storage.crop = CropUniform(
-                originX: UInt32(rect.x),
-                originY: UInt32(rect.y),
-                width: UInt32(rect.width),
-                height: UInt32(rect.height)
-            )
+        guard rect.x % 2 == 0, rect.y % 2 == 0,
+            rect.width % 2 == 0, rect.height % 2 == 0
+        else {
+            throw EngineError.settingsConflict(
+                reason: "crop rect \(rect) has odd coordinate(s); 4:2:0 chroma requires even x/y/width/height")
         }
+    }
+
+    /// P2a: applies a TRUE crop — the natural/processed output resolution becomes
+    /// the crop-region size.
+    ///
+    /// The AVCaptureSession keeps producing full sensor-size buffers; Pass-1
+    /// reads the `rect`-offset sub-region at 1:1 into `rect.width × rect.height`
+    /// output textures (no zoom, no masking). Implemented by recreating the
+    /// `MetalPipeline` with the new `outputSize`/`cropOrigin` — the sensor
+    /// resolution is unchanged, so (unlike `setResolution`) the AVF session is
+    /// NOT reconfigured. Overrides state.md #67 (which recommended dropping this
+    /// API); see DECISIONS.md.
+    ///
+    /// - Throws: `EngineError.notOpen` if the session is not open.
+    /// - Throws: `EngineError.calibrationInProgress` if a calibration is in
+    ///   flight (the rebuild would invalidate its pipeline reference).
+    /// - Throws: `EngineError.settingsConflict` if the rect is degenerate,
+    ///   out of sensor bounds, or has odd coordinates (4:2:0 chroma).
+    public func setCropRegion(_ rect: Rect) async throws {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        // A pipeline rebuild would strand an in-flight calibration's reference.
+        if calibrationTask != nil { throw EngineError.calibrationInProgress }
+
+        let sensor = pipeline.captureSize
+        try validateCropRegion(rect, sensor: sensor)
+
+        submissionGate.store(false, ordering: .sequentiallyConsistent)
+        await drainSubmittedFrame()
+
+        metalPipeline = nil
+        _metalPipeline.store(nil)
+
+        guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
+            throw EngineError.metal(MetalError.unsupportedFormat)
+        }
+        let newPipeline = try MetalPipeline(
+            device: mtlDevice,
+            captureSize: sensor,
+            outputSize: Size(width: rect.width, height: rect.height),
+            cropOrigin: (rect.x, rect.y),
+            gate: submissionGate,
+            consumers: consumers,
+            engineSessionToken: sessionToken
+        )
+        newPipeline.onMetalError = { [weak self] mErr in
+            Task { [weak self] in
+                let err = CameraError(
+                    code: .unknownError,
+                    message: "metal: \(mErr)",
+                    isFatal: false
+                )
+                await self?.publishErrorAsync(err)
+                await self?.recovery?.enterRecovery(error: err)
+            }
+        }
+        metalPipeline = newPipeline
+        _metalPipeline.store(newPipeline)
+        // Seed preview mailboxes so the lanes don't blank during the crop change
+        // (measurements 2026-05-20 §1, P2b).
+        newPipeline.seedPreviewMailboxes()
+
+        submissionGate.store(true, ordering: .sequentiallyConsistent)
+
         currentCropRegion = rect
         // Phase-2 §2c: emit active-config-changed.
         publishStreamConfiguration()
@@ -1577,17 +1686,21 @@ public actor CameraEngine {
         let from = stateMachine.current
         let classification = stateMachine.transition(to: state, kind: kind)
         if classification == .offMap {
+            // Observability-first: log with full context, then apply. Off-map is
+            // NOT fatal in any config — the OS event space (interruptions,
+            // runtime errors, system-pressure orderings) is not fully
+            // enumerable, and a DEBUG-only `assertionFailure` here aborted device
+            // builds on legitimate-but-rare lifecycle races while RELEASE handled
+            // the same transition gracefully (measurements 2026-05-20 §1: the
+            // DEBUG/RELEASE divergence was itself the bug-amplifier). The log is
+            // the diagnostic instrument; correlate an off-map entry with the
+            // preceding OS notification to tell a legitimate ordering from a
+            // genuine state-logic regression.
             CameraKitLog.warning(
                 .engine,
                 "[state] off-map transition from=\(from.rawValue) "
                     + "to=\(state.rawValue) kind=\(kind.rawValue) caller=\(function)"
             )
-            #if DEBUG
-            assertionFailure(
-                "off-map SessionState transition: \(from) → \(state) "
-                    + "(kind=\(kind)) from \(function)"
-            )
-            #endif
         }
         stateContinuationBox.withLock { $0?.yield(state) }
     }
@@ -1601,6 +1714,34 @@ public actor CameraEngine {
     }
     func publishErrorAsync(_ e: CameraError) { publishError(e) }
     func disarmWatchdogsAsync() { watchdogs?.disarmAll() }
+
+    /// Arm both stall watchdogs against the current session token.
+    ///
+    /// `Watchdog.arm` is self-canceling (it cancels any prior poller), so this
+    /// is safe to call to (re-)arm on `open()`, on `backgroundResume()`, and on
+    /// `.otherInterruptionEnded`. No-op when the engine is closed
+    /// (`watchdogs == nil`).
+    ///
+    /// Gate-guarded: if `submissionGate` is closed, arming is skipped (HITL
+    /// 2026-05-20 §1 case #14). On backgrounding, `stopRunning` triggers an OS
+    /// interruption whose `.otherInterruptionEnded` fires while the app is still
+    /// backgrounded; the unconditional re-arm armed the stall watchdog with no
+    /// frames flowing, it fired ~9 s later, and drove `interrupted → recovering`
+    /// (off-map — it aborted DEBUG builds before Fix 2, and still spuriously
+    /// recovers a backgrounded session). The watchdog must only arm when frames
+    /// can actually flow, which the gate tracks. `open()` and `backgroundResume()`
+    /// both open the gate before calling this, so they are unaffected.
+    private func armWatchdogs() {
+        guard let pair = watchdogs else { return }
+        guard submissionGate.load(ordering: .acquiring) else {
+            CameraKitLog.notice(
+                .engine, "[watchdog] arm skipped — submission gate closed (HITL §1 #14)")
+            return
+        }
+        let token = sessionToken.load(ordering: .acquiring)
+        pair.gpu.arm(sessionToken: token)
+        pair.capture.arm(sessionToken: token)
+    }
 
     private func startAEMonitor(device: any CaptureDeviceProviding) {
         aeMonitorTask?.cancel()
@@ -1717,16 +1858,62 @@ public actor CameraEngine {
                 .engine, "[interruption] entering .interrupted (raw=\(raw))")
             // Phase-2 §2b — abort any in-flight calibration on .interrupted.
             calibrationTask?.cancel()
+            // HITL crash fix (measurements 2026-05-20 §1): the OS stopped frame
+            // delivery, so the stall watchdogs would fire spuriously and drive
+            // recovery — interrupted → recovering is off-map (it aborted DEBUG
+            // builds before Fix 2; still a spurious recovery). Disarm them and
+            // cancel any pending retry (mirror of the .cameraInUseBegan path);
+            // re-armed on .otherInterruptionEnded only when the gate is open.
+            watchdogs?.disarmAll()
+            await recovery?.cancelPendingRetry()
             publishState(.interrupted, kind: .event)
         case .otherInterruptionEnded:
             CameraKitLog.notice(
                 .engine, "[interruption] ended — reverting to .streaming")
             publishState(.streaming, kind: .event)
+            // Frames resume — re-arm the watchdogs disarmed on .otherInterruption.
+            armWatchdogs()
         }
     }
 
     /// Test-only: inject a session event directly (avoids needing avSession reference).
     func _postSessionEventForTest(_ event: CameraSession.SessionEvent) async {
         await onSessionEvent(event)
+    }
+
+    /// Test-only: armed token of the capture stall watchdog (nil when disarmed).
+    ///
+    /// Lets a test observe disarm-on-interruption / re-arm-on-resume directly.
+    var _captureWatchdogArmedTokenForTest: UInt64? { watchdogs?.capture.armedSessionToken }
+
+    /// Test-only: build and arm the stall watchdogs + recovery coordinator the
+    /// way `open()` does, without a real `AVCaptureSession`.
+    ///
+    /// Exercises the lifecycle disarm/re-arm paths and the watchdog→recovery
+    /// wiring under an injected clock. `performTeardownAndReopen` is a no-op —
+    /// these tests assert that recovery is NOT spuriously triggered on the
+    /// interrupted / background path.
+    func _armWatchdogsForTest() {
+        let gpu = Watchdog(kind: .gpu, clock: clock) { [weak self] fire in
+            Task { [weak self] in await self?.handleWatchdogFire(fire) }
+        }
+        let cap = Watchdog(kind: .capture, clock: clock) { [weak self] fire in
+            Task { [weak self] in await self?.handleWatchdogFire(fire) }
+        }
+        let pair = WatchdogPair(gpu: gpu, capture: cap)
+        self.watchdogs = pair
+        self.recovery = RecoveryCoordinator(
+            clock: clock,
+            hooks: RecoveryCoordinator.Hooks(
+                performTeardownAndReopen: {},
+                emitStateRecovering: { [weak self] in await self?.publishStateAsync(.recovering) },
+                emitError: { [weak self] err in await self?.publishErrorAsync(err) },
+                disarmWatchdogs: { [weak self] in await self?.disarmWatchdogsAsync() },
+                incrementSessionToken: { [weak self] in
+                    self?.sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
+                }
+            )
+        )
+        armWatchdogs()
     }
 }
