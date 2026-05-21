@@ -305,4 +305,203 @@ struct LifecycleTests {
         let active = CameraEngine(initialPhase: .active)
         #expect(label(await active._currentPhaseForTest) == "active")
     }
+
+    // MARK: - Reconciliation
+
+    /// `.active → .inactive → .active` is a cheap pause: only the gate flips and
+    /// the watchdogs toggle; the session is never stopped (~4 ms, not ~410 ms).
+    @Test("cheap pause: active→inactive→active never stops the session")
+    func cheapPauseDoesNotStopSession() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        // Baseline (.active): session running, gate open, watchdogs armed.
+        #expect(await engine._isSessionRunningForTest == true)
+        #expect(await engine.isGateOpen == true)
+        #expect(await engine._captureWatchdogArmedTokenForTest != nil)
+
+        await engine.setLifecyclePhase(.inactive)
+        #expect(
+            await engine._isSessionRunningForTest == true,
+            "cheap pause must keep the session running")
+        #expect(await engine.isGateOpen == false, "gate closes at .inactive")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest == nil,
+            "watchdogs disarm at .inactive")
+
+        await engine.setLifecyclePhase(.active)
+        #expect(await engine._isSessionRunningForTest == true)
+        #expect(await engine.isGateOpen == true, "gate reopens at .active")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest != nil,
+            "watchdogs re-arm at .active")
+
+        await engine.close()
+    }
+
+    /// F4: launching into `.background` must not turn the camera on — no
+    /// `startRunning`, gate closed (no privacy indicator with no foreground UI).
+    ///
+    /// Asserts the post-open state `open()`-then-`reconcile` leaves for a
+    /// `.background` launch via the phase-aware `_markOpenForTest` seam (real
+    /// `open()` needs hardware; the wiring is covered by Task 13 device HITL).
+    @Test("open into .background does not start the session (F4)")
+    func openIntoBackgroundDoesNotStartSession() async {
+        let engine = CameraEngine(initialPhase: .background)
+        await engine._markOpenForTest()
+        #expect(
+            await engine._isSessionRunningForTest == false,
+            "no startRunning when launched into background")
+        #expect(await engine.isGateOpen == false, "gate stays closed in background")
+        await engine.close()
+    }
+
+    /// `.active → .background` runs the ordered suspend: gate closes, watchdogs
+    /// disarm, the session stops, in the field-guide §5 order disarm→drain→stop.
+    ///
+    /// The finalize-before-stop step needs a live recording (and `_markOpenForTest`
+    /// builds none), so finalize ordering is a device-HITL claim (Task 13); this
+    /// asserts the hardware-free steps and their order.
+    @Test("suspend: active→background stops the session in disarm→drain→stop order")
+    func backgroundSuspendFinalizesAndStops() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        #expect(await engine._captureWatchdogArmedTokenForTest != nil)
+        #expect(await engine._isSessionRunningForTest == true)
+
+        await engine.setLifecyclePhase(.background)
+
+        #expect(await engine._isSessionRunningForTest == false, "session stops in background")
+        #expect(await engine.isGateOpen == false, "gate closed in background")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest == nil,
+            "watchdogs disarmed in background")
+
+        let actions = await engine._backgroundActionsForTest
+        #expect(
+            actions.firstIndex(of: "disarm") != nil
+                && actions.firstIndex(of: "drain") != nil
+                && actions.firstIndex(of: "stop") != nil,
+            "missing a step: \(actions)")
+        if let d = actions.firstIndex(of: "disarm"),
+            let dr = actions.firstIndex(of: "drain"),
+            let s = actions.firstIndex(of: "stop")
+        {
+            #expect(d < dr && dr < s, "expected disarm<drain<stop, got \(actions)")
+        }
+
+        await engine.close()
+    }
+
+    /// `.background → .inactive → .active` is the resume ordering both SwiftUI and
+    /// Flutter emit.
+    ///
+    /// The session restarts at `.inactive` (gate still closed), the gate opens at
+    /// `.active` — the case the old `cameFromBackground` flag handled, now falling
+    /// out of the declarative model with no flag.
+    @Test("resume: background→inactive→active restarts at inactive (gate closed), opens at active")
+    func resumeRestartsAtInactiveGateOpensAtActive() async {
+        let engine = CameraEngine(initialPhase: .background)
+        await engine._markOpenForTest()  // open into background: not running, gate closed
+        await engine._armWatchdogsForTest()  // pair built; arm skipped (gate closed)
+        #expect(await engine._isSessionRunningForTest == false)
+        #expect(await engine.isGateOpen == false)
+        #expect(await engine._captureWatchdogArmedTokenForTest == nil)
+
+        await engine.setLifecyclePhase(.inactive)
+        #expect(
+            await engine._isSessionRunningForTest == true,
+            "session restarts at .inactive (no cameFromBackground flag needed)")
+        #expect(await engine.isGateOpen == false, "gate stays closed at .inactive")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest == nil,
+            "watchdogs stay disarmed at .inactive")
+
+        await engine.setLifecyclePhase(.active)
+        #expect(await engine._isSessionRunningForTest == true)
+        #expect(await engine.isGateOpen == true, "gate opens at .active")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest != nil,
+            "watchdogs arm at .active")
+
+        await engine.close()
+    }
+
+    /// Flutter emits `paused → hidden → inactive → resumed` →
+    /// `.background → .background → .inactive → .active`.
+    ///
+    /// The duplicate `.background` must be a no-op and the sequence must converge
+    /// to the same terminal `.active` state as the SwiftUI resume.
+    @Test("Flutter resume: duplicate .background is idempotent and converges to active")
+    func duplicateBackgroundIsNoOpAndConverges() async {
+        let engine = CameraEngine(initialPhase: .background)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+
+        await engine.setLifecyclePhase(.background)  // duplicate of the launch phase
+        #expect(
+            await engine._isSessionRunningForTest == false,
+            "duplicate .background is a no-op")
+        #expect(await engine.isGateOpen == false)
+        #expect(await engine._captureWatchdogArmedTokenForTest == nil)
+
+        await engine.setLifecyclePhase(.inactive)
+        #expect(await engine._isSessionRunningForTest == true, "restarts at .inactive")
+        #expect(await engine.isGateOpen == false)
+
+        await engine.setLifecyclePhase(.active)
+        #expect(await engine._isSessionRunningForTest == true)
+        #expect(await engine.isGateOpen == true, "converges to .active: gate open")
+        #expect(await engine._captureWatchdogArmedTokenForTest != nil)
+
+        await engine.close()
+    }
+
+    // MARK: - Latest-intent-wins
+
+    /// F1: a `.background` reconcile straggled by a completing `.active` must
+    /// abort, not apply a stale `stopRunning`.
+    ///
+    /// Without the generation guard the straggler runs drain/stop after `.active`
+    /// already reopened the gate + re-armed, leaving gate-open + armed +
+    /// session-stopped — a permanent black preview and spurious recovery with no
+    /// OS interruption involved. The park seam admits `.active` while
+    /// `.background` is suspended mid-flight.
+    @Test("latest-intent-wins: .background superseded by .active ends .active (F1)")
+    func backgroundSupersededByActiveEndsActive() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._markOpenForTest()
+        await engine._armWatchdogsForTest()
+        #expect(await engine._isSessionRunningForTest == true)
+
+        // Park the .background reconcile mid-flight (post-disarm, pre-stop).
+        await engine._armBackgroundReconcileParkForTest()
+        let bg = Task { await engine.setLifecyclePhase(.background) }
+        while await engine._isBackgroundReconcileParkedForTest == false {
+            await Task.yield()
+        }
+
+        // Admit .active while .background is parked. Its branch has no awaits, so
+        // it completes and bumps the reconcile generation.
+        await engine.setLifecyclePhase(.active)
+
+        // Release the straggler — it must detect supersession and abort before
+        // touching the session the .active just kept running.
+        await engine._releaseBackgroundReconcileParkForTest()
+        await bg.value
+
+        #expect(
+            await engine._isSessionRunningForTest == true,
+            "the .active that won must not be undone by the stale .background stop")
+        #expect(await engine.isGateOpen == true, "gate stays open (.active won)")
+        #expect(
+            await engine._captureWatchdogArmedTokenForTest != nil,
+            "watchdogs stay armed (.active won)")
+        #expect(
+            await engine._currentStateForTest == .streaming,
+            "no spurious recovery / off-map (state stays .streaming)")
+
+        await engine.close()
+    }
 }

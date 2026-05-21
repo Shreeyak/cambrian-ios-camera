@@ -228,6 +228,15 @@ Also: `open()` (`:180`) and `close()` (`:391`) — `open()` runs the same routin
 - [ ] **Step 2–4:** run; implement idempotency if a repeat misbehaves; run.
 - [ ] **Step 5: Commit** — `test(camerakit): Flutter resume ordering converges`.
 
+**As-built (done 2026-05-21 — `LifecycleTests` 18/18, full `eva-swift-stitchTests` 203/203, device iPad Pro 11").** Advisor-confirmed deviations:
+- **`_isSessionRunningForTest` is a logical decision mirror (`reconciledSessionRunning`), not an `avSession.isRunning` probe.** Primary-source read: `isOpen := stateMachine.current != .closed` (so `_markOpenForTest` opens the engine and `reconcile` fires), `cameraSession` stays nil under that seam, and no test calls real `open()`. A hardware mirror is vacuous/racy; the decision mirror is race-free, and `reconcile` never reads it (so it is not the forbidden sticky flag).
+- **`_markOpenForTest` is phase-aware** — seeds `reconciledSessionRunning = (currentPhase != .background)` and `setGate(currentPhase == .active)` to mirror `open()`-then-`reconcile`; behaviour-neutral for the existing `.active` callers (gate already defaults open).
+- **F4 is seam-based** (`initialPhase: .background` + `_markOpenForTest` → not-running + gate-closed); the `open()`→`reconcile` wiring (one source line replacing the direct `startRunning`) is code-review + Task 13 device HITL (camera LED off on background launch), matching how the suite handles `open()`.
+- **5a implements the full `.background` branch** so the `open()` wiring is safe immediately; 5b adds only the `backgroundActionTrace` observability + the disarm→drain→stop ordering test. *finalize-before-stop* needs a live recording (`finalizeActiveRecording` early-returns without one) → Task 13 HITL claim, not a unit assertion.
+- **5c + 5d pass as pure guard tests** (no new logic) — the declarative model restarts at `.inactive` and converges on a duplicate `.background`; no `cameFromBackground` flag.
+- **`open()` wiring conservative:** kept the eager gate-open + watchdog-arm (idempotent for `.active`), replaced only the direct `startRunning` with `await reconcile()`; `startSessionIfNeeded()` keeps the fire-and-forget start (open()'s step-9b timing), the stop path awaits `stopRunningAsync` for ordering.
+- **Latest-intent-wins scaffold in place:** `reconcileGeneration` is bumped + captured at `reconcile` entry (no-op); Task 6 adds the per-step abort re-checks with no structural refactor.
+
 ---
 
 ## Task 6: latest-intent-wins contract
