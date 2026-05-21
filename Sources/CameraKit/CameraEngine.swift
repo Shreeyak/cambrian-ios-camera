@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 /// ADR-07: All AVCaptureSession mutations go through sessionQueue.
 /// ADR-09: submissionGate guards every commandBuffer.commit() on the delivery queue.
 /// ADR-22: stateStream() returns AsyncStream<SessionState> buffered with .bufferingOldest.
-/// ADR-30: backgroundSuspend() / backgroundResume() use async-with-timeout for session lifecycle.
+/// ADR-30: async-with-timeout (runOnQueue) for session lifecycle — see Recording.swift finalize.
 /// ADR-32: Production code never creates AVCaptureDevice directly — CameraSession handles that.
 public actor CameraEngine {
 
@@ -802,9 +802,8 @@ public actor CameraEngine {
     // MARK: - App lifecycle (reconciliation)
     //
     // The host-intent reconciliation cluster — `setLifecyclePhase` / `reconcile` /
-    // `startSessionIfNeeded` / the OS-owned guard / command-label publish, plus the
-    // legacy `backgroundSuspend` · `backgroundResume` · `notifyScenePhasePaused`
-    // entries — lives in CameraEngine+Lifecycle.swift.
+    // `startSessionIfNeeded` / the OS-owned guard / command-label publish — lives
+    // in CameraEngine+Lifecycle.swift.
 
     /// Debug: dump every `AVCaptureDevice.Format` the active device exposes.
     ///
@@ -1589,8 +1588,8 @@ public actor CameraEngine {
     /// background-task assertion inside `Recording.stop`,
     /// 06-capture-and-recording.md §Background drain — then optionally
     /// publishes the result to Photos. Shared by `stopRecording()`, `pause()`,
-    /// and `backgroundSuspend()`, the three triggers named in the Stage 12
-    /// brief. Returns the output URI, or `""` when no recording is active.
+    /// and `reconcile()`'s `.background` path (the three triggers named in the
+    /// Stage 12 brief). Returns the output URI, or `""` when no recording is active.
     func finalizeActiveRecording(reason: Recording.StopReason) async -> String {
         guard let rec = recording, let pipeline = metalPipeline else { return "" }
         pipeline.isRecording.store(false, ordering: .sequentiallyConsistent)
@@ -1705,8 +1704,8 @@ public actor CameraEngine {
     /// Arm both stall watchdogs against the current session token.
     ///
     /// `Watchdog.arm` is self-canceling (it cancels any prior poller), so this
-    /// is safe to call to (re-)arm on `open()`, on `backgroundResume()`, and on
-    /// `.otherInterruptionEnded`. No-op when the engine is closed
+    /// is safe to call to (re-)arm on `open()`, on `reconcile()`'s `.active` path,
+    /// and on `.otherInterruptionEnded`. No-op when the engine is closed
     /// (`watchdogs == nil`).
     ///
     /// Gate-guarded: if `submissionGate` is closed, arming is skipped (HITL
@@ -1716,8 +1715,8 @@ public actor CameraEngine {
     /// frames flowing, it fired ~9 s later, and drove `interrupted → recovering`
     /// (off-map — it aborted DEBUG builds before Fix 2, and still spuriously
     /// recovers a backgrounded session). The watchdog must only arm when frames
-    /// can actually flow, which the gate tracks. `open()` and `backgroundResume()`
-    /// both open the gate before calling this, so they are unaffected.
+    /// can actually flow, which the gate tracks. `open()` and reconcile()'s
+    /// `.active` path both open the gate before calling this, so they are unaffected.
     func armWatchdogs() {
         guard let pair = watchdogs else { return }
         guard submissionGate.load(ordering: .acquiring) else {

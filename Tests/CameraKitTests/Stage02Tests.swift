@@ -103,23 +103,6 @@ struct Stage02Tests {
                 "runOnQueue must return via timeout (~150ms), not wait for work to complete")
     }
 
-    // MARK: Test 4 — 02:background-resume-is-noop-until-interruption-ended
-
-    /// Verifies backgroundResume() is idempotent: opens the gate, no session restart,
-    /// no thrown error.
-    @Test func backgroundResumeIsNoopUntilInterruptionEnded() async {
-        let engine = CameraEngine(initialPhase: .active)
-
-        await engine.setGate(false)
-        #expect(await engine.isGateOpen == false)
-
-        await engine.backgroundResume()
-        #expect(await engine.isGateOpen == true)
-
-        // Idempotent: second call does not break anything.
-        await engine.backgroundResume()
-        #expect(await engine.isGateOpen == true)
-    }
 }
 
 // MARK: - Helpers

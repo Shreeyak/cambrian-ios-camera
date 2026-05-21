@@ -3,9 +3,7 @@
 Single declarative lifecycle API: the host forwards `AppLifecyclePhase` via
 `CameraEngine.setLifecyclePhase(_:)`; the package owns one reconciliation routine
 that derives all hardware state (gate, session, watchdogs, label) from the
-current phase alone. Spec:
-`docs/superpowers/specs/2026-05-21-camerakit-lifecycle-ownership-design.md`.
-Plan: `docs/superpowers/plans/2026-05-21-camerakit-lifecycle-ownership.md`.
+current phase alone. See the field guide `docs/ios-camera-lifecycle.md`.
 
 ## What's now permanent — lifecycle ownership
 
