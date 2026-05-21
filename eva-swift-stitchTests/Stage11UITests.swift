@@ -242,7 +242,7 @@ struct Stage11CalibrationVMTests {
         // appends a `.manual` delta as a real engine apply would. The VM
         // doesn't drive the algorithm itself any more.
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
-        let processingVM = ProcessingViewModel(engine: CameraEngine())
+        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
 
         vm.calibrateWB()
@@ -258,7 +258,7 @@ struct Stage11CalibrationVMTests {
     @MainActor
     func wbCalibrationStatusReachesCompleted() async {
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
-        let processingVM = ProcessingViewModel(engine: CameraEngine())
+        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
 
         vm.calibrateWB()
@@ -276,7 +276,7 @@ struct Stage11CalibrationVMTests {
     @MainActor
     func resetToAutoWBWritesAuto() async {
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
-        let processingVM = ProcessingViewModel(engine: CameraEngine())
+        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
 
         vm.resetToAutoWB()
@@ -290,7 +290,7 @@ struct Stage11CalibrationVMTests {
     @MainActor
     func lockCurrentWBWritesLocked() async {
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
-        let processingVM = ProcessingViewModel(engine: CameraEngine())
+        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
 
         vm.lockCurrentWB()
@@ -309,7 +309,7 @@ struct Stage11CalibrationVMTests {
         // `currentProcessingParametersSnapshot()`.
         let sample = RgbSample(r: 0.02, g: 0.03, b: 0.05)
         let stub = CalibrationEngineStub(sample: sample)
-        let processingVM = ProcessingViewModel(engine: CameraEngine())
+        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
         let k = Constants.blackBalanceOverscan
 
@@ -333,7 +333,7 @@ struct Stage11CalibrationVMTests {
     @MainActor
     func resetBlackBalanceZeroesPedestal() async {
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.02, g: 0.03, b: 0.05))
-        let processingVM = ProcessingViewModel(engine: CameraEngine())
+        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
         let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
 
         // Set a non-zero pedestal first.
@@ -371,7 +371,7 @@ struct Stage11ErrorPresenterTests {
     @Test("non-fatal error shows toast and auto-clears after the 3-second window")
     @MainActor
     func nonFatalErrorShowsToast() async {
-        let vm = ErrorPresenterViewModel(engine: CameraEngine())
+        let vm = ErrorPresenterViewModel(engine: CameraEngine(initialPhase: .active))
         let err = CameraError(code: .unknownError, message: "transient", isFatal: false)
         vm._feedErrorForTest(err)
 
@@ -394,7 +394,7 @@ struct Stage11ErrorPresenterTests {
     @Test("fatal error shows blocking dialog and does not auto-dismiss")
     @MainActor
     func fatalErrorShowsBlockingDialog() async {
-        let vm = ErrorPresenterViewModel(engine: CameraEngine())
+        let vm = ErrorPresenterViewModel(engine: CameraEngine(initialPhase: .active))
         let err = CameraError(code: .hardwareError, message: "device gone", isFatal: true)
         vm._feedErrorForTest(err)
 
@@ -429,7 +429,7 @@ struct Stage11ErrorRoutingTests {
     @Test("toggleRecording start-failure routes a non-fatal error to the presenter")
     @MainActor
     func startFailureRoutesToPresenter() async {
-        let engine = CameraEngine()
+        let engine = CameraEngine(initialPhase: .active)
         let presenter = ErrorPresenterViewModel(engine: engine)
         let vm = RecordingViewModel(engine: engine, errorPresenter: presenter)
 
@@ -445,7 +445,7 @@ struct Stage11ErrorRoutingTests {
     @Test("toggleRecording stop-failure routes a non-fatal error to the presenter")
     @MainActor
     func stopFailureRoutesToPresenter() async {
-        let engine = CameraEngine()
+        let engine = CameraEngine(initialPhase: .active)
         let presenter = ErrorPresenterViewModel(engine: engine)
         let vm = RecordingViewModel(engine: engine, errorPresenter: presenter)
 

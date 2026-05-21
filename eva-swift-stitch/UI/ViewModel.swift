@@ -86,7 +86,7 @@ final class ViewModel {
     // MARK: - Init
 
     init() {
-        let engine = CameraEngine()
+        let engine = CameraEngine(initialPhase: .background)
         self.engine = engine
         self.display = DisplayViewModel(engine: engine)
         let errors = ErrorPresenterViewModel(engine: engine)
