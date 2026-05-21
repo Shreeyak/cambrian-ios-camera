@@ -663,6 +663,15 @@ struct MTKViewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: MTKView, context: Context) {
+        // Resume probe: updateUIView runs synchronously on the SwiftUI update pass,
+        // so an isPaused→false transition here is a near-true t0 for the scenePhase
+        // change. Comparing its timestamp to the `scenePhase: → active` line (emitted
+        // from the async `.task(id:)`) reads SwiftUI's task-scheduling latency. Natural
+        // lane only, to avoid 3× log noise across the preview panels.
+        if uiView.isPaused != isPaused, label == "natural" {
+            CameraKitLog.notice(
+                .metal, "[resume] updateUIView isPaused \(uiView.isPaused)→\(isPaused) lane=\(label)")
+        }
         uiView.isPaused = isPaused
     }
 
@@ -683,6 +692,18 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
     /// Cached command queue — created once to avoid per-frame allocation at 30 fps.
     let commandQueue: MTLCommandQueue?
 
+    // Resume probe: uptime (ms) of the previous `draw(in:)` call. The loop is
+    // paused while `scenePhase != .active`, so the first draw after a >200 ms gap
+    // marks the loop resuming — its timestamp vs the `scenePhase: → active` line
+    // reads the MTKView restart latency.
+    private var lastDrawMs: UInt64 = 0
+
+    // Resume probe: identity of the last on-screen texture + a one-shot budget to
+    // log the first fresh on-screen frame after a resume. `lastTexId` lets
+    // `draw(in:)` tell a fresh frame (new texture) from re-blitting the frozen one.
+    private var lastTexId: ObjectIdentifier?
+    private var onScreenLogBudget: Int = 0
+
     init(textureAccessor: @escaping () -> MTLTexture?, label: String = "preview") {
         self.textureAccessor = textureAccessor
         self.label = label
@@ -694,6 +715,14 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
+        let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
+        if lastDrawMs != 0, nowMs - lastDrawMs > 200, label == "natural" {
+            CameraKitLog.notice(
+                .metal, "[resume] draw loop resumed lane=\(label) gap=\(nowMs - lastDrawMs)ms")
+            // Arm the one-shot on-screen-frame marker for this resume.
+            onScreenLogBudget = 1
+        }
+        lastDrawMs = nowMs
         guard let drawable = view.currentDrawable else { return }
         guard let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
 
@@ -706,9 +735,21 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
             renderEncoder.endEncoding()
         }
 
-        if let texture = textureAccessor(),
-            let blitEncoder = commandBuffer.makeBlitCommandEncoder()
-        {
+        let texture = textureAccessor()
+
+        // Resume probe: log the first fresh on-screen frame (distinct texture
+        // identity) after a resume — a "preview visible" marker; its time vs the
+        // `scenePhase: → active` line is the app-side resume latency.
+        if label == "natural", onScreenLogBudget > 0, let texture {
+            let id = ObjectIdentifier(texture as AnyObject)
+            if id != lastTexId {
+                lastTexId = id
+                onScreenLogBudget -= 1
+                CameraKitLog.notice(.metal, "[resume] on-screen new frame lane=\(label)")
+            }
+        }
+
+        if let texture, let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
             let srcWidth = min(texture.width, drawable.texture.width)
             let srcHeight = min(texture.height, drawable.texture.height)
             blitEncoder.copy(

@@ -154,8 +154,12 @@ xcodebuild -scheme eva-swift-stitch -showdestinations
 #   platform=macOS,arch=arm64,variant=Designed for iPad      (native Mac fallback)
 # NEVER `platform=iOS Simulator,...` — simulators are disallowed on this machine.
 
-swiftlint lint       --config .swiftlint.yml
-swiftlint lint --fix --config .swiftlint.yml
+# Style gate = swift-format (exactly what the pre-commit hook runs on staged
+# sources). SwiftLint is NOT a commit gate and crashes standalone on this
+# machine's beta toolchain ("Loading sourcekitdInProc.framework … failed"),
+# so `.swiftlint.yml` is IDE-advisory only — do not rely on the CLI here.
+swift-format lint --strict CameraKit/Sources/CameraKit/*.swift
+swift-format -i            CameraKit/Sources/CameraKit/*.swift   # auto-fix in place
 ```
 
 For programmatic xcodeproj edits (package dependencies, build-setting flips,
@@ -211,7 +215,14 @@ machine-specific DerivedData path); re-run after cloning or changing scheme.
 
 The third command enables the repo's tracked hooks: `pre-push` keeps the
 `camerakit-only` synthetic branch in sync for the Flutter plugin consumer (§10),
-and `pre-commit` enforces swift-format / SwiftLint / `CONTRACTS.md` regen.
+and `pre-commit` runs `swift-format lint --strict` on staged
+`CameraKit/Sources/**.swift` and regenerates `CONTRACTS.md`. **SwiftLint is NOT a
+commit gate** — it was dropped from the hook (it flags CameraKit/Sources'
+deliberate patterns, e.g. the test-seam `_*ForTest` identifiers and the large
+`CameraEngine` actor, as errors); `swift-format --strict` is the authoritative
+style gate. SwiftLint also crashes when run standalone on this machine's beta
+toolchain (`Loading sourcekitdInProc.framework … failed`), so `.swiftlint.yml`
+is IDE-advisory only.
 We keep both in `.githooks/` rather than the default `.git/hooks/` so they are
 version-controlled and ship with every clone — `git config core.hooksPath
 .githooks` is the per-clone wire-up that points git at them (the default
