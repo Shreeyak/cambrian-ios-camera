@@ -757,3 +757,82 @@ struct RgbaConversionEndToEndColorTests {
         }
     }
 }
+
+// MARK: - Tracker lane sources from the processed (graded) image
+
+@Suite("Tracker lane sources from the processed (graded) image")
+struct TrackerSourceFromProcessedTests {
+
+    /// The tracker downsample must read the GRADED (processed) image, not the
+    /// raw natural image, so brightness/contrast/saturation/gamma/black-balance
+    /// also help the tracker see (user-directed; reverses the original
+    /// natural-sourced Pass-4 input).
+    ///
+    /// Proof: feed a strongly-saturated solid color (R≈210, G≈129, B≈101) and a
+    /// full-desaturate grade (saturation = -1.0). The processed lane collapses to
+    /// grayscale (R≈G≈B≈luma); the natural lane keeps the color. If the tracker
+    /// sources from processed, its pixels are gray (|R-B|≈0); if it still sources
+    /// from natural, |R-B|≈109.
+    @Test("tracker output reflects the color grade (gray when fully desaturated)")
+    func trackerReflectsGrade() async throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let consumers = ConsumerRegistry()
+        let pipeline = try MetalPipeline(
+            device: device,
+            captureSize: Size(width: 64, height: 64),
+            gateOpen: true,
+            consumers: consumers)
+
+        // Full desaturate: processed becomes grayscale, natural stays colored.
+        var params = ProcessingParameters.identity
+        params.saturation = -1.0
+        pipeline.setColorUniformsForTest(params)
+
+        // Subscribe so Pass-4 allocates a tracker pair; hold the stream alive.
+        let trackerStream = await consumers.subscribe(stream: .tracker)
+
+        // Strongly-saturated solid color: R≈210, G≈129, B≈101 (|R-B|≈109).
+        let sample = try makeSolidYUVSampleBufferForRgba8Tests(
+            width: 64, height: 64, y: 150, cb: 100, cr: 170)
+        try pipeline.encode(sampleBuffer: sample)
+        await pipeline.lastCommandBuffer?.completed()
+
+        guard let buf = pipeline.latestTrackerBufferForTest else {
+            Issue.record("tracker buffer mailbox not populated — ensure tracker subscriber active")
+            return
+        }
+        #expect(CVPixelBufferGetPixelFormatType(buf) == kCVPixelFormatType_32BGRA)
+        CVPixelBufferLockBaseAddress(buf, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buf, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(buf) else {
+            Issue.record("tracker buffer lock failed")
+            return
+        }
+        // Uniform source ⇒ uniform downsample; read the center pixel.
+        let w = CVPixelBufferGetWidth(buf)
+        let h = CVPixelBufferGetHeight(buf)
+        let rowBytes = CVPixelBufferGetBytesPerRow(buf)
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        let idx = (h / 2) * rowBytes + (w / 2) * 4
+        let b = Int(bytes[idx + 0])
+        let g = Int(bytes[idx + 1])
+        let r = Int(bytes[idx + 2])
+
+        // Desaturated processed ⇒ tracker is gray: channels collapse to luma.
+        // A natural-sourced tracker would keep |R-B|≈109.
+        let tol = 4  // 8-bit → fp16 → 8-bit rounding
+        #expect(
+            abs(r - b) <= tol,
+            "tracker R-B should be ~0 if sourced from the graded lane; got R=\(r) B=\(b)")
+        #expect(
+            abs(r - g) <= tol,
+            "tracker R-G should be ~0 if sourced from the graded lane; got R=\(r) G=\(g)")
+
+        // Keep the stream alive through assertions — early dealloc terminates the
+        // continuation and removes the subscriber before encode completes.
+        withExtendedLifetime(trackerStream) {}
+    }
+}
