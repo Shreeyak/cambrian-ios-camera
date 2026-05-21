@@ -17,10 +17,11 @@ Flutter plugin.
 >
 > - **SwiftUI:** observe `@Environment(\.scenePhase)` and forward `.active` /
 >   `.inactive` / `.background` (1:1 — they share names with `AppLifecyclePhase`).
-> - **Flutter:** observe the iOS app lifecycle in the **plugin's native Swift
->   layer** (`FlutterSceneLifeCycleDelegate`), **not** in Dart, and call
->   `setLifecyclePhase`: `resumed → .active`, `inactive → .inactive`, `hidden` /
->   `paused → .background`, `detached →` skip. Forwarding from Dart over the
+> - **Flutter:** observe the iOS scene lifecycle in the **plugin's native Swift
+>   layer** — implement `FlutterSceneLifeCycleDelegate` and register it with the
+>   registrar's `addSceneDelegate` — **not** in Dart, and call `setLifecyclePhase`:
+>   `sceneDidBecomeActive → .active`, `sceneWillResignActive → .inactive`,
+>   `sceneDidEnterBackground → .background`. Forwarding from Dart over the
 >   method channel adds round-trip latency that can let a backgrounding outrun an
 >   in-flight recording's finalize and corrupt the `.mp4` — observe natively
 >   instead.
