@@ -2,15 +2,16 @@ import AVFoundation
 
 /// One-shot still photo via AVCapturePhotoOutput.
 ///
-/// `capture(using:)` is invoked on sessionQueue (ADR-07); the delegate callback
-/// (nonisolated) bridges the resulting CVPixelBuffer back through a checked
-/// continuation. Photo settings honor the device's live exposure/ISO/WB/focus —
-/// there is no separate photo-settings surface; the user controls those via the
-/// existing `CameraSettings` mechanism and this capture inherits them.
+/// `capture(using:on:)` dispatches the `capturePhoto` call onto the supplied
+/// queue (sessionQueue per ADR-07); the delegate callback (nonisolated) bridges
+/// the resulting CVPixelBuffer back through a checked continuation. Photo
+/// settings honor the device's live exposure/ISO/WB/focus — there is no
+/// separate photo-settings surface; the user controls those via the existing
+/// `CameraSettings` mechanism and this capture inherits them.
 ///
 /// `@unchecked Sendable`: the AVF delegate callback is nonisolated; the
 /// `continuation` write happens inside the `withCheckedThrowingContinuation`
-/// closure, which runs synchronously before `capturePhoto` returns —
+/// closure, which runs synchronously before `queue.async` executes —
 /// `capturePhoto`'s enqueue creates a happens-before edge making that write
 /// visible to the delegate callback. Single-in-flight capture is assumed:
 /// the sessionQueue caller serializes (ADR-07), so at most one continuation
@@ -38,13 +39,14 @@ final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @uncheck
     // enforced by the sessionQueue caller (ADR-07).
     private var continuation: CheckedContinuation<CVPixelBuffer, Error>?
 
-    /// Must be called on sessionQueue.
-    ///
-    /// Shoots one photo and returns its pixel buffer.
-    func capture(using output: AVCapturePhotoOutput) async throws -> CVPixelBuffer {
+    /// Must be handed the sessionQueue (ADR-07): the capturePhoto request is
+    /// dispatched onto `queue`; the delegate result returns via the continuation.
+    func capture(using output: AVCapturePhotoOutput, on queue: DispatchQueue) async throws -> CVPixelBuffer {
         try await withCheckedThrowingContinuation { cont in
             self.continuation = cont
-            output.capturePhoto(with: Self.makeSettings(), delegate: self)
+            queue.async {
+                output.capturePhoto(with: Self.makeSettings(), delegate: self)
+            }
         }
     }
 
