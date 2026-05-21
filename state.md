@@ -54,12 +54,20 @@ Plan: `docs/superpowers/plans/2026-05-21-camerakit-lifecycle-ownership.md`.
 - **210/210** unit tests green on device (iPad Pro 11", iPad8,9, iOS 26.4),
   including the `LifecycleTests` suite (25 tests: reconciliation, latest-intent-
   wins F1, OS-owned guard F2, third actuation site OS→phase, event-vs-event F5).
-- **Device HITL: _pending_** (Task 13 §2) — foreground/background/lock-unlock,
-  recording across a background, foreground interruption + resume; confirm no
-  black preview, no spurious recovery, no corrupt `.mp4`, and camera LED off
-  while backgrounded — including the deferred F4 (camera-off on background
-  launch) and finalize-before-stop claims. Evidence →
-  `measurements/lifecycle-ownership/`.
+- **Device HITL: verified 2026-05-21** (iPad Pro 11", iPad8,9, iOS 26.4.2) —
+  preview live on launch; foreground/background round-trips (short + long >5 s)
+  resume fast with the camera LED off while backgrounded; recording across a
+  background produces an uncorrupted `.mp4` (finalize-before-stop); Control Center
+  interrupt + dismiss resumes with no error. No off-map / spurious recovery /
+  crash in any HITL session; the F2 `osOwnsDevice` deferral and Task 8 OS→phase
+  reconcile both fire correctly on device. The ~500 ms Control Center resume is
+  AVF interruption-recovery latency (CC raises `rawReason=1` =
+  `videoDeviceNotAvailableInBackground`) that the F2 guard correctly defers to —
+  not a regression; background-during-use resumes faster because the interruption
+  ends while backgrounded. F4 (camera-off on background *launch*) not separately
+  reproduced — structurally guaranteed by `initialPhase: .background` + reconcile;
+  defer to natural occurrence. Evidence:
+  `measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
 
 ## Follow-ups (out of scope this PR)
 
