@@ -803,6 +803,7 @@ val cambrian_ios_camera_apiPigeonMethodCodec = StandardMethodCodec(cambrian_ios_
 interface CameraEngineHostApi {
   fun open(configuration: OpenConfiguration?, callback: (Result<SessionCapabilities>) -> Unit)
   fun close(callback: (Result<Unit>) -> Unit)
+  fun currentState(callback: (Result<SessionState>) -> Unit)
   fun currentSettings(callback: (Result<CameraSettings?>) -> Unit)
   fun currentProcessingParameters(callback: (Result<ProcessingParameters?>) -> Unit)
   fun updateSettings(settings: CameraSettings, callback: (Result<Unit>) -> Unit)
@@ -857,6 +858,24 @@ interface CameraEngineHostApi {
                 reply.reply(wrapError(error))
               } else {
                 reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.currentState$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.currentState{ result: Result<SessionState> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
               }
             }
           }

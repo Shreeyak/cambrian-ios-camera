@@ -282,6 +282,11 @@ abstract class CameraEngineHostApi {
   void close();
 
   // Snapshots
+  // Fresh read of the engine's ACTUAL current session state (not a replay of a
+  // past stream event). A late observer reads this on subscribe to learn the
+  // true current state, then observes streamState() for live transitions.
+  @async
+  SessionState currentState();
   @async
   CameraSettings? currentSettings();
   @async

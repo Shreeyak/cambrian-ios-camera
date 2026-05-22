@@ -40,6 +40,12 @@ class _CameraScreenState extends State<CameraScreen> {
       _stateSub = _engine.stateStream().listen((s) {
         if (mounted) setState(() => _state = s);
       });
+      // Seed the status from the camera's actual current state (fresh read, not
+      // a replay) — covers the case where open() already reached `streaming`
+      // before this subscription. Live transitions then update it.
+      _engine.currentState().then((s) {
+        if (mounted) setState(() => _state = s);
+      }).catchError((_) {});
       _frameSub = _engine.frameResultStream().listen((f) {
         if (mounted) setState(() => _isoCurrent = f.iso);
       });

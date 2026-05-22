@@ -821,6 +821,7 @@ var cambrianIosCameraApiPigeonMethodCodec = FlutterStandardMethodCodec(readerWri
 protocol CameraEngineHostApi {
   func open(configuration: OpenConfiguration?, completion: @escaping (Result<SessionCapabilities, Error>) -> Void)
   func close(completion: @escaping (Result<Void, Error>) -> Void)
+  func currentState(completion: @escaping (Result<SessionState, Error>) -> Void)
   func currentSettings(completion: @escaping (Result<CameraSettings?, Error>) -> Void)
   func currentProcessingParameters(completion: @escaping (Result<ProcessingParameters?, Error>) -> Void)
   func updateSettings(settings: CameraSettings, completion: @escaping (Result<Void, Error>) -> Void)
@@ -874,6 +875,21 @@ class CameraEngineHostApiSetup {
       }
     } else {
       closeChannel.setMessageHandler(nil)
+    }
+    let currentStateChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.currentState\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      currentStateChannel.setMessageHandler { _, reply in
+        api.currentState { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      currentStateChannel.setMessageHandler(nil)
     }
     let currentSettingsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.currentSettings\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

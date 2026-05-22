@@ -19,6 +19,7 @@ public protocol CameraEngineProtocol: Actor {
     func close() async
 
     // MARK: Snapshots
+    func currentStateSnapshot() -> SessionState
     func currentSettingsSnapshot() -> CameraSettings?
     func currentProcessingParametersSnapshot() -> ProcessingParameters?
 

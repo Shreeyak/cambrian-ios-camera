@@ -19,9 +19,17 @@ class _PreviewWidgetState extends State<PreviewWidget> {
   @override
   void initState() {
     super.initState();
+    // Observe live transitions...
     _stateSub = widget.engine.stateStream().listen((s) {
       if (mounted) setState(() => _lastState = s);
     });
+    // ...and read the camera's ACTUAL current state once, now, so a preview
+    // built after the engine already reached `streaming` renders immediately
+    // instead of waiting for the next transition. A fresh read, not a replay —
+    // a live transition arriving first simply supersedes it.
+    widget.engine.currentState().then((s) {
+      if (mounted) setState(() => _lastState = s);
+    }).catchError((_) {});
     widget.engine.createPreviewTexture(stream: StreamId.processed).then((id) {
       if (mounted) setState(() => _textureId = id);
     });

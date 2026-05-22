@@ -41,6 +41,9 @@ actor MockCameraEngine: CameraEngineProtocol {
         return openResult
     }
     func close() async { closeCalls += 1 }
+    var currentStateValue: SessionState = .closed
+    func setCurrentState(_ s: SessionState) { currentStateValue = s }
+    func currentStateSnapshot() -> SessionState { currentStateValue }
     func currentSettingsSnapshot() -> CameraSettings? { nil }
     func currentProcessingParametersSnapshot() -> ProcessingParameters? { nil }
     func stateStream() -> AsyncStream<SessionState> { AsyncStream { _ in } }

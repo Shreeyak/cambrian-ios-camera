@@ -77,6 +77,24 @@ void main() {
   });
 
   group('Snapshots', () {
+    test('currentState returns the host value (fresh read, not a replay)',
+        () async {
+      when(api.currentState())
+          .thenAnswer((_) async => g.SessionState.streaming);
+      expect(await engine.currentState(), g.SessionState.streaming);
+    });
+
+    test('currentState rethrows PlatformException', () async {
+      when(api.currentState()).thenThrow(
+        PlatformException(code: 'notOpen', message: 'engine not open'),
+      );
+      expect(
+        () => engine.currentState(),
+        throwsA(isA<CameraException>()
+            .having((e) => e.code, 'code', CameraErrorCode.notOpen)),
+      );
+    });
+
     test('currentSettings returns null when host returns null', () async {
       when(api.currentSettings()).thenAnswer((_) async => null);
       expect(await engine.currentSettings(), isNull);

@@ -68,6 +68,18 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Snapshots
 
+    func currentState(
+        completion: @escaping (Result<SessionState, any Error>) -> Void
+    ) {
+        let engine = self.engine
+        Task {
+            // Fresh read of the engine's actual current state — not a replay.
+            // `.closed` when no engine exists yet (before open()).
+            let snap = await engine?.currentStateSnapshot() ?? .closed
+            completion(.success(snap.toPigeon()))
+        }
+    }
+
     func currentSettings(
         completion: @escaping (Result<CameraSettings?, any Error>) -> Void
     ) {

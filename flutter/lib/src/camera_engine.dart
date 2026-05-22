@@ -93,6 +93,15 @@ class CameraEngine {
 
   // MARK: - Snapshots
 
+  /// A fresh read of the camera's ACTUAL current session state — not a replay.
+  ///
+  /// Read this once when you start observing (e.g. in a preview widget's
+  /// `initState`) to learn the current state immediately, then listen to
+  /// [stateStream] for live transitions. Unlike a replaying stream, this can
+  /// never surface a stale value: it queries the engine's live state at call
+  /// time. Returns [g.SessionState.closed] before [open].
+  Future<g.SessionState> currentState() => _guard(_api.currentState);
+
   Future<g.CameraSettings?> currentSettings() => _guard(_api.currentSettings);
 
   Future<g.ProcessingParameters?> currentProcessingParameters() =>

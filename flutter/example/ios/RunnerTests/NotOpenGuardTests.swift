@@ -33,4 +33,18 @@ final class NotOpenGuardTests: XCTestCase {
         }
         wait(for: [exp], timeout: 1.0)
     }
+
+    // currentState() does NOT guard — it reports the actual state, which is
+    // `.closed` before open() (no engine yet). Fresh read, never a failure.
+    func test_currentState_before_open_returns_closed() {
+        let plugin = CambrianIosCameraPlugin(registrar: StubRegistrar(), engine: nil)
+        let exp = expectation(description: "completion")
+        plugin.currentState { result in
+            if case .success(let state) = result {
+                XCTAssertEqual(state, .closed)
+                exp.fulfill()
+            }
+        }
+        wait(for: [exp], timeout: 1.0)
+    }
 }

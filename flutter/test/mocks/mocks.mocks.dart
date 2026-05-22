@@ -104,6 +104,16 @@ class MockCameraEngineHostApi extends _i1.Mock
       ) as _i4.Future<void>);
 
   @override
+  _i4.Future<_i2.SessionState> currentState() => (super.noSuchMethod(
+        Invocation.method(
+          #currentState,
+          [],
+        ),
+        returnValue:
+            _i4.Future<_i2.SessionState>.value(_i2.SessionState.opening),
+      ) as _i4.Future<_i2.SessionState>);
+
+  @override
   _i4.Future<_i2.CameraSettings?> currentSettings() => (super.noSuchMethod(
         Invocation.method(
           #currentSettings,

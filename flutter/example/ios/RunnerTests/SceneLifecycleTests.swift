@@ -45,4 +45,21 @@ final class SceneLifecycleTests: XCTestCase {
         let history = await mock.phaseHistory
         XCTAssertEqual(history, [.background])
     }
+
+    // currentState() reads the engine's ACTUAL current state (fresh, not a
+    // replay) and maps it to the Pigeon enum. `.streaming` on the mock (CameraKit
+    // type) must surface as Pigeon `.streaming` to the caller.
+    func test_currentState_reflects_engine_state() async {
+        let mock = MockCameraEngine()
+        await mock.setCurrentState(.streaming)
+        let plugin = CambrianIosCameraPlugin(registrar: StubRegistrar(), engine: mock)
+        let exp = expectation(description: "completion")
+        plugin.currentState { result in
+            if case .success(let state) = result {
+                XCTAssertEqual(state, .streaming)
+                exp.fulfill()
+            }
+        }
+        await fulfillment(of: [exp], timeout: 1.0)
+    }
 }
