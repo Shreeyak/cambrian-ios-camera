@@ -890,3 +890,16 @@ struct IspPhotoSettingsTests {
         #expect(s.photoQualityPrioritization == .balanced)
     }
 }
+
+// MARK: - ISP natural capture — pause/not-open contract
+
+@Suite("ISP natural capture — pause/not-open contract")
+struct IspPauseContractTests {
+    @Test("captureNaturalPicture throws when the engine is not open")
+    func notOpenThrows() async {
+        let engine = CameraEngine(initialPhase: .active)
+        await #expect(throws: (any Error).self) {
+            try await engine.captureNaturalPicture()
+        }
+    }
+}
