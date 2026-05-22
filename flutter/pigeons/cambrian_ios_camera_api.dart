@@ -270,3 +270,92 @@ class CameraError {
   String message;
   bool isFatal;
 }
+
+// ─── HOST APIS ──────────────────────────────────────────────────────────────
+
+@HostApi()
+abstract class CameraEngineHostApi {
+  // Lifecycle
+  @async
+  SessionCapabilities open(OpenConfiguration? configuration);
+  @async
+  void close();
+
+  // Snapshots
+  @async
+  CameraSettings? currentSettings();
+  @async
+  ProcessingParameters? currentProcessingParameters();
+
+  // Control
+  @async
+  void updateSettings(CameraSettings settings);
+  @async
+  void setResolution(PSize size);
+  @async
+  void setProcessingParams(ProcessingParameters params);
+  @async
+  void setCropRegion(PRect rect);
+
+  // Capture
+  @async
+  String captureImage(String? outputPath, PhotosDestination photosDestination);
+  @async
+  String captureNaturalPicture(String? outputPath, PhotosDestination photosDestination);
+
+  // Recording (no pause/resume — CameraKit has no recording-pause API)
+  @async
+  RecordingStart startRecording(RecordingOptions options);
+  @async
+  String stopRecording();
+
+  // Calibration
+  @async
+  CalibrationResult calibrateWhiteBalance();
+  @async
+  CalibrationResult calibrateBlackBalance();
+
+  // Texture bridge
+  @async
+  int createPreviewTexture(StreamId stream);
+  @async
+  void destroyPreviewTexture(int textureId);
+}
+
+@HostApi()
+abstract class PermissionsHostApi {
+  @async
+  CameraPermissionStatus cameraPermissionStatus();
+  @async
+  CameraPermissionStatus requestCameraPermission();
+}
+
+// ─── EVENT CHANNEL APIS ─────────────────────────────────────────────────────
+// One per stream. Each Stream<T> on the Dart side is fed by the matching
+// CameraEngine.<X>Stream() AsyncStream<T> in the adapter via a per-stream
+// bridging Task.
+
+@EventChannelApi()
+abstract class StateEventApi {
+  SessionState streamState();
+}
+
+@EventChannelApi()
+abstract class ErrorEventApi {
+  CameraError streamErrors();
+}
+
+@EventChannelApi()
+abstract class StreamConfigurationEventApi {
+  StreamConfiguration streamStreamConfigurations();
+}
+
+@EventChannelApi()
+abstract class FrameResultEventApi {
+  FrameResult streamFrameResults();
+}
+
+@EventChannelApi()
+abstract class RecordingStateEventApi {
+  RecordingStateValue streamRecordingStates();
+}
