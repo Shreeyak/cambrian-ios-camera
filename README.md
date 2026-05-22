@@ -66,6 +66,10 @@ final engine = await CameraEngine.open(...);
 
 **For Android camera in the same app:** add `cambrian_camera` (cam2fd's Android-only plugin) as a separate dependency. Both plugins maintain similar API surfaces by convention, so platform-conditional code in Dart is straightforward. Phase B (the plugin implementation itself) is being built now — see `docs/superpowers/specs/`.
 
+## Versioning
+
+A single git tag `vX.Y.Z` drives **both** consumers — the SPM `from:`/`exact:` resolution and the Flutter `ref:` point at the same tag. SemVer applies across the combined surface: a breaking change to either the Swift `CameraKit` API or the Dart `cambrian_ios_camera` API bumps the major. `main` is for development; always pin a tag.
+
 ## Two example apps in this repo
 
 | Path | What it is | Use it when |

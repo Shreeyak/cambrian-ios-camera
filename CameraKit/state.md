@@ -4,6 +4,49 @@ Repo restructured for two-personality (Swift SPM + Flutter plugin) shipping.
 Spec: `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`.
 Plan: `docs/superpowers/plans/2026-05-20-flutter-plugin-monorepo-plan.md`.
 
+## Phase B — Flutter plugin v1.0.0 (2026-05-22)
+
+**Spec:** `docs/superpowers/specs/2026-05-22-flutter-plugin-phase-b-design.md`
+**Plan:** `docs/superpowers/plans/2026-05-22-flutter-plugin-phase-b.md`
+
+Phase B is post-pipeline (no stage briefs, no preflight). It populates
+`flutter/` with the `cambrian_ios_camera` plugin:
+
+- Singleton `CameraEngine` exposed via Pigeon `@HostApi` + five
+  `@EventChannelApi` broadcast streams (state, frame-result, recording,
+  calibration, error). Streams are **non-replaying** by design — a replay
+  (BehaviorSubject) would mask a stalled pipeline; consumers seed initial
+  state with a fresh `currentState()` snapshot read on subscribe, then observe
+  the live stream.
+- Plugin-owned **native** lifecycle: `FlutterSceneLifeCycleDelegate` +
+  `registrar.addSceneDelegate(self)` + a host `FlutterSceneDelegate` subclass
+  (Info.plist `UISceneDelegateClassName = $(PRODUCT_MODULE_NAME).SceneDelegate`).
+  UIScene callbacks → `engine.setLifecyclePhase`. Dart has **no** lifecycle
+  surface — we drive the engine off what the camera device is actually doing,
+  not a stale Dart-side event. (Raw `UIWindowSceneDelegate` + addApplicationDelegate
+  never fires scene callbacks — that was the black-preview root cause.)
+- Zero-copy preview via `FlutterTexture` + `Texture(textureId:)`.
+- One-time CameraKit additions for adapter mockability/snapshot:
+  `CameraEngineProtocol` and `currentStateSnapshot()` (mirrors
+  `currentSettingsSnapshot()` — fresh actor read, not a replay).
+- Tests: Dart unit (`flutter/test/`), example widget smoke
+  (`flutter/example/test/`), Swift adapter XCTest (`RunnerTests`, app-hosted
+  on iPad — needs the SceneDelegate XCTest guard), and 3 integration tests
+  on iPad (Test 2 Lifecycle skipped in v1.0 — needs XCUIDevice automation).
+- Capture-save: `captureImage` writes TIFF (CameraKit default); example app
+  exposes Documents via `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`.
+- Android stub throwing `PlatformException(code: 'iOSOnly')`.
+- Joint git-tag versioning — `vX.Y.Z` drives both SPM + Flutter consumers.
+- Example app at `flutter/example/` — lean, processed-lane only. Visible name
+  "Cambrian Camera" (CFBundleDisplayName only; the Runner target/scheme stays
+  "Runner" — Flutter tooling hardcodes it).
+- Test/release scripts: `flutter/example/scripts/test-{swift-adapter,integration}.sh`,
+  `scripts/test-phase-b.sh`, `scripts/release-gate.sh` (7-check gate).
+
+CameraKit's full test suite untouched. The adapter is a thin translation layer
+(Phase B spec §1 load-bearing property #2 — "if the adapter is doing real
+work, the work belongs in CameraKit").
+
 ## Restructure 2026-05-20 — Flutter monorepo
 
 - **`Package.swift` moved to repo root**; `CameraKit/Package.swift` deleted.
