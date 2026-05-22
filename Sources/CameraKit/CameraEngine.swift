@@ -1324,8 +1324,10 @@ public actor CameraEngine {
     /// for the full contract and known error codes.
     ///
     /// - Parameters:
-    ///   - outputURL: Resolved per `PhotosLibraryClient.resolve` (default ext
-    ///     `tif`). `nil` → `<Documents>/<timestamp>.tif`.
+    ///   - outputURL: Resolved per `OutputPathResolver.image`. `nil` →
+    ///     `<Documents>/<timestamp>.png` (PNG). A name's extension picks the
+    ///     format: `.png` / `.jpg`/`.jpeg` / `.tif`/`.tiff`. A name with no
+    ///     extension, or an unsupported one, throws.
     ///   - photosDestination: See `PhotosDestination`. Independent of
     ///     `outputURL`; defaults to `.none` (no Photos interaction).
     /// - Returns: A `StillCaptureOutput` with the on-disk file path. With
@@ -1333,7 +1335,8 @@ public actor CameraEngine {
     /// - Throws: `EngineError.notOpen` if the engine is not open or not running.
     /// - Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves
     ///   outside the app sandbox.
-    /// - Throws: `EngineError.capture(_:)` wrapping any `StillCaptureError`.
+    /// - Throws: `EngineError.capture(_:)` wrapping any `StillCaptureError` —
+    ///   including `.missingFileExtension` / `.unsupportedImageFormat`.
     public func captureImage(
         outputURL: URL? = nil,
         photosDestination: PhotosDestination = .none
@@ -1365,8 +1368,11 @@ public actor CameraEngine {
         }
 
         let writeURL: URL
+        let format: ImageFileFormat
         do {
-            writeURL = try PhotosLibraryClient.resolve(outputURL: outputURL, defaultExt: "tif")
+            (writeURL, format) = try OutputPathResolver.image(outputURL)
+        } catch let e as StillCaptureError {
+            throw EngineError.capture(e)
         } catch let e as EngineError {
             throw e
         }
@@ -1380,7 +1386,7 @@ public actor CameraEngine {
                 focalLengthMm: 0,
                 apertureValue: apertureValue,
                 outputURL: writeURL,
-                format: .tiff,
+                format: format,
                 laneTag: "processed"
             )
         } catch let e as StillCaptureError {
@@ -1418,12 +1424,13 @@ public actor CameraEngine {
         return output
     }
 
-    /// ISP one-shot via `AVCapturePhotoOutput` → live Metal crop+grade → TIFF
+    /// ISP one-shot via `AVCapturePhotoOutput` → live Metal crop+grade → still
     /// cropped to the active region.
     ///
     /// Same device and grade settings as `captureImage`, differing only by
     /// source: this method fires an ISP one-shot rather than reading the latest
-    /// processed-lane buffer. The graded output is TIFF-encoded at `outputSize`.
+    /// processed-lane buffer. The graded output is encoded at `outputSize` in the
+    /// format chosen by `outputURL`'s extension (see `OutputPathResolver.image`).
     /// EXIF carries `"lane": "natural"` inside the `CamPlugin/v1` envelope so
     /// consumers can distinguish natural-lane stills from processed-lane stills
     /// written by `captureImage` (`"lane": "processed"`). Errors cleanly when
@@ -1431,8 +1438,10 @@ public actor CameraEngine {
     /// D-2P-10).
     ///
     /// - Parameters:
-    ///   - outputURL: Resolved per `PhotosLibraryClient.resolve` (default ext
-    ///     `tif`). `nil` → `<Documents>/<timestamp>.tif`.
+    ///   - outputURL: Resolved per `OutputPathResolver.image`. `nil` →
+    ///     `<Documents>/<timestamp>.png` (PNG). A name's extension picks the
+    ///     format: `.png` / `.jpg`/`.jpeg` / `.tif`/`.tiff`. A name with no
+    ///     extension, or an unsupported one, throws.
     ///   - photosDestination: See `PhotosDestination`. Independent of
     ///     `outputURL`; defaults to `.none` (no Photos interaction).
     /// - Returns: A `StillCaptureOutput` with the on-disk file path. With
@@ -1468,7 +1477,8 @@ public actor CameraEngine {
         // 2. Crop + grade through the live Metal pipeline (matches preview grade).
         let graded = try await pipeline.gradeOneShot(pixelBuffer: photoBuffer)
 
-        // 3. Encode TIFF with the same EXIF/lane tag contract as before.
+        // 3. Encode in the extension-chosen format with the same EXIF/lane tag
+        //    contract as before.
         let snap = await session.device?.lastSnapshot
         let apertureValue: Double
         if let device = session.device {
@@ -1478,8 +1488,11 @@ public actor CameraEngine {
         }
 
         let writeURL: URL
+        let format: ImageFileFormat
         do {
-            writeURL = try PhotosLibraryClient.resolve(outputURL: outputURL, defaultExt: "tif")
+            (writeURL, format) = try OutputPathResolver.image(outputURL)
+        } catch let e as StillCaptureError {
+            throw EngineError.capture(e)
         } catch let e as EngineError {
             throw e
         }
@@ -1493,7 +1506,7 @@ public actor CameraEngine {
                 focalLengthMm: 0,
                 apertureValue: apertureValue,
                 outputURL: writeURL,
-                format: .tiff,
+                format: format,
                 laneTag: "natural"
             )
         } catch let e as StillCaptureError {
