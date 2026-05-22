@@ -203,31 +203,45 @@ each brief's §12 names the exact file paths.
 Each development machine needs this once:
 
 ```bash
-brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq
+brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq lefthook
 xcode-build-server config -project eva-swift-stitch.xcodeproj \
                           -scheme eva-swift-stitch
-git config core.hooksPath .githooks
+lefthook install                # installs BOTH the pre-commit and pre-push hooks
 ```
 
 The second command generates `buildServer.json` at the repo root, bridging
 sourcekit-lsp to Xcode's build system. It is gitignored (contains a
 machine-specific DerivedData path); re-run after cloning or changing scheme.
 
-The third command enables the repo's tracked hooks: `pre-push` keeps the
-`camerakit-only` synthetic branch in sync for the Flutter plugin consumer (§10),
-and `pre-commit` runs `swift-format lint --strict` on staged
-`CameraKit/Sources/**.swift` and regenerates `CONTRACTS.md`. **SwiftLint is NOT a
-commit gate** — it was dropped from the hook (it flags CameraKit/Sources'
-deliberate patterns, e.g. the test-seam `_*ForTest` identifiers and the large
-`CameraEngine` actor, as errors); `swift-format --strict` is the authoritative
-style gate. SwiftLint also crashes when run standalone on this machine's beta
-toolchain (`Loading sourcekitdInProc.framework … failed`), so `.swiftlint.yml`
-is IDE-advisory only.
-We keep both in `.githooks/` rather than the default `.git/hooks/` so they are
-version-controlled and ship with every clone — `git config core.hooksPath
-.githooks` is the per-clone wire-up that points git at them (the default
-`.git/hooks/` is never committed, so hooks placed there don't travel). Skip on a
-one-off push with `--no-verify`.
+The third command installs the repo's git hooks, declared in `lefthook.toml` and
+managed by [lefthook](https://lefthook.dev). Two stages run:
+- **pre-commit** — `swift-format lint --strict` on staged
+  `CameraKit/Sources/**.swift` (the authoritative style gate) and a
+  `CONTRACTS.md` regen that re-stages the refreshed file. **SwiftLint is NOT a
+  commit gate** — it flags CameraKit/Sources' deliberate patterns (test-seam
+  `_*ForTest` identifiers, the large `CameraEngine` actor) as errors, and crashes
+  standalone on this machine's beta toolchain (`Loading
+  sourcekitdInProc.framework … failed`), so `.swiftlint.yml` is IDE-advisory only.
+- **pre-push** — `.lefthook/pre-push/sync-camerakit-only.sh` keeps the
+  `camerakit-only` synthetic branch in sync for the Flutter plugin consumer
+  (§10). It's a lefthook *script* (not a command) so it fires on **every** push;
+  a cheap tree-fingerprint guard makes it sub-second unless `CameraKit/` changed.
+
+**Why lefthook and not git's `core.hooksPath` + a `.githooks/` dir:**
+`lefthook install` writes its runner into `.git/hooks/`, so the hooks fire
+regardless of what `core.hooksPath` is set to. The worktree tooling repeatedly
+resets `core.hooksPath` to the default `.git/hooks` (it writes the *shared*
+`.git/config`, common to every linked worktree), which silently disabled the old
+`.githooks` setup more than once. Installing into `.git/hooks` makes that reset a
+no-op. **Do not set `core.hooksPath`** — leave it unset (default). If you ever see
+it set, `git config --unset core.hooksPath` and the hooks keep working. Re-run
+`lefthook install` after cloning. Skip a hook for a genuine emergency with
+`git commit --no-verify` / `git push --no-verify` (do not use casually).
+
+The `CONTRACTS.md` regen is byte-deterministic (no embedded timestamp), so the
+pre-commit hook only produces a diff on a real API-shape change; the hook
+`git add`s the refreshed `CONTRACTS.md` so it lands in the same commit (lefthook
+does not abort on hook-modified files — one-attempt commits).
 
 ### 6.1 Coordinator discipline
 
@@ -568,13 +582,21 @@ no `scripts/`, no broken `implementation/` symlinks.
 
 ### How it stays in sync
 
-`.githooks/pre-push` regenerates the synthetic branch on every push to
-`origin/main` that includes `CameraKit/` changes. The hook runs
-`git subtree split --prefix=CameraKit -b camerakit-only` and force-pushes
-the result. Enable once per clone (§6.0):
+The lefthook **pre-push** script
+(`lefthook.toml` → `.lefthook/pre-push/sync-camerakit-only.sh`) keeps the
+synthetic branch current. It's a lefthook *script* (not a command) so it runs on
+**every** push from `main` — lefthook commands skip with "no matching push files"
+on a no-op/non-CameraKit push, scripts don't. A cheap O(1) guard (the
+`HEAD:CameraKit` tree object vs the last-synced tree recorded in
+`.git/camerakit-only-synced.tree`) makes it exit in milliseconds unless
+`CameraKit/` actually changed; only then does it run `git subtree split
+--prefix=CameraKit` (~40s on this history) and force-push the resulting SHA to
+`refs/heads/camerakit-only` (idempotent — a no-op vs `origin` is detected too).
+It is git-state-driven (no dependence on hook-manager plumbing). Enable once per
+clone (§6.0):
 
 ```bash
-git config core.hooksPath .githooks
+lefthook install
 ```
 
 Skip on a one-off push with `git push --no-verify`.
