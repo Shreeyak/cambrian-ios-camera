@@ -15,6 +15,14 @@ class CameraEngine {
   // Per-stream broadcast controllers. In production these are fed by listening
   // to the Pigeon EventChannel streams (top-level g.streamX() functions). In
   // tests, the CameraEngineStreamsTesting seam exposes them directly.
+  //
+  // Deliberately NON-replaying broadcast: what Dart observes is the camera's own
+  // live state, never a cached/stale value. A replay (BehaviorSubject) would
+  // re-emit the last value to every new subscriber, masking a stalled pipeline —
+  // a frozen camera would look alive because a fresh subscriber gets the stale
+  // cached frame. With broadcast, a stall surfaces as the absence of new events.
+  // The current state for a late subscriber comes from the engine's live
+  // lifecycle transitions (native scene-lifecycle → CameraEngine), not a replay.
   final StreamController<g.SessionState> _stateSource =
       StreamController<g.SessionState>.broadcast();
   final StreamController<g.CameraError> _errorSource =

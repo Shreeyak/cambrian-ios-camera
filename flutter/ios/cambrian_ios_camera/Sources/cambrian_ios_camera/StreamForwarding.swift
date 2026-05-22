@@ -8,14 +8,21 @@ import Flutter
 // `onListen` and releases it on `onCancel`. The send pattern is
 // `forwarder.sink?.success(value)`.
 //
-// Forwarders are kept alive by the Task closures that hold them
-// (subscribeAllStreams below); when the Task ends (close() cancels it),
-// the closure is released and the forwarder is deallocated, which
-// detaches the FlutterEventChannel handler.
+// The forwarders are owned by the plugin (stored properties on
+// CambrianIosCameraPlugin) and registered once at `register(with:)`, BEFORE any
+// Dart code subscribes. The Dart facade subscribes in its constructor (before
+// `open()`); registering the handlers eagerly guarantees `onListen` fires and
+// captures the sink. The engine-iterating Tasks that pump these sinks are
+// spawned later, in `startStreamForwarders()` (called from `open()`).
+//
+// The one `CameraKitLog.notice` in each `onListen` is the diagnostic that
+// confirms the fix: if it appears in camerakit.log before "open: ..." lines,
+// the sink was captured before open() and no startup events are dropped.
 
 final class StateForwarder: StreamStateStreamHandler, @unchecked Sendable {
     var sink: PigeonEventSink<SessionState>?
     override func onListen(withArguments arguments: Any?, sink: PigeonEventSink<SessionState>) {
+        CameraKitLog.notice(.consumers, "[forwarder] state onListen — sink captured")
         self.sink = sink
     }
     override func onCancel(withArguments arguments: Any?) {
@@ -26,6 +33,7 @@ final class StateForwarder: StreamStateStreamHandler, @unchecked Sendable {
 final class ErrorForwarder: StreamErrorsStreamHandler, @unchecked Sendable {
     var sink: PigeonEventSink<CameraError>?
     override func onListen(withArguments arguments: Any?, sink: PigeonEventSink<CameraError>) {
+        CameraKitLog.notice(.consumers, "[forwarder] errors onListen — sink captured")
         self.sink = sink
     }
     override func onCancel(withArguments arguments: Any?) {
@@ -38,6 +46,7 @@ final class StreamConfigForwarder: StreamStreamConfigurationsStreamHandler, @unc
     override func onListen(
         withArguments arguments: Any?, sink: PigeonEventSink<StreamConfiguration>
     ) {
+        CameraKitLog.notice(.consumers, "[forwarder] streamConfigurations onListen — sink captured")
         self.sink = sink
     }
     override func onCancel(withArguments arguments: Any?) {
@@ -48,6 +57,7 @@ final class StreamConfigForwarder: StreamStreamConfigurationsStreamHandler, @unc
 final class FrameResultForwarder: StreamFrameResultsStreamHandler, @unchecked Sendable {
     var sink: PigeonEventSink<FrameResult>?
     override func onListen(withArguments arguments: Any?, sink: PigeonEventSink<FrameResult>) {
+        CameraKitLog.notice(.consumers, "[forwarder] frameResults onListen — sink captured")
         self.sink = sink
     }
     override func onCancel(withArguments arguments: Any?) {
@@ -60,6 +70,7 @@ final class RecordingStateForwarder: StreamRecordingStatesStreamHandler, @unchec
     override func onListen(
         withArguments arguments: Any?, sink: PigeonEventSink<RecordingStateValue>
     ) {
+        CameraKitLog.notice(.consumers, "[forwarder] recordingStates onListen — sink captured")
         self.sink = sink
     }
     override func onCancel(withArguments arguments: Any?) {
@@ -67,73 +78,83 @@ final class RecordingStateForwarder: StreamRecordingStatesStreamHandler, @unchec
     }
 }
 
-// MARK: - subscribeAllStreams
+// MARK: - Stream handler registration + forwarding
 
 extension CambrianIosCameraPlugin {
 
-    /// Spawns the five per-stream forwarder Tasks.
+    /// Registers the five EventChannel stream handlers.
     ///
-    /// Called from `open()` once the engine has been constructed. Each Task
-    /// captures its forwarder strongly so the forwarder lives as long as the
-    /// Task is in `streamTasks`. `close()` cancels every task, which releases
-    /// the forwarder closures and detaches the FlutterEventChannel handlers.
-    ///
-    /// If the Dart side subscribes BEFORE `open()` (the broadcast-cached-stream
-    /// pattern in the Dart facade does exactly this), `forwarder.sink` is
-    /// already set by the time these Tasks start iterating, so no events are
-    /// dropped at startup.
-    func subscribeAllStreams() {
-        guard let engine = self.engine else { return }
-        let messenger = registrar.messenger()
-
-        let stateForwarder = StateForwarder()
+    /// Called once from `register(with:)`, on the platform/main thread, BEFORE
+    /// any Dart code can subscribe. Registering eagerly is what makes the Dart
+    /// facade's constructor-time `.listen(...)` succeed: Flutter only delivers
+    /// the "listen" (and fires `onListen`, capturing the sink) when a native
+    /// handler is already attached. Register late (e.g. in `open()`) and the
+    /// first subscription is silently dropped — the sink never fills and the
+    /// preview is stuck on "No signal".
+    func registerStreamHandlers(messenger: FlutterBinaryMessenger) {
+        assert(Thread.isMainThread, "EventChannel handlers must register on the main thread")
         StreamStateStreamHandler.register(with: messenger, streamHandler: stateForwarder)
-        streamTasks.append(
-            Task { [engine, stateForwarder] in
-                for await state in await engine.stateStream() {
-                    if Task.isCancelled { break }
-                    await MainActor.run { stateForwarder.sink?.success(state.toPigeon()) }
-                }
-            })
-
-        let errorForwarder = ErrorForwarder()
         StreamErrorsStreamHandler.register(with: messenger, streamHandler: errorForwarder)
-        streamTasks.append(
-            Task { [engine, errorForwarder] in
-                for await err in await engine.errorStream() {
-                    if Task.isCancelled { break }
-                    await MainActor.run { errorForwarder.sink?.success(err.toPigeon()) }
-                }
-            })
-
-        let cfgForwarder = StreamConfigForwarder()
         StreamStreamConfigurationsStreamHandler.register(
-            with: messenger, streamHandler: cfgForwarder)
+            with: messenger, streamHandler: streamConfigForwarder)
+        StreamFrameResultsStreamHandler.register(with: messenger, streamHandler: frameResultForwarder)
+        StreamRecordingStatesStreamHandler.register(
+            with: messenger, streamHandler: recordingStateForwarder)
+    }
+
+    /// Spawns the five engine-iterating forwarder Tasks.
+    ///
+    /// Called from `open()` once the engine exists (on the main thread). Each
+    /// Task captures the engine and its forwarder via a local (never `self`, to
+    /// avoid a retain cycle through `streamTasks`), pulls from the CameraKit
+    /// AsyncStream, and emits on the main thread through the already-captured
+    /// sink. `close()` cancels every task; cancellation breaks the loops and the
+    /// sinks are cleared on `onCancel` when Dart tears its subscriptions down.
+    func startStreamForwarders() {
+        guard let engine = self.engine else { return }
+
+        let state = self.stateForwarder
         streamTasks.append(
-            Task { [engine, cfgForwarder] in
-                for await cfg in await engine.streamConfigurationStream() {
+            Task { [engine, state] in
+                for await value in await engine.stateStream() {
                     if Task.isCancelled { break }
-                    await MainActor.run { cfgForwarder.sink?.success(cfg.toPigeon()) }
+                    await MainActor.run { state.sink?.success(value.toPigeon()) }
                 }
             })
 
-        let frameForwarder = FrameResultForwarder()
-        StreamFrameResultsStreamHandler.register(with: messenger, streamHandler: frameForwarder)
+        let errors = self.errorForwarder
         streamTasks.append(
-            Task { [engine, frameForwarder] in
-                for await fr in await engine.frameResultStream() {
+            Task { [engine, errors] in
+                for await value in await engine.errorStream() {
                     if Task.isCancelled { break }
-                    await MainActor.run { frameForwarder.sink?.success(fr.toPigeon()) }
+                    await MainActor.run { errors.sink?.success(value.toPigeon()) }
                 }
             })
 
-        let recForwarder = RecordingStateForwarder()
-        StreamRecordingStatesStreamHandler.register(with: messenger, streamHandler: recForwarder)
+        let cfg = self.streamConfigForwarder
         streamTasks.append(
-            Task { [engine, recForwarder] in
-                for await rs in await engine.recordingStateStream() {
+            Task { [engine, cfg] in
+                for await value in await engine.streamConfigurationStream() {
                     if Task.isCancelled { break }
-                    await MainActor.run { recForwarder.sink?.success(rs.toPigeon()) }
+                    await MainActor.run { cfg.sink?.success(value.toPigeon()) }
+                }
+            })
+
+        let frame = self.frameResultForwarder
+        streamTasks.append(
+            Task { [engine, frame] in
+                for await value in await engine.frameResultStream() {
+                    if Task.isCancelled { break }
+                    await MainActor.run { frame.sink?.success(value.toPigeon()) }
+                }
+            })
+
+        let rec = self.recordingStateForwarder
+        streamTasks.append(
+            Task { [engine, rec] in
+                for await value in await engine.recordingStateStream() {
+                    if Task.isCancelled { break }
+                    await MainActor.run { rec.sink?.success(value.toPigeon()) }
                 }
             })
     }
