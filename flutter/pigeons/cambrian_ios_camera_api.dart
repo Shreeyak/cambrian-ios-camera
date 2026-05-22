@@ -330,32 +330,27 @@ abstract class PermissionsHostApi {
   CameraPermissionStatus requestCameraPermission();
 }
 
-// ─── EVENT CHANNEL APIS ─────────────────────────────────────────────────────
-// One per stream. Each Stream<T> on the Dart side is fed by the matching
+// ─── EVENT CHANNEL API ──────────────────────────────────────────────────────
+//
+// One @EventChannelApi with five methods. Functionally equivalent to five
+// separate @EventChannelApi declarations: Pigeon still emits five distinct
+// Stream<T> getters on Dart and five distinct *StreamHandler classes on
+// Swift. Consolidating works around a Pigeon 22.x bug where the support
+// classes (PigeonEventChannelWrapper / PigeonEventSink / PigeonStreamHandler)
+// are emitted once *per* @EventChannelApi declaration, producing duplicate
+// top-level class declarations that fail Swift compilation
+// ("Invalid redeclaration of 'PigeonEventChannelWrapper'"). Fixed in
+// Pigeon 23.x; revisit on bump.
+//
+// Each Stream<T> on the Dart side is fed by the matching
 // CameraEngine.<X>Stream() AsyncStream<T> in the adapter via a per-stream
 // bridging Task.
 
 @EventChannelApi()
-abstract class StateEventApi {
+abstract class CameraEventApi {
   SessionState streamState();
-}
-
-@EventChannelApi()
-abstract class ErrorEventApi {
   CameraError streamErrors();
-}
-
-@EventChannelApi()
-abstract class StreamConfigurationEventApi {
   StreamConfiguration streamStreamConfigurations();
-}
-
-@EventChannelApi()
-abstract class FrameResultEventApi {
   FrameResult streamFrameResults();
-}
-
-@EventChannelApi()
-abstract class RecordingStateEventApi {
   RecordingStateValue streamRecordingStates();
 }
