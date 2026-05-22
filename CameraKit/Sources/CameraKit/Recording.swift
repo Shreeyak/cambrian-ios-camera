@@ -118,7 +118,7 @@ public actor Recording {
         guard case .idle = state else {
             throw RecordingError.writerStartFailed(status: -1)
         }
-        let url = try PhotosLibraryClient.resolve(outputURL: options.outputURL, defaultExt: "mp4")
+        let url = try OutputPathResolver.video(options.outputURL)
         let bitrate = options.bitrateBps ?? Constants.recordingTargetBitrateBpsDefault
         let fps = options.fps ?? Constants.frameRateTargetFPS
 
