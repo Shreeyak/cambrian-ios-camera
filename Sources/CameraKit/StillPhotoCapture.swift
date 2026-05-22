@@ -44,7 +44,7 @@ final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @uncheck
     func capture(using output: AVCapturePhotoOutput, on queue: DispatchQueue) async throws -> CVPixelBuffer {
         try await withCheckedThrowingContinuation { cont in
             self.continuation = cont
-            queue.async {
+            queue.async { [self] in
                 output.capturePhoto(with: Self.makeSettings(), delegate: self)
             }
         }

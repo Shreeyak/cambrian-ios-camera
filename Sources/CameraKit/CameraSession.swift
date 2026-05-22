@@ -317,6 +317,11 @@ final class CameraSession: @unchecked Sendable {
     /// The capturePhoto request runs on sessionQueue (ADR-07); returns the captured
     /// pixel buffer. The transient `StillPhotoCapture` is retained by `output` for
     /// the capture's duration and by this async frame.
+    ///
+    /// - Note: No timeout is installed — if the session is torn down before the
+    ///   photo delegate fires, the calling Task suspends indefinitely. A
+    ///   cancellation-aware timeout (ADR-30 / AsyncWithTimeout pattern) should be
+    ///   added if this surfaces in production.
     func capturePhoto() async throws -> CVPixelBuffer {
         try await StillPhotoCapture().capture(using: photoOutput, on: sessionQueue)
     }
