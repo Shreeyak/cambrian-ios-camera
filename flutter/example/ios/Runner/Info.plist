@@ -6,6 +6,16 @@
 	<string>Example app uses the camera to demonstrate cambrian_ios_camera.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Example app saves captures to your Photos library.</string>
+	<!-- Expose the app's Documents folder (where captures are written) in the
+	     Files app and over USB/Finder, so captured images are accessible
+	     without going through Photos. Both keys are required: UIFileSharingEnabled
+	     for the Files-app "On My iPad" entry, LSSupportsOpeningDocumentsInPlace so
+	     it shows real files rather than a copy. Literal Info.plist keys (not
+	     INFOPLIST_KEY_*), which Xcode would silently drop. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
