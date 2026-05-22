@@ -623,6 +623,10 @@ public actor CameraEngine {
     /// cleanly and reaches `publishState(.closed)`. Reproduces the realistic
     /// D-14 precondition: a `.cameraInUse` interruption only ever reaches a
     /// running session, i.e. an already-open engine.
+    // #if DEBUG: pokes `SessionStateMachine._setCurrentForTest`, which is itself
+    // DEBUG-only — so this caller must be DEBUG-gated too, or release/AOT builds
+    // (Flutter profile/release) fail to compile.
+    #if DEBUG
     func _markOpenForTest() {
         stateMachine._setCurrentForTest(.streaming)
         // Seed the phase-derived hardware mirror the way open()-then-reconcile
@@ -632,6 +636,7 @@ public actor CameraEngine {
         reconciledSessionRunning = (currentPhase != .background)
         setGate(currentPhase == .active)
     }
+    #endif
 
     /// Test-only: read the state machine's current `SessionState` (stateStream only yields on publish).
     var _currentStateForTest: SessionState { stateMachine.current }
@@ -645,7 +650,9 @@ public actor CameraEngine {
     /// `.opening` origin — no engine command publishes `.opening` (`open()`
     /// jumps `.closed → .streaming`), so the `shouldDeferCommandLabel`
     /// `.opening → .paused` rider is otherwise untestable at the engine level.
+    #if DEBUG
     func _setStateForTest(_ state: SessionState) { stateMachine._setCurrentForTest(state) }
+    #endif
 
     /// Test-only: reconcile's last session-running decision.
     ///
