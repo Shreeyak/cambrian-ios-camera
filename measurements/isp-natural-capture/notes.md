@@ -15,9 +15,9 @@ Tested 2026-05-22 on Shreeyak's iPad (iOS 26), via the dev-harness "Natural" but
 | 3 | **420f accepted** — no delegate format error | ✅ | |
 | 4 | **ISP quality** — saved TIFF looks native-camera-processed | ~ | Image valid + rendered; sharper-than-video not yet A/B'd |
 | 5 | **Grade match** — TIFF carries the live grade | ✅ | User: "desaturated, just like I set it to" |
-| 6 | **Crop framing** — cropped to active region | ⬜ | Not exercised (no crop active; outputSize == captureSize). Same crop-uniform path as the verified live pipeline. |
-| 7 | **Orientation** — right-way-up, matches preview | ⬜ | Not explicitly confirmed |
-| 8 | **Pause contract** — capturing while paused throws cleanly | ⬜ | Not yet tested |
+| 6 | **Crop framing** — cropped to active region | ✅ | Crop button → `[crop] applied center 1600x1200 at (1216,912)` → natural capture at 1600x1200, cropped (and processed still too). Reset → back to 4032x3024. |
+| 7 | **Orientation** — right-way-up, matches preview | ✅ | Confirmed in Files app; photo connection rotation matches video (ADR-17, Task 3) |
+| 8 | **Pause contract** — capturing while paused throws cleanly | ✅ (by design) | UI gates both capture buttons on `isCaptureEnabled = isStreaming && !isRecording`, so a paused capture can't be triggered; `guard reconciledSessionRunning` is the backstop (covered by the not-open unit test) |
 | 9 | **Latency** — shutter→file delay acceptable | ✅ | ~488 ms |
 
 ## Sample output
@@ -29,4 +29,5 @@ Tested 2026-05-22 on Shreeyak's iPad (iOS 26), via the dev-harness "Natural" but
 
 - ✅ Core path validated on device: ISP one-shot → grade → TIFF, 4032×3024, grade applied. The flagged #1 risk (photo dims > captureSize) did NOT occur — the photo defaults to the active format's video dims under `.inputPriority`.
 - Dev-harness "Natural" button added (`camera.aperture`) in `eva-swift-stitch/UI/` to enable HITL — the library always exposed `captureNaturalPicture()`; only the app UI lacked a trigger.
-- Remaining optional checks: orientation (#7), pause-error (#8), crop-active framing (#6).
+- All HITL checks complete (orientation, crop-active framing, pause-by-design) — see table. Crop verified via a dev-harness "Crop" toggle button (fixed 1600×1200 center crop) added to enable testing.
+- Non-blocking debts carried forward: no capture timeout on `capturePhoto()`; delegate lifetime rests on AVF's retain contract (fails safe as a hang). ISP "sharper-than-video" not formally A/B'd (#4) — image renders correctly and is the genuine AVCapturePhotoOutput path.

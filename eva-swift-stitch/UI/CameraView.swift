@@ -164,6 +164,11 @@ public struct CameraView: View {
                 stopEnabled: enablement.isStopEnabled
             )
             resolutionButton(enabled: enablement.isResolutionEnabled)
+            barButton(
+                label: viewModel.isCenterCropped ? "Full" : "Crop",
+                systemImage: viewModel.isCenterCropped ? "crop.rotate" : "crop",
+                enabled: enablement.isResolutionEnabled
+            ) { viewModel.toggleCenterCrop() }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
