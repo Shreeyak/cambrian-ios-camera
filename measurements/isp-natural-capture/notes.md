@@ -6,23 +6,27 @@
 
 ## Checklist (fill in on-device)
 
+Tested 2026-05-22 on Shreeyak's iPad (iOS 26), via the dev-harness "Natural" button.
+
 | # | Check | Result | Notes |
 |---|-------|--------|-------|
-| 1 | **Capture returns** — `[natural] ISP capture complete` follows `[natural] ISP capture start` in the device log (no hang) | ⬜ | |
-| 2 | **Photo dims == captureSize** — capture does NOT throw `unsupportedFormat` (the dimension guard). If it throws, pin `photoOutput.maxPhotoDimensions` to the active format's video dims | ⬜ | #1 risk |
-| 3 | **420f accepted** — no delegate error about pixel format | ⬜ | |
-| 4 | **ISP quality** — saved TIFF looks native-camera-processed (sharper/cleaner than a video frame) | ⬜ | |
-| 5 | **Grade match** — TIFF carries the same live grade as the preview at shutter time (move a slider just before capture to confirm snapshot-at-arrival) | ⬜ | |
-| 6 | **Crop framing** — TIFF is cropped to the active region, not the full sensor | ⬜ | |
-| 7 | **Orientation** — TIFF is right-way-up, matching the preview (no 90° rotation) | ⬜ | |
-| 8 | **Pause contract** — capturing while paused throws cleanly (no stale frame) | ⬜ | |
-| 9 | **Latency** — shutter→file delay is acceptable UX | ⬜ | |
+| 1 | **Capture returns** — `[natural] ISP capture complete` follows `[natural] ISP capture start` (no hang) | ✅ | ~488 ms start→complete |
+| 2 | **Photo dims == captureSize** — no `unsupportedFormat` (dimension guard) | ✅ | Photo came back 4032×3024 == captureSize; guard never fired. **No `maxPhotoDimensions` pin needed.** |
+| 3 | **420f accepted** — no delegate format error | ✅ | |
+| 4 | **ISP quality** — saved TIFF looks native-camera-processed | ~ | Image valid + rendered; sharper-than-video not yet A/B'd |
+| 5 | **Grade match** — TIFF carries the live grade | ✅ | User: "desaturated, just like I set it to" |
+| 6 | **Crop framing** — cropped to active region | ⬜ | Not exercised (no crop active; outputSize == captureSize). Same crop-uniform path as the verified live pipeline. |
+| 7 | **Orientation** — right-way-up, matches preview | ⬜ | Not explicitly confirmed |
+| 8 | **Pause contract** — capturing while paused throws cleanly | ⬜ | Not yet tested |
+| 9 | **Latency** — shutter→file delay acceptable | ✅ | ~488 ms |
 
 ## Sample output
 
-- Path(s):
-- Pull from device: `xcrun devicectl device copy from --device <devicectl-udid> --domain-type appDataContainer --source Documents/<file>.tif --destination /tmp/`
+- `/var/mobile/Containers/Data/Application/<app>/Documents/2026-05-22T04-21-34Z.tif` (4032×3024, desaturated per live grade)
+- Pull from device: `xcrun devicectl device copy from --device DAD37FD5-685B-50E0-911E-F9BC40BBDBE5 --domain-type appDataContainer --domain-identifier com.cambrian.eva-swift-stitch --source Documents/<file>.tif --destination /tmp/`
 
 ## Findings / follow-ups
 
--
+- ✅ Core path validated on device: ISP one-shot → grade → TIFF, 4032×3024, grade applied. The flagged #1 risk (photo dims > captureSize) did NOT occur — the photo defaults to the active format's video dims under `.inputPriority`.
+- Dev-harness "Natural" button added (`camera.aperture`) in `eva-swift-stitch/UI/` to enable HITL — the library always exposed `captureNaturalPicture()`; only the app UI lacked a trigger.
+- Remaining optional checks: orientation (#7), pause-error (#8), crop-active framing (#6).

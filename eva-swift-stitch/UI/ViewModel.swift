@@ -220,6 +220,32 @@ final class ViewModel {
         }
     }
 
+    /// Dev-harness hook for the ISP one-shot natural capture (AVCapturePhotoOutput
+    /// → Metal grade → TIFF). Mirrors `captureImage`; lets HITL exercise the
+    /// natural path the library exposes via `engine.captureNaturalPicture()`.
+    func captureNaturalPicture() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let output = try await self.engine.captureNaturalPicture()
+                self.captureConfirmation = output
+                self.bannerDismissTask?.cancel()
+                self.bannerDismissTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run { self?.captureConfirmation = nil }
+                }
+            } catch {
+                self.errors.present(
+                    CameraError(
+                        code: .captureFailure,
+                        message: "Natural capture failed: \(error)",
+                        isFatal: false
+                    ))
+            }
+        }
+    }
+
     // MARK: - Frame-result subscription
 
     /// Subscribes to `engine.frameResultStream()` and writes `lastFrameResult`.

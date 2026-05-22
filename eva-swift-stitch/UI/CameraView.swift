@@ -153,6 +153,11 @@ public struct CameraView: View {
                 enabled: enablement.isCalibrateEnabled
             ) { sidebarVisible.toggle() }
             captureButton(enabled: enablement.isCaptureEnabled)
+            barButton(
+                label: "Natural",
+                systemImage: "camera.aperture",
+                enabled: enablement.isCaptureEnabled
+            ) { viewModel.captureNaturalPicture() }
             recordButton(
                 isRecording: isRecordingActive,
                 startEnabled: enablement.isRecordEnabled,
