@@ -28,9 +28,15 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
             let engine = CameraKit.CameraEngine(initialPhase: phase)
             do {
                 let caps = try await engine.open(configuration: cfg)
-                self.engine = engine
-                self.subscribeAllStreams()
-                self.armPendingTextures()  // Per spec §3: pre-open textures wire subscribers now.
+                // EventChannel registration (subscribeAllStreams) and texture
+                // registry access must happen on the platform/main thread — doing
+                // it on this background Task aborts the Flutter engine (SIGABRT
+                // in FlutterEventChannel setup).
+                await MainActor.run {
+                    self.engine = engine
+                    self.subscribeAllStreams()
+                    self.armPendingTextures()  // Per spec §3: pre-open textures wire subscribers now.
+                }
                 completion(.success(caps.toPigeon()))
             } catch {
                 completion(.failure(error.asPigeonError()))
@@ -47,9 +53,12 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         self.textures = [:]
         Task {
             for t in oldStreamTasks { t.cancel() }
-            for (id, entry) in oldTextures {
-                entry.1.cancel()
-                self.registrar.textures().unregisterTexture(id)
+            // Texture-registry calls must run on the platform/main thread.
+            await MainActor.run {
+                for (id, entry) in oldTextures {
+                    entry.1.cancel()
+                    self.registrar.textures().unregisterTexture(id)
+                }
             }
             await engine?.close()
             completion(.success(()))

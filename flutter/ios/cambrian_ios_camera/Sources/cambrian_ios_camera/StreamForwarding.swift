@@ -92,7 +92,7 @@ extension CambrianIosCameraPlugin {
             Task { [engine, stateForwarder] in
                 for await state in await engine.stateStream() {
                     if Task.isCancelled { break }
-                    stateForwarder.sink?.success(state.toPigeon())
+                    await MainActor.run { stateForwarder.sink?.success(state.toPigeon()) }
                 }
             })
 
@@ -102,7 +102,7 @@ extension CambrianIosCameraPlugin {
             Task { [engine, errorForwarder] in
                 for await err in await engine.errorStream() {
                     if Task.isCancelled { break }
-                    errorForwarder.sink?.success(err.toPigeon())
+                    await MainActor.run { errorForwarder.sink?.success(err.toPigeon()) }
                 }
             })
 
@@ -113,7 +113,7 @@ extension CambrianIosCameraPlugin {
             Task { [engine, cfgForwarder] in
                 for await cfg in await engine.streamConfigurationStream() {
                     if Task.isCancelled { break }
-                    cfgForwarder.sink?.success(cfg.toPigeon())
+                    await MainActor.run { cfgForwarder.sink?.success(cfg.toPigeon()) }
                 }
             })
 
@@ -123,7 +123,7 @@ extension CambrianIosCameraPlugin {
             Task { [engine, frameForwarder] in
                 for await fr in await engine.frameResultStream() {
                     if Task.isCancelled { break }
-                    frameForwarder.sink?.success(fr.toPigeon())
+                    await MainActor.run { frameForwarder.sink?.success(fr.toPigeon()) }
                 }
             })
 
@@ -133,7 +133,7 @@ extension CambrianIosCameraPlugin {
             Task { [engine, recForwarder] in
                 for await rs in await engine.recordingStateStream() {
                     if Task.isCancelled { break }
-                    recForwarder.sink?.success(rs.toPigeon())
+                    await MainActor.run { recForwarder.sink?.success(rs.toPigeon()) }
                 }
             })
     }
