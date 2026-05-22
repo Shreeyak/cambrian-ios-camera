@@ -333,9 +333,9 @@ extension CameraKit.CameraPermissionStatus {
     }
 }
 
-// ─── FlutterError helpers ───────────────────────────────────────────────────
+// ─── PigeonError helpers ───────────────────────────────────────────────────
 
-/// Translates any `Error` thrown from CameraKit into a typed `FlutterError`.
+/// Translates any `Error` thrown from CameraKit into a typed `PigeonError`.
 ///
 /// `code` is the Dart-side `CameraErrorCode` enum case name (e.g.
 /// `"cameraNotFound"`), produced by `String(describing:)` on the Pigeon enum.
@@ -345,11 +345,11 @@ extension CameraKit.CameraPermissionStatus {
 /// `details["isFatal"]` carries CameraKit's fatal-vs-recoverable distinction;
 /// the Dart facade reads it into `CameraException.isFatal`.
 extension Error {
-    func asFlutterError() -> FlutterError {
+    func asPigeonError() -> PigeonError {
         // CameraError — async hardware/session/encoding failures with explicit isFatal.
         if let camErr = self as? CameraKit.CameraError {
             let codeName = "\(camErr.code.toPigeon())"
-            return FlutterError(
+            return PigeonError(
                 code: codeName,
                 message: camErr.message,
                 details: ["isFatal": camErr.isFatal]
@@ -407,13 +407,13 @@ extension Error {
                 isFatal = false
             case .fatal(let cam):
                 // Re-enter the CameraError branch — preserves its code/message/isFatal.
-                return cam.asFlutterError()
+                return cam.asPigeonError()
             case .metal, .interop, .recording, .capture:
                 pigeonCode = .unknownError
                 message = String(describing: engErr)
                 isFatal = false
             }
-            return FlutterError(
+            return PigeonError(
                 code: "\(pigeonCode)",
                 message: message,
                 details: ["isFatal": isFatal]
@@ -421,7 +421,7 @@ extension Error {
         }
 
         // Anything else: stringify, classify as non-fatal unknownError.
-        return FlutterError(
+        return PigeonError(
             code: "\(CameraErrorCode.unknownError)",
             message: String(describing: self),
             details: ["isFatal": false]

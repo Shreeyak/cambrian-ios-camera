@@ -23,7 +23,7 @@ public final class CambrianIosCameraPlugin: NSObject {
 
     let registrar: FlutterPluginRegistrar
     var engine: (any CameraEngineProtocol)?
-    var textures: [Int64: (FlutterTexture, Task<Void, Never>)] = [:]
+    var textures: [Int64: (EnginePixelBufferTexture, Task<Void, Never>)] = [:]
     var streamTasks: [Task<Void, Never>] = []
 
     /// Constructor injection point used by `RunnerTests/`.

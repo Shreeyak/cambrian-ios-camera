@@ -6,7 +6,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Lifecycle
 
-    public func open(
+    func open(
         configuration: OpenConfiguration?,
         completion: @escaping (Result<SessionCapabilities, any Error>) -> Void
     ) {
@@ -15,7 +15,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
             // without close is a programming error the Dart facade surfaces.
             completion(
                 .failure(
-                    FlutterError(
+                    PigeonError(
                         code: "\(CameraErrorCode.invalidState)",
                         message: "engine already open; call close() before reopening",
                         details: ["isFatal": false]
@@ -33,12 +33,12 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
                 self.armPendingTextures()  // Per spec §3: pre-open textures wire subscribers now.
                 completion(.success(caps.toPigeon()))
             } catch {
-                completion(.failure(error.asFlutterError()))
+                completion(.failure(error.asPigeonError()))
             }
         }
     }
 
-    public func close(completion: @escaping (Result<Void, any Error>) -> Void) {
+    func close(completion: @escaping (Result<Void, any Error>) -> Void) {
         let engine = self.engine
         let oldStreamTasks = self.streamTasks
         let oldTextures = self.textures
@@ -58,7 +58,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Snapshots
 
-    public func currentSettings(
+    func currentSettings(
         completion: @escaping (Result<CameraSettings?, any Error>) -> Void
     ) {
         let engine = self.engine
@@ -68,7 +68,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    public func currentProcessingParameters(
+    func currentProcessingParameters(
         completion: @escaping (Result<ProcessingParameters?, any Error>) -> Void
     ) {
         let engine = self.engine
@@ -80,7 +80,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Control
 
-    public func updateSettings(
+    func updateSettings(
         settings: CameraSettings,
         completion: @escaping (Result<Void, any Error>) -> Void
     ) {
@@ -89,7 +89,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    public func setResolution(
+    func setResolution(
         size: PSize,
         completion: @escaping (Result<Void, any Error>) -> Void
     ) {
@@ -98,7 +98,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    public func setProcessingParams(
+    func setProcessingParams(
         params: ProcessingParameters,
         completion: @escaping (Result<Void, any Error>) -> Void
     ) {
@@ -107,7 +107,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    public func setCropRegion(
+    func setCropRegion(
         rect: PRect,
         completion: @escaping (Result<Void, any Error>) -> Void
     ) {
@@ -118,7 +118,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Capture
 
-    public func captureImage(
+    func captureImage(
         outputPath: String?,
         photosDestination: PhotosDestination,
         completion: @escaping (Result<String, any Error>) -> Void
@@ -133,7 +133,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    public func captureNaturalPicture(
+    func captureNaturalPicture(
         outputPath: String?,
         photosDestination: PhotosDestination,
         completion: @escaping (Result<String, any Error>) -> Void
@@ -150,7 +150,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Recording
 
-    public func startRecording(
+    func startRecording(
         options: RecordingOptions,
         completion: @escaping (Result<RecordingStart, any Error>) -> Void
     ) {
@@ -160,7 +160,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    public func stopRecording(
+    func stopRecording(
         completion: @escaping (Result<String, any Error>) -> Void
     ) {
         guardOpenReturning(completion) { engine in
@@ -170,7 +170,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Calibration
 
-    public func calibrateWhiteBalance(
+    func calibrateWhiteBalance(
         completion: @escaping (Result<CalibrationResult, any Error>) -> Void
     ) {
         guardOpenReturning(completion) { engine in
@@ -179,7 +179,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    public func calibrateBlackBalance(
+    func calibrateBlackBalance(
         completion: @escaping (Result<CalibrationResult, any Error>) -> Void
     ) {
         guardOpenReturning(completion) { engine in
@@ -203,7 +203,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         guard let engine = self.engine else {
             completion(
                 .failure(
-                    FlutterError(
+                    PigeonError(
                         code: "\(CameraErrorCode.notOpen)",
                         message: "engine not open; call open() first",
                         details: ["isFatal": false]
@@ -215,7 +215,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
                 try await body(engine)
                 completion(.success(()))
             } catch {
-                completion(.failure(error.asFlutterError()))
+                completion(.failure(error.asPigeonError()))
             }
         }
     }
@@ -228,7 +228,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         guard let engine = self.engine else {
             completion(
                 .failure(
-                    FlutterError(
+                    PigeonError(
                         code: "\(CameraErrorCode.notOpen)",
                         message: "engine not open; call open() first",
                         details: ["isFatal": false]
@@ -240,7 +240,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
                 let result = try await body(engine)
                 completion(.success(result))
             } catch {
-                completion(.failure(error.asFlutterError()))
+                completion(.failure(error.asPigeonError()))
             }
         }
     }

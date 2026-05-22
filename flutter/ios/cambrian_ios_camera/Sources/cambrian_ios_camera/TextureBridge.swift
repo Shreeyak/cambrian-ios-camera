@@ -39,18 +39,19 @@ extension CambrianIosCameraPlugin {
     /// Subscriber tasks spawned here exit immediately when the engine is
     /// absent; `armPendingTextures()` re-spawns them after `open()` sets
     /// `self.engine`.
-    public func createPreviewTexture(
+    func createPreviewTexture(
         stream: StreamId,
         completion: @escaping (Result<Int64, any Error>) -> Void
     ) {
         let texture = EnginePixelBufferTexture(plugin: self, stream: stream)
         let textureId = registrar.textures().register(texture)
-        let task = makeTextureSubscriberTask(textureId: textureId, stream: stream)
+        let task = makeTextureSubscriberTask(
+            textureId: textureId, stream: stream, engine: engine)
         textures[textureId] = (texture, task)
         completion(.success(textureId))
     }
 
-    public func destroyPreviewTexture(
+    func destroyPreviewTexture(
         textureId: Int64,
         completion: @escaping (Result<Void, any Error>) -> Void
     ) {
@@ -73,7 +74,8 @@ extension CambrianIosCameraPlugin {
         for (textureId, entry) in textures {
             entry.1.cancel()  // belt-and-braces; pending task is no-op
             let stream = entry.0.stream
-            let newTask = makeTextureSubscriberTask(textureId: textureId, stream: stream)
+            let newTask = makeTextureSubscriberTask(
+                textureId: textureId, stream: stream, engine: engine)
             textures[textureId] = (entry.0, newTask)
         }
     }
@@ -81,18 +83,26 @@ extension CambrianIosCameraPlugin {
     /// Builds the subscriber task that fires `textureFrameAvailable` per
     /// delivered frame.
     ///
-    /// If `self.engine` is nil at call time, the task exits immediately;
-    /// `armPendingTextures()` re-spawns it later. On Task cancellation, the
-    /// `for-await` loop exits and the `AsyncStream`'s `onTermination`
-    /// callback removes the subscriber from `ConsumerRegistry`'s internal
-    /// table — no explicit unsubscribe call needed (see PixelSink.swift).
+    /// If `engine` is nil at call time (texture registered before `open()`),
+    /// the task exits immediately; `armPendingTextures()` re-spawns it with the
+    /// live engine after `open()`. On Task cancellation, the `for-await` loop
+    /// exits and the `AsyncStream`'s `onTermination` callback removes the
+    /// subscriber from `ConsumerRegistry`'s internal table — no explicit
+    /// unsubscribe call needed (see PixelSink.swift).
+    ///
+    /// `engine` is passed in (not read off `self`) so the Task captures only
+    /// `Sendable` values — `CameraEngineProtocol` is an actor existential — and
+    /// avoids capturing the non-`Sendable` plugin under Swift 6.
     private func makeTextureSubscriberTask(
-        textureId: Int64, stream: StreamId
+        textureId: Int64, stream: StreamId, engine: (any CameraEngineProtocol)?
     ) -> Task<Void, Never> {
-        let registry = registrar.textures()
+        // FlutterTextureRegistry is not `Sendable`, but `textureFrameAvailable`
+        // is safe to call from any thread; the unchecked capture lets this
+        // long-lived subscriber Task fire frame callbacks off the delivery queue.
+        nonisolated(unsafe) let registry = registrar.textures()
         let kitStream = stream.toCameraKit()
-        return Task { [weak self] in
-            guard let self, let engine = self.engine else { return }
+        return Task {
+            guard let engine else { return }
             let frames = await engine.consumers.subscribe(stream: kitStream)
             for await _ in frames {
                 if Task.isCancelled { break }

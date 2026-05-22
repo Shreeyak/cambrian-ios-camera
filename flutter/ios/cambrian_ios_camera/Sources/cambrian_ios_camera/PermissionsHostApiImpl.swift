@@ -3,7 +3,7 @@ import Flutter
 
 extension CambrianIosCameraPlugin: PermissionsHostApi {
 
-    public func cameraPermissionStatus(
+    func cameraPermissionStatus(
         completion: @escaping (Result<CameraPermissionStatus, any Error>) -> Void
     ) {
         // CameraKit exposes these as `nonisolated static` on `extension CameraEngine`
@@ -12,9 +12,13 @@ extension CambrianIosCameraPlugin: PermissionsHostApi {
         completion(.success(status))
     }
 
-    public func requestCameraPermission(
+    func requestCameraPermission(
         completion: @escaping (Result<CameraPermissionStatus, any Error>) -> Void
     ) {
+        // Pigeon's reply handler is not `Sendable`; capturing it directly into a
+        // `sending` Task closure trips Swift 6's data-race check. It is in fact
+        // only ever invoked once, here, so the unchecked capture is safe.
+        nonisolated(unsafe) let completion = completion
         Task {
             let status = await CameraKit.CameraEngine.requestCameraPermission().toPigeon()
             completion(.success(status))
