@@ -538,15 +538,16 @@ struct RgbaConversionTrackerBgra8Tests {
     }
 }
 
-// MARK: - captureNaturalPicture sources the BGRA8 natural-lane buffer
+// MARK: - MetalPipeline natural-lane mailbox is BGRA8
 
-@Suite("RGBA8 conversion — captureNaturalPicture sources BGRA8")
+@Suite("RGBA8 conversion — MetalPipeline natural-lane mailbox is BGRA8")
 struct RgbaConversionNaturalCaptureSourceTests {
 
-    /// `captureNaturalPicture` now reads `latestNaturalBuffer` (BGRA8) — the
-    /// parallel RGBA16F still mailbox is gone (8-bit is the single delivery
-    /// format; the camera is 8-bit-locked, so there was no precision to keep).
-    @Test("latestNaturalBuffer is BGRA8 (still-capture source)")
+    /// `MetalPipeline.latestNaturalBuffer` is BGRA8 — the natural lane delivers
+    /// a single BGRA8 surface (the parallel RGBA16F still mailbox is gone).
+    /// Note: `captureNaturalPicture` no longer reads this buffer; it uses an
+    /// ISP one-shot + `gradeOneShot`. This test verifies the mailbox format only.
+    @Test("latestNaturalBuffer is BGRA8")
     func naturalCaptureBufferIsBgra8() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
@@ -898,7 +899,7 @@ struct IspPauseContractTests {
     @Test("captureNaturalPicture throws when the engine is not open")
     func notOpenThrows() async {
         let engine = CameraEngine(initialPhase: .active)
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: EngineError.self) {
             try await engine.captureNaturalPicture()
         }
     }
