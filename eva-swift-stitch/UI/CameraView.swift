@@ -407,7 +407,7 @@ public struct CameraView: View {
             sliderRow(
                 label: "Contrast",
                 current: processing.contrast,
-                range: 0.0...2.0,
+                range: -1.0...1.0,
                 push: viewModel.processing.pushContrast
             )
             sliderRow(
