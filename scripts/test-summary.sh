@@ -76,7 +76,11 @@ echo "CMD: ${CMD[*]}"
 
 "${CMD[@]}" 2>&1 \
   | tee "$LOG" \
-  | xcsift --format json > "$JSON" || true
+  | xcsift --format json > "$JSON"
+# No `|| true`: it runs as a separate command and resets PIPESTATUS to 0,
+# masking a failing xcodebuild as success. `set -uo pipefail` (no -e) lets the
+# script continue past the failing pipeline while PIPESTATUS[0] keeps xcodebuild's
+# real exit code.
 XC_STATUS=${PIPESTATUS[0]}
 STATUS=$([[ "$XC_STATUS" -eq 0 ]] && echo success || echo fail)
 

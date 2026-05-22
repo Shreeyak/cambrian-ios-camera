@@ -36,6 +36,15 @@ if [[ -z "$UDID" ]]; then
 fi
 echo "DEST: physical iPad $UDID"
 
+# Re-prime the Flutter build config. A prior `flutter test integration_test`
+# run leaves flutter/example/ios/Flutter/Generated.xcconfig with FLUTTER_TARGET
+# pointing at a temp `flutter_test_listener/listener.dart` that no longer
+# exists; a plain `xcodebuild` build of Runner would then fail in the Flutter
+# "Run Script" phase before any RunnerTests run. --config-only regenerates the
+# xcconfig pointing at the real entrypoint (lib/main.dart) without building.
+echo "PRIME: flutter build ios --config-only --debug"
+(cd flutter/example && flutter build ios --config-only --debug >/dev/null)
+
 mkdir -p .build-logs
 TS=$(date +%Y%m%d-%H%M%S)
 LOG=".build-logs/${TS}-swift-adapter.log"
@@ -48,7 +57,11 @@ xcodebuild test \
   -scheme Runner \
   -destination "platform=iOS,id=$UDID" \
   -only-testing:RunnerTests \
-  2>&1 | tee "$LOG" | xcsift --format json > "$JSON" || true
+  2>&1 | tee "$LOG" | xcsift --format json > "$JSON"
+# No `|| true` here: it would run as a separate command and reset PIPESTATUS to
+# 0, masking a failing xcodebuild as success. `set -uo pipefail` (no -e) lets the
+# script continue past a failing pipeline while PIPESTATUS[0] keeps xcodebuild's
+# real exit code.
 XC_STATUS=${PIPESTATUS[0]}
 STATUS=$([[ "$XC_STATUS" -eq 0 ]] && echo success || echo fail)
 
