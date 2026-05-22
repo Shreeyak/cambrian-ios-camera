@@ -1457,7 +1457,10 @@ public actor CameraEngine {
         guard reconciledSessionRunning else {
             throw EngineError.capture(.bufferUnavailable)
         }
-        CameraKitLog.notice(.engine, "[natural] ISP capture start")
+        CameraKitLog.notice(
+            .engine,
+            "[natural] ISP capture start size=\(pipeline.outputSize.width)x\(pipeline.outputSize.height)"
+        )
 
         // 1. Shoot the ISP one-shot (sessionQueue, ADR-07). Inherits the
         //    device's live exposure/ISO/WB/focus.
