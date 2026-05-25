@@ -131,12 +131,38 @@ class CameraEngine {
 
   // MARK: - Capture
 
+  /// Captures the current **processed**-lane frame to a file and returns its
+  /// on-disk path.
+  ///
+  /// **The image format is derived from [outputPath]'s file extension**
+  /// (case-insensitive) — CameraKit never guesses:
+  /// - `.png` → PNG, `.jpg`/`.jpeg` → JPEG, `.tif`/`.tiff` → TIFF.
+  /// - `null` (the default) writes `<Documents>/<timestamp>.png` (PNG).
+  /// - A name with **no** extension, or an **unsupported** one (e.g. `.gif`),
+  ///   is rejected — the capture throws rather than picking a format.
+  ///
+  /// [outputPath] may be a bare filename (lands in the app's `Documents`
+  /// directory) or a full path inside the app sandbox; parent directories are
+  /// created as needed. A path outside the sandbox is rejected.
+  ///
+  /// Throws [CameraException] on failure. Note: in the current bridge the
+  /// path/format violations above (missing extension, unsupported extension,
+  /// out-of-sandbox path) all surface as [CameraErrorCode.unknownError] with a
+  /// diagnostic [CameraException.message] — they are not (yet) a distinct typed
+  /// error code, so branch on the message if you must distinguish them.
   Future<String> captureImage({
     String? outputPath,
     g.PhotosDestination photosDestination = g.PhotosDestination.none,
   }) =>
       _guard(() => _api.captureImage(outputPath, photosDestination));
 
+  /// Captures the current **natural**-lane frame (the ISP image, before
+  /// CameraKit's processing shaders) to a file and returns its on-disk path.
+  ///
+  /// [outputPath]'s format/path rules and the error behavior are **identical to
+  /// [captureImage]**: the extension picks the format
+  /// (`.png`/`.jpg`/`.jpeg`/`.tif`/`.tiff`), `null` → a timestamped `.png`, and
+  /// a missing/unsupported extension or out-of-sandbox path throws.
   Future<String> captureNaturalPicture({
     String? outputPath,
     g.PhotosDestination photosDestination = g.PhotosDestination.none,
@@ -145,6 +171,15 @@ class CameraEngine {
 
   // MARK: - Recording
 
+  /// Starts recording the processed lane and returns a [g.RecordingStart]; stop
+  /// with [stopRecording].
+  ///
+  /// **Only MP4 is supported.** If [g.RecordingOptions.outputPath] is set it
+  /// must end in `.mp4`; a name with no extension or a non-`.mp4` extension is
+  /// rejected (the recording fails to start). When `outputPath` is `null`,
+  /// recording writes `<Documents>/<timestamp>.mp4`. As with [captureImage],
+  /// format/path violations currently surface as [CameraErrorCode.unknownError]
+  /// with a diagnostic [CameraException.message].
   Future<g.RecordingStart> startRecording(g.RecordingOptions options) =>
       _guard(() => _api.startRecording(options));
 
