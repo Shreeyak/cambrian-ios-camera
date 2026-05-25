@@ -178,7 +178,7 @@ current phase alone. See the field guide `docs/ios-camera-lifecycle.md`.
   background *launch*) not separately
   reproduced — structurally guaranteed by `initialPhase: .background` + reconcile;
   defer to natural occurrence. Evidence:
-  `measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
+  `docs/measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
 
 ## Follow-ups
 

@@ -639,19 +639,22 @@ lives at `flutter/` and follows standard Flutter plugin conventions:
 
 ```
 flutter/
-├── pubspec.yaml                          (Phase B)
-├── lib/                                  (Phase B — Dart-facing API + Pigeon-generated bindings)
-├── pigeons/                              (Phase B — Pigeon DSL inputs)
-├── ios/cambrian_ios_camera/Package.swift (Phase B — depends on root via .package(path: "../../.."))
-├── android/                              (Phase B — no-op stub, throws PlatformException)
-├── test/                                 (Phase B — Dart unit tests)
-└── example/                              (Phase B — standard Flutter plugin example app)
+├── pubspec.yaml
+├── lib/                                  (Dart-facing API + Pigeon-generated bindings)
+├── pigeons/                              (Pigeon DSL inputs)
+├── ios/cambrian_ios_camera/Package.swift (depends on root via .package(path: "../../.."))
+├── android/                              (no-op stub, throws PlatformException)
+├── test/                                 (Dart unit tests)
+└── example/                              (standard Flutter plugin example app)
 ```
 
-**Phase A status (2026-05-20):** `flutter/` exists with placeholder README only.
-Phase B (a separate spec + plan, written fresh — does NOT consult the
-superseded Phase 3 plans now in `docs/superpowers/plans/archive/`) will
-populate it.
+**Status:** Phase B populated `flutter/` (v1.0.0 — singleton `CameraEngine` over
+Pigeon HostApi + five EventChannel streams, native UIScene lifecycle, zero-copy
+`FlutterTexture` preview, Android no-op stub, example app). Spec and plan:
+`docs/superpowers/specs/2026-05-22-flutter-plugin-phase-b-design.md` and
+`docs/superpowers/plans/2026-05-22-flutter-plugin-phase-b.md`; the superseded
+Phase 3 plans live in `docs/superpowers/plans/archive/`. See `CameraKit/state.md`
+for the full Phase B entry.
 
 **Downstream Flutter consumption:**
 
