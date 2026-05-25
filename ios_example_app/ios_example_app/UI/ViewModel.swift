@@ -31,6 +31,10 @@ final class ViewModel {
     /// surface, shared with recording-failure errors), not here.
     var captureConfirmation: StillCaptureOutput?
 
+    /// Dev-harness flag: true when the fixed 1600×1200 center crop is active
+    /// (drives the Crop/Full bottom-bar button label). Toggled by `toggleCenterCrop`.
+    var isCenterCropped = false
+
     #if DEBUG
     /// Latest per-window frame-delivery stats (D-11) — drives the long-press
     /// debug overlay.
@@ -214,6 +218,68 @@ final class ViewModel {
                     CameraError(
                         code: .captureFailure,
                         message: "Capture failed: \(error)",
+                        isFatal: false
+                    ))
+            }
+        }
+    }
+
+    /// Dev-harness hook for the ISP one-shot natural capture (AVCapturePhotoOutput
+    /// → Metal grade → TIFF). Mirrors `captureImage`; lets HITL exercise the
+    /// natural path the library exposes via `engine.captureNaturalPicture()`.
+    func captureNaturalPicture() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let output = try await self.engine.captureNaturalPicture()
+                self.captureConfirmation = output
+                self.bannerDismissTask?.cancel()
+                self.bannerDismissTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run { self?.captureConfirmation = nil }
+                }
+            } catch {
+                self.errors.present(
+                    CameraError(
+                        code: .captureFailure,
+                        message: "Natural capture failed: \(error)",
+                        isFatal: false
+                    ))
+            }
+        }
+    }
+
+    /// Dev-harness toggle to exercise the P2a true-crop path and cropped natural
+    /// capture: applies a fixed 1600×1200 center crop of the active sensor frame,
+    /// or resets to the full frame. Origins are rounded to even pixels (4:2:0 chroma).
+    func toggleCenterCrop() {
+        Task { [weak self] in
+            guard let self, let caps = self.capabilities else { return }
+            let sensor = caps.activeCaptureResolution
+            do {
+                if self.isCenterCropped {
+                    try await self.engine.setCropRegion(
+                        Rect(x: 0, y: 0, width: sensor.width, height: sensor.height))
+                    self.isCenterCropped = false
+                    CameraKitLog.notice(.engine, "[crop] reset to full \(sensor.width)x\(sensor.height)")
+                } else {
+                    let cropW = 1600
+                    let cropH = 1200
+                    var x = max(0, (sensor.width - cropW) / 2)
+                    var y = max(0, (sensor.height - cropH) / 2)
+                    x -= x % 2
+                    y -= y % 2
+                    try await self.engine.setCropRegion(
+                        Rect(x: x, y: y, width: cropW, height: cropH))
+                    self.isCenterCropped = true
+                    CameraKitLog.notice(.engine, "[crop] applied center 1600x1200 at (\(x),\(y))")
+                }
+            } catch {
+                self.errors.present(
+                    CameraError(
+                        code: .captureFailure,
+                        message: "Crop toggle failed: \(error)",
                         isFatal: false
                     ))
             }

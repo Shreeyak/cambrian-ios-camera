@@ -53,7 +53,8 @@ void main() {
         await e.frameResultStream().first.timeout(const Duration(seconds: 5));
     expect(firstFrame, isNotNull);
 
-    // captureImage encodes the processed lane as TIFF (CameraKit default).
+    // captureImage derives the encoding from the output path's extension
+    // (CameraKit's OutputPathResolver) — `.tif` → TIFF.
     final tempPath = '${Directory.systemTemp.path}/integration-capture.tif';
     final path = await e.captureImage(outputPath: tempPath);
     expect(File(path).existsSync(), isTrue);

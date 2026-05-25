@@ -248,11 +248,11 @@ each brief's §12 names the exact file paths.
 Each development machine needs this once:
 
 ```bash
-brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq
+brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq lefthook
 cd "$(git rev-parse --show-toplevel)"
 xcode-build-server config -project ios_example_app/ios_example_app.xcodeproj \
                           -scheme ios_example_app
-git config core.hooksPath .githooks   # wires up .githooks/pre-commit (swift-format + SwiftLint + CONTRACTS.md regen)
+lefthook install                # installs BOTH the pre-commit and pre-push hooks
 ```
 
 **What `xcode-build-server` does and why we need it.** Sourcekit-lsp (Apple's
@@ -282,24 +282,37 @@ developer regenerates after cloning, after switching schemes, or after Xcode
 bumps DerivedData hash. Inside Xcode itself, none of this matters — Xcode
 uses its own build system. This is purely for external editors.
 
-**What `git config core.hooksPath .githooks` does.** Pre-commit-time validation
-lives in `.githooks/pre-commit` — it runs `swift-format lint --strict` on
-staged `CameraKit/Sources/**.swift` and regenerates `CameraKit/CONTRACTS.md`
-so the auto-generated current-shape doc never drifts from the sources.
-**SwiftLint is NOT a commit gate** — it was dropped from the hook (it flags
-CameraKit/Sources' deliberate patterns, e.g. the test-seam `_*ForTest`
-identifiers and the large `CameraEngine` actor, as errors); `swift-format
---strict` is the authoritative style gate. SwiftLint also crashes when run
-standalone on this machine's beta toolchain (`Loading sourcekitdInProc.framework
-… failed`), so `.swiftlint.yml` is IDE-advisory only. We keep the hook in
-`.githooks/` rather than the default `.git/hooks/` so it's version-controlled
-and ships with every clone (the default `.git/hooks/` is never committed, so
-hooks placed there don't travel); `git config core.hooksPath .githooks` is the
-per-clone wire-up that points git at it. The `pre-push` hook was removed in
-the 2026-05-20 restructure (the synthetic `camerakit-only` subtree-split it
-ran no longer works now that `Package.swift` lives at the repo root). Skip a
-single commit's hooks with `--no-verify` (rare; the hooks are blocking by
-design).
+The third command installs the repo's git hooks, declared in `lefthook.toml` and
+managed by [lefthook](https://lefthook.dev). One stage runs:
+- **pre-commit** — `swift-format lint --strict` on staged
+  `CameraKit/Sources/**.swift` (the authoritative style gate) and a
+  `CONTRACTS.md` regen that re-stages the refreshed file. **SwiftLint is NOT a
+  commit gate** — it flags CameraKit/Sources' deliberate patterns (test-seam
+  `_*ForTest` identifiers, the large `CameraEngine` actor) as errors, and crashes
+  standalone on this machine's beta toolchain (`Loading
+  sourcekitdInProc.framework … failed`), so `.swiftlint.yml` is IDE-advisory only.
+
+There is **no pre-push hook**: the `camerakit-only` synthetic-branch subtree-sync
+was retired in the 2026-05-20 restructure (Package.swift now lives at the repo
+root, so `git subtree split --prefix=CameraKit` no longer yields a valid SPM
+package — the manifest is outside `CameraKit/`). The Flutter plugin at `flutter/`
+is the replacement consumption model — see §10.
+
+**Why lefthook and not git's `core.hooksPath` + a `.githooks/` dir:**
+`lefthook install` writes its runner into `.git/hooks/`, so the hooks fire
+regardless of what `core.hooksPath` is set to. The worktree tooling repeatedly
+resets `core.hooksPath` to the default `.git/hooks` (it writes the *shared*
+`.git/config`, common to every linked worktree), which silently disabled the old
+`.githooks` setup more than once. Installing into `.git/hooks` makes that reset a
+no-op. **Do not set `core.hooksPath`** — leave it unset (default). If you ever see
+it set, `git config --unset core.hooksPath` and the hooks keep working. Re-run
+`lefthook install` after cloning. Skip a hook for a genuine emergency with
+`git commit --no-verify` / `git push --no-verify` (do not use casually).
+
+The `CONTRACTS.md` regen is byte-deterministic (no embedded timestamp), so the
+pre-commit hook only produces a diff on a real API-shape change; the hook
+`git add`s the refreshed `CONTRACTS.md` so it lands in the same commit (lefthook
+does not abort on hook-modified files — one-attempt commits).
 
 ### 6.1 Coordinator discipline
 

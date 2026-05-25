@@ -35,8 +35,10 @@ Phase B is post-pipeline (no stage briefs, no preflight). It populates
   (`flutter/example/test/`), Swift adapter XCTest (`RunnerTests`, app-hosted
   on iPad — needs the SceneDelegate XCTest guard), and 3 integration tests
   on iPad (Test 2 Lifecycle skipped in v1.0 — needs XCUIDevice automation).
-- Capture-save: `captureImage` writes TIFF (CameraKit default); example app
-  exposes Documents via `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`.
+- Capture-save: `captureImage` derives the image format from the output-path
+  extension (`.tif`→TIFF, `.jpg`→JPEG, …) via CameraKit's `OutputPathResolver`
+  (merged from main 2026-05-25); example app exposes Documents via
+  `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`.
 - Android stub throwing `PlatformException(code: 'iOSOnly')`.
 - Joint git-tag versioning — `vX.Y.Z` drives both SPM + Flutter consumers.
 - Example app at `flutter/example/` — lean, processed-lane only. Visible name
@@ -498,6 +500,22 @@ method signature; no public surface change is observable.
 ## Decisions taken — Post-Stage-12
 
 See `DECISIONS.md` entries dated 2026-05-15.
+
+**2026-05-22 [image-filename] — output format from filename extension.** Both
+still paths (`captureImage`, `captureNaturalPicture`) and `startRecording` now
+pick the on-disk format from the caller's filename extension instead of a
+hardcoded format. Images: nil → `<Documents>/<timestamp>.png`; `.png` → PNG;
+`.jpg`/`.jpeg` → JPEG (fixed quality 0.95, not surfaced); `.tif`/`.tiff` → TIFF;
+no extension → `StillCaptureError.missingFileExtension`; other →
+`.unsupportedImageFormat`. Video: nil → `.mp4`; `.mp4` only, else
+`RecordingError.missingFileExtension` / `.unsupportedVideoFormat`. ImageIO already
+encodes all three — no new dependency. `PhotosLibraryClient.resolve` extracted to
+the new `OutputPathResolver` (`OutputPathResolution.swift`). **Behavior change:**
+nil-name stills are now `.png`, not `.tif`. **Empirical PNG-metadata finding:**
+ImageIO's PNG writer *does* round-trip the EXIF `CamPlugin/v1` UserComment (lane
+tag + capture metadata) via the `eXIf` chunk on iOS 26 — no loss; verified by
+`CaptureNaturalPictureTests.pngCarriesCamPluginV1` on physical iPad. See
+`DECISIONS.md` 2026-05-22.
 
 ## Follow-up consumers (out of scope this PR)
 
@@ -1348,6 +1366,26 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
       bounded at 1000 yields so a genuinely-broken chain fails cleanly
       instead of hanging. Test-only change.
     Result: every CameraKitTests file now runs on device with zero skips.
+71. **2026-05-22 — Contrast convention unified to `[-1, 1]` / `0.0`-identity.**
+    `ColorShaders.metal` contrast changed from `(c-0.5)*contrast+0.5` (identity
+    at `1.0`, range `[0, 2]`) to `(c-0.5)*(1.0+contrast)+0.5` (identity at `0.0`,
+    range `[-1, 1]`), making contrast structurally identical to saturation's
+    `1+saturation` mix and uniform with brightness/saturation. `-1` = flat grey,
+    `+1` = 2×; same internal multiplier range as before, just re-centred.
+    `ProcessingParameters.contrast` default `1.0 → 0.0` + doc-comment;
+    `SettingsPersistence.processingKey` bumped to `.v2` so pre-change persisted
+    blobs (old `1.0`-identity) aren't re-applied as max contrast; native app
+    contrast slider range `0...2 → -1...1` (`CameraView.swift`). Regression test
+    `Stage04Tests.contrastConventionIdentityAtZero` locks `0`=identity (the
+    direct guard against the cam2fd grey-frame: a `0.0` default reaching the old
+    shader collapsed every pixel to 0.5). **Why:** the engine's contrast was the
+    lone non-`[-1,1]`/`0.0` perceptual param; cam2fd carried an
+    `engineContrastIdentityOffset` workaround to bridge it. Moves toward
+    `architecture/07-settings.md`'s `0.0`-identity intent (the *sigmoid* curve
+    there remains the deferred open question — orthogonal to this re-centring).
+    **Consumers must update:** cam2fd removes `engineContrastIdentityOffset`
+    (contrast becomes a pass-through); Eva picks up the new convention on next
+    pull. Device-verified: Stage04 + Stage11 suites 10/0/0.
 
 ## Open questions for next stage
 

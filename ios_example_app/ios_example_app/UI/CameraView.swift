@@ -153,12 +153,22 @@ public struct CameraView: View {
                 enabled: enablement.isCalibrateEnabled
             ) { sidebarVisible.toggle() }
             captureButton(enabled: enablement.isCaptureEnabled)
+            barButton(
+                label: "Natural",
+                systemImage: "camera.aperture",
+                enabled: enablement.isCaptureEnabled
+            ) { viewModel.captureNaturalPicture() }
             recordButton(
                 isRecording: isRecordingActive,
                 startEnabled: enablement.isRecordEnabled,
                 stopEnabled: enablement.isStopEnabled
             )
             resolutionButton(enabled: enablement.isResolutionEnabled)
+            barButton(
+                label: viewModel.isCenterCropped ? "Full" : "Crop",
+                systemImage: viewModel.isCenterCropped ? "crop.rotate" : "crop",
+                enabled: enablement.isResolutionEnabled
+            ) { viewModel.toggleCenterCrop() }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -397,7 +407,7 @@ public struct CameraView: View {
             sliderRow(
                 label: "Contrast",
                 current: processing.contrast,
-                range: 0.0...2.0,
+                range: -1.0...1.0,
                 push: viewModel.processing.pushContrast
             )
             sliderRow(
