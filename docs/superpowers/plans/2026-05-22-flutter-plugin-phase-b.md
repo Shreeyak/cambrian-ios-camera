@@ -5830,7 +5830,6 @@ cambrian_ios_camera:
 - Android — Kotlin stub throws `PlatformException(code: 'iOSOnly')` on every
   HostApi call. Real Android implementation is a separate spec.
 - pub.dev publication. Stays `git: + path:` referenced.
-- Multi-engine support (engineId-keyed HostApi).
 - CHANGELOG.md — adds in v1.1.0 with v1.0.0 as anchor.
 - CI. Manual local testing.
 
@@ -5992,6 +5991,5 @@ These items are tracked in the spec §"Future cleanup — deferred work":
 - Real Android implementation
 - XCUIDevice automation of the lifecycle integration-test home-button press (v1.1)
 - Independent tag families (only if joint versioning becomes painful)
-- Multi-engine support (engineId-keyed HostApi) — non-breaking v1.x addition
 - `CHANGELOG.md` (added in v1.1.0 with v1.0.0 as bottom anchor)
 - CI (GitHub Actions running `flutter test`)

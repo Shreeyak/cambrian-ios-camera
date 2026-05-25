@@ -53,7 +53,8 @@ Explicitly out of scope for v1:
 - `CameraKit → CambrianCamera` rename (deferred per Phase A spec §"Future cleanup")
 - Automated CI (manual local testing only — single-developer project)
 - `CHANGELOG.md` (GitHub release notes cover v1.0.0; CHANGELOG appears in v1.1.0)
-- Multi-engine support (singleton engine per plugin instance)
+- Multi-engine support — **rejected by design** (not deferred). One CameraEngine
+  per plugin instance, permanently; CameraKit has no multi-session pattern.
 
 ---
 
@@ -234,8 +235,9 @@ yet attached). Dart's `CameraEngine.open()` is unchanged from the consumer's POV
 One CameraEngine per plugin instance. HostApi methods don't take an engineId — the adapter holds
 a single `CameraEngine?` and rejects ops when nil (`"notOpen"`). Differs from the official
 `flutter/plugins/camera` plugin (which keys controllers by ID for front/back switching);
-CameraKit doesn't have that pattern. Multi-engine support is a non-breaking v1.x addition if
-needed.
+CameraKit doesn't have that pattern. Multi-engine support (engineId-keyed HostApi) is
+**rejected by design — not a deferred item.** The singleton is permanent; we will not add an
+engineId-keyed API.
 
 ---
 
@@ -1179,7 +1181,6 @@ For the implementation plan (writing-plans skill):
 | Real Android implementation | Separate spec; v1 ships Kotlin stub only |
 | XCUIDevice automation for the lifecycle integration test | v1.1 — replaces the manual-step procedure |
 | Independent tag families (`camerakit-vX.Y` / `flutter-vX.Y`) | Only if joint versioning becomes painful in practice; not in v1 |
-| Multi-engine support (engineId-keyed HostApi) | Non-breaking v1.x addition if demand emerges |
 | `CHANGELOG.md` | Added in v1.1.0 with v1.0.0 as bottom anchor |
 | CI (GitHub Actions running `flutter test`) | Mentioned but explicitly skipped for v1 |
 

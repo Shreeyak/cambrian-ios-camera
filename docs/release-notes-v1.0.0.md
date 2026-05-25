@@ -56,7 +56,6 @@ cambrian_ios_camera:
 - Android — the Kotlin stub throws `PlatformException(code: 'iOSOnly')` on
   every HostApi call. A real Android implementation is a separate spec.
 - pub.dev publication. Stays `git: + path:` referenced.
-- Multi-engine support (engineId-keyed HostApi).
 - `CHANGELOG.md` — adds in v1.1.0 with v1.0.0 as the bottom anchor.
 - CI. Testing is manual + local.
 - XCUIDevice automation of the lifecycle integration test (Test 2 is skipped

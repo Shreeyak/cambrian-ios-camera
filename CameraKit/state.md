@@ -12,7 +12,9 @@ Plan: `docs/superpowers/plans/2026-05-20-flutter-plugin-monorepo-plan.md`.
 Phase B is post-pipeline (no stage briefs, no preflight). It populates
 `flutter/` with the `cambrian_ios_camera` plugin:
 
-- Singleton `CameraEngine` exposed via Pigeon `@HostApi` + five
+- Singleton `CameraEngine` (one per plugin instance; HostApi methods take no
+  engineId — multi-engine / engineId-keyed HostApi is **rejected by design**,
+  permanent, not deferred) exposed via Pigeon `@HostApi` + five
   `@EventChannelApi` broadcast streams (state, frame-result, recording,
   calibration, error). Streams are **non-replaying** by design — a replay
   (BehaviorSubject) would mask a stalled pipeline; consumers seed initial
