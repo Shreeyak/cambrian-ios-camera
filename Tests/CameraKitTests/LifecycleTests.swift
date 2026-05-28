@@ -74,6 +74,7 @@ struct LifecycleTests {
         let clock = ManualClock()
         let engine = CameraEngine(initialPhase: .active, clock: clock)
         await engine._markOpenForTest()
+        await engine._setPermissionStatusForTest(.authorized)
         await engine._armWatchdogsForTest()
 
         await engine._postSessionEventForTest(.otherInterruption(reasonRawValue: 1))
@@ -210,6 +211,7 @@ struct LifecycleTests {
     func cheapPauseDoesNotStopSession() async {
         let engine = CameraEngine(initialPhase: .active)
         await engine._markOpenForTest()
+        await engine._setPermissionStatusForTest(.authorized)
         await engine._armWatchdogsForTest()
         // Baseline (.active): session running, gate open, watchdogs armed.
         #expect(await engine._isSessionRunningForTest == true)
@@ -310,6 +312,7 @@ struct LifecycleTests {
     func resumeRestartsAtInactiveGateOpensAtActive() async {
         let engine = CameraEngine(initialPhase: .background)
         await engine._markOpenForTest()  // open into background: not running, gate closed
+        await engine._setPermissionStatusForTest(.authorized)
         await engine._armWatchdogsForTest()  // pair built; arm skipped (gate closed)
         #expect(await engine._isSessionRunningForTest == false)
         #expect(await engine.isGateOpen == false)
@@ -343,6 +346,7 @@ struct LifecycleTests {
     func duplicateBackgroundIsNoOpAndConverges() async {
         let engine = CameraEngine(initialPhase: .background)
         await engine._markOpenForTest()
+        await engine._setPermissionStatusForTest(.authorized)
         await engine._armWatchdogsForTest()
 
         await engine.setLifecyclePhase(.background)  // duplicate of the launch phase
@@ -378,6 +382,7 @@ struct LifecycleTests {
     func backgroundSupersededByActiveEndsActive() async {
         let engine = CameraEngine(initialPhase: .active)
         await engine._markOpenForTest()
+        await engine._setPermissionStatusForTest(.authorized)
         await engine._armWatchdogsForTest()
         #expect(await engine._isSessionRunningForTest == true)
 
