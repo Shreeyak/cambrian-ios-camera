@@ -6,12 +6,6 @@
 > here on purpose — it must be byte-deterministic so the pre-commit gate only
 > fires on real API-shape changes; git history records when it changed.)
 
-## Active scaffolds
-
-| Slug | File:line |
-|------|-----------|
-| _(no active scaffolds)_ | — |
-
 ## Compressed source snapshot
 
 # Files

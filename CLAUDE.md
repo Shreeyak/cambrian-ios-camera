@@ -72,11 +72,6 @@ its stage. Per-stage workflow:
 **MIGRATION** stages retire ≥1 scaffold with a production primitive, preserve
 every prior test, and add no user-visible capability.
 
-**Stage kickoff rule:** the first action of any new stage is
-`scripts/stage-preflight.sh`. It validates state.md ↔ source slug coherence,
-freshness of `CameraKit/CONTRACTS.md`, and that the build passes. Don't start
-editing sources until it exits 0.
-
 ## 4. Scaffold-slug convention
 
 Scaffolds are marked inline by an exact-string code comment `// scaffolding:NN:kebab-slug`,
@@ -203,7 +198,7 @@ each brief's §12 names the exact file paths.
 Each development machine needs this once:
 
 ```bash
-brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq lefthook
+brew install xcode-build-server swift-format ripgrep repomix xcsift jq lefthook
 xcode-build-server config -project eva-swift-stitch.xcodeproj \
                           -scheme eva-swift-stitch
 lefthook install                # installs BOTH the pre-commit and pre-push hooks
@@ -318,11 +313,10 @@ Pick the tool that fits the question. Match row by row, top-down:
 | Who calls function X? | `LSP prepareCallHierarchy` + `incomingCalls` | `LSP` MCP tool |
 | What's the type/doc of symbol at file:line? | `LSP hover` | `LSP` MCP tool |
 | Find literal pattern (scaffold slug, TODO, string occurrence) | `Grep` | Claude `Grep` tool or `rg` |
-| List active scaffolds as a table | `scripts/scaffold-inventory.sh` | — |
+| Build the app & launch it on the iPad | `scripts/build-launch.sh` | Auto-detects the paired iPad; `--release` for Release, else Debug. |
 | Build iOS target | `mcp__XcodeBuildMCP__build_run_device` (primary) or `scripts/build-summary.sh` (fallback) | Device-only on this machine (no sims). Wrapper pipes xcodebuild→xcsift→`.build-logs/*.json` + raw log. |
 | Run CameraKit or app tests | `mcp__XcodeBuildMCP__test_device` (primary) or `scripts/test-summary.sh` (fallback) | Device-only (no sims). Both default to scheme `eva-swift-stitch` (app-hosted CameraKitTests via dual-membership — see §8). Filter as `eva-swift-stitchTests/<SuiteStructName>`. |
 | Re-wire CameraKitTests after adding a new test file | `scripts/sync-test-target.sh` | Idempotent. Adds new `.swift` files under `CameraKit/Tests/CameraKitTests/` to the Xcode test target. See §8. |
-| Stage kickoff coherence checks | `scripts/stage-preflight.sh` | Run as first action of a new stage. |
 | Refresh CONTRACTS.md explicitly | `scripts/regen-contracts.sh` | Auto-runs on pre-commit; rarely needed by hand. |
 | Log a subagent decision | Append one line to `CameraKit/DECISIONS.md` | Stigmergy; coordinator won't re-read. |
 
@@ -513,9 +507,8 @@ underlying issue and ask again — do not `--amend` around it.
   "log X on device"), invoke the `ipad-logs` skill — never reach for `log collect`,
   `pymobiledevice3`, `idevicesyslog`, or `start_device_log_cap`. Logger calls must
   use `.notice` (or higher) and `privacy: .public` on interpolations to be visible.
-  The script's hardcoded devicectl UDID points to Shreeyak's iPad — when running on
-  the second iPad (iPad A16), update the script's `IPAD_UDID` constant to that
-  device's *devicectl* UDID first.
+  The script auto-detects the connected paired iPad (first reachable one wins, so
+  it works with either project iPad — no UDID to edit).
   The log file is **append-only across launches** (`seekToEndOfFile()` on open);
   every launch emits one `=== CameraKit session started <ISO date> ===` marker.
   When debugging "what just happened", slice to the latest session first:
@@ -543,11 +536,14 @@ underlying issue and ask again — do not `--amend` around it.
 
 **In-repo (always resolvable):**
 
-- `CameraKit/CONTRACTS.md` — current API surface + active scaffolds; every
-  subagent's first read. Auto-regenerated; do not edit.
+- `CameraKit/CONTRACTS.md` — current API surface; every subagent's first read.
+  Auto-regenerated; do not edit.
 - `CameraKit/DECISIONS.md` — append-only stigmergy log for subagent decisions.
 - `CameraKit/state.md` — per-stage history, what's built permanently,
   deferred HITL evidence.
+- `docs/tooling.md` — the tool decision tree and per-script "what / when / why"
+  (deeper than the `scripts/CLAUDE.md` quick index). Read when choosing a tool
+  or unsure which script does what.
 
 **Upstream (symlinked, read-only):**
 

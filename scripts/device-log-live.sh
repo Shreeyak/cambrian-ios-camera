@@ -14,13 +14,41 @@
 
 set -u
 
-UDID="DAD37FD5-685B-50E0-911E-F9BC40BBDBE5"
 BUNDLE="com.cambrian.eva-swift-stitch"
 _TMP="${TMPDIR:-/tmp}"
 LOG="${_TMP%/}/camerakit-live.log"
 PULL="${_TMP%/}/camerakit-pull.log"
 PID_FILE="${_TMP%/}/camerakit-live.pid"
 POLL_INTERVAL=4  # seconds between pulls
+
+# Auto-detect a reachable, paired physical iPad and print its devicectl
+# identifier on stdout (info goes to stderr). The project's two iPads rotate
+# one at a time, so the first reachable paired iPad wins — no UDID to hardcode.
+# Mirrors the discovery in build-launch.sh. Returns non-zero if none found.
+detect_ipad() {
+    command -v jq >/dev/null 2>&1 || { echo "jq is required (brew install jq)" >&2; return 1; }
+    local json sel id name
+    json="$(mktemp)"
+    xcrun devicectl list devices --json-output "$json" >/dev/null 2>&1
+    # Rank "connected" first; drop devices devicectl marks "unavailable".
+    sel=$(jq -r '
+      .result.devices[]
+      | select(.hardwareProperties.deviceType == "iPad")
+      | select(.connectionProperties.pairingState == "paired")
+      | select(.connectionProperties.tunnelState != "unavailable")
+      | [ (if .connectionProperties.tunnelState == "connected" then 0 else 1 end),
+          .identifier, .deviceProperties.name ] | @tsv
+    ' "$json" | sort -n | head -1)
+    rm -f "$json"
+    if [[ -z "$sel" ]]; then
+        echo "✖ no reachable paired iPad found — connect/unlock one, then: xcrun devicectl list devices" >&2
+        return 1
+    fi
+    id=$(printf '%s' "$sel" | cut -f2)
+    name=$(printf '%s' "$sel" | cut -f3)
+    echo "→ device: ${name} (${id})" >&2
+    printf '%s' "$id"
+}
 
 stop_capture() {
     if [[ -f "$PID_FILE" ]]; then
@@ -64,6 +92,8 @@ case "${1:-start}" in
 esac
 
 # --- start ---
+
+UDID="$(detect_ipad)" || exit 1
 
 # Stop any existing polling loop before starting a new one.
 stop_capture 2>/dev/null

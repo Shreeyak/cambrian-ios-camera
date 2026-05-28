@@ -2,7 +2,7 @@
 # regen-contracts.sh — full regeneration of CameraKit/CONTRACTS.md.
 #
 # v1 strategy: use repomix --compress --remove-comments on CameraKit/Sources/,
-# post-filter to public API only, append scaffold inventory + isolation diagram.
+# post-filter to public API only.
 #
 # v2 candidate (see plan): switch to `.swiftinterface` files emitted via
 # -emit-module-interface in Package.swift swiftSettings.
@@ -33,10 +33,7 @@ repomix \
   --output "$TMP/sources.md" \
   --quiet
 
-# 2. Generate the scaffold inventory as a markdown table.
-SCAFFOLDS=$("$REPO_ROOT/scripts/scaffold-inventory.sh" CameraKit/Sources/)
-
-# 3. Assemble CONTRACTS.md.
+# 2. Assemble CONTRACTS.md.
 {
   cat <<EOF
 # CONTRACTS.md — CameraKit current shape
@@ -46,10 +43,6 @@ SCAFFOLDS=$("$REPO_ROOT/scripts/scaffold-inventory.sh" CameraKit/Sources/)
 > truth is the swift files under \`CameraKit/Sources/CameraKit/\`. (No timestamp
 > here on purpose — it must be byte-deterministic so the pre-commit gate only
 > fires on real API-shape changes; git history records when it changed.)
-
-## Active scaffolds
-
-$SCAFFOLDS
 
 ## Compressed source snapshot
 
