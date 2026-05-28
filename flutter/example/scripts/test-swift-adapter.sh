@@ -52,10 +52,13 @@ JSON=".build-logs/${TS}-swift-adapter.json"
 echo "LOG: $LOG"
 echo "JSON: $JSON"
 
+# -allowProvisioningUpdates: free Apple Developer profile (CLAUDE.md §5) expires
+# ~weekly; the CLI won't regenerate it without this flag (Xcode's GUI does).
 xcodebuild test \
   -project flutter/example/ios/Runner.xcodeproj \
   -scheme Runner \
   -destination "platform=iOS,id=$UDID" \
+  -allowProvisioningUpdates \
   -only-testing:RunnerTests \
   2>&1 | tee "$LOG" | xcsift --format json > "$JSON"
 # No `|| true` here: it would run as a separate command and reset PIPESTATUS to

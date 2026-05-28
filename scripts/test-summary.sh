@@ -64,8 +64,12 @@ TS=$(date +%Y%m%d-%H%M%S)
 LOG=".build-logs/${TS}-test-${SCHEME}.log"
 JSON=".build-logs/${TS}-test-${SCHEME}.json"
 
+# -allowProvisioningUpdates: this project signs with a free Apple Developer
+# profile (CLAUDE.md §5), which expires ~weekly. Xcode's GUI silently
+# regenerates it; xcodebuild on the CLI will NOT unless this flag is passed,
+# failing with "unable to generate a profile". Safe for a local dev machine.
 CMD=(xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" \
-     -destination "$DESTINATION" test)
+     -destination "$DESTINATION" -allowProvisioningUpdates test)
 if [[ -n "$FILTER" ]]; then
   CMD+=(-only-testing:"$FILTER")
 fi

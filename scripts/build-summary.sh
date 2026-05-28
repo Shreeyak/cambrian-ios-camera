@@ -54,7 +54,9 @@ JSON=".build-logs/${TS}-build-${SCHEME}.json"
 echo "LOG: $LOG"
 echo "JSON: $JSON"
 
-xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -destination "$DESTINATION" build 2>&1 \
+# -allowProvisioningUpdates: free Apple Developer profile (CLAUDE.md §5) expires
+# ~weekly; the CLI won't regenerate it without this flag (Xcode's GUI does).
+xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -destination "$DESTINATION" -allowProvisioningUpdates build 2>&1 \
   | tee "$LOG" \
   | xcsift --format json > "$JSON"
 # No `|| true`: it runs as a separate command and resets PIPESTATUS to 0,
