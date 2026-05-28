@@ -155,7 +155,7 @@ final class DisplayViewModel {
 /// (the DEBUG natural subscription, ~1 Hz) and writes to `camerakit.log`.
 ///
 /// This deliberately does NOT try to detect on-screen "green frames": those are
-/// an uninitialized-drawable artifact (CLAUDE.md §8), not lane-buffer content —
+/// an uninitialized-drawable artifact, not lane-buffer content —
 /// the lane buffer is always fully written by Pass-7, so sampling it can't see
 /// them. Detecting that needs a screen capture, which iOS 26.4 doesn't provide.
 private func checkNaturalFrameSanity(

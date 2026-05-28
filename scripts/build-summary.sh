@@ -4,7 +4,7 @@
 # Usage: scripts/build-summary.sh [--scheme NAME] [--destination DEST] [--verbose]
 #
 # Destination: physical iPad preferred, Mac "Designed for iPad" fallback.
-# Simulators are NEVER used (memory constraint on this machine — see CLAUDE.md §6).
+# Simulators are NEVER used (memory constraint on this machine).
 # Raw log always persists at .build-logs/<ts>-build-<scheme>.log;
 # structured xcsift JSON at .build-logs/<ts>-build-<scheme>.json.
 # Read either at any time — this script never loses output to a pipe.

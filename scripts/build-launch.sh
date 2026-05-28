@@ -10,7 +10,7 @@
 # project's two iPads rotate one at a time, so the first reachable paired iPad
 # wins — no UDID to hardcode.
 #
-# Physical iPad ONLY. Simulators are disallowed on this machine (CLAUDE.md §6);
+# Physical iPad ONLY. Simulators are disallowed on this machine;
 # the Mac "Designed for iPad" fallback is intentionally NOT handled here — if no
 # paired iPad is reachable, the script errors rather than running anything else.
 # Build output is redirected to .build-logs/<ts>-build-launch-<config>.log.
@@ -55,7 +55,7 @@ SEL=$(jq -r '
 if [[ -z "$SEL" ]]; then
   echo "✖ no reachable paired iPad found." >&2
   echo "  Connect/unlock an iPad, then: xcrun devicectl list devices" >&2
-  echo "  (simulators are disallowed on this machine — see CLAUDE.md §6)" >&2
+  echo "  (simulators are disallowed on this machine)" >&2
   exit 1
 fi
 DEVICE_ID=$(printf '%s' "$SEL" | cut -f2)

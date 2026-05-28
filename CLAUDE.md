@@ -4,16 +4,23 @@ This file orients a fresh Claude Code session working in this repo.
 
 ## 1. What this repo is
 
-Swift iOS 26 implementation target for the CameraKit library defined in
-`implementation/briefs/`. It **consumes** the upstream brief/architecture corpus
-(symlinked from `/Users/shrek/work/cambrian/ios-translation/`) and **produces**
-Swift source under `CameraKit/Sources/CameraKit/`, swift-testing unit tests under
-`CameraKit/Tests/CameraKitTests/`, and a running `CameraKit/state.md` that records
-what scaffolding is live, what is permanent, and what public API has shipped.
+CameraKit is a complete iOS 26 Swift camera library (real-time capture, Metal
+preview, OpenCV-backed processing). Source lives under
+`CameraKit/Sources/CameraKit/`, swift-testing suites under
+`CameraKit/Tests/CameraKitTests/`, and `CameraKit/state.md` is the running ledger
+of what has shipped. It has two consumers: the native dev harness in this repo
+(`eva-swift-stitch`) and the Flutter plugin in cam2fd, fed by the `camerakit-only`
+synthetic branch (§10).
 
-This repo is Stage 6 (IMPLEMENT) of an upstream clean-room pipeline; producer
-discipline does not apply here. See `/Users/shrek/work/cambrian/ios-translation/CLAUDE.md`
-for producer context if needed.
+It was built in 12 brief-driven stages (now complete — §3), then extended through
+Phases 1–3 for the Flutter consumer. That phase work — driven by plans and specs
+under `docs/superpowers/` — is the current working mode; day-to-day work is now
+additive/maintenance, not stage-by-stage.
+
+The library was produced clean-room from the upstream corpus symlinked under
+`implementation/`. This repo was the IMPLEMENT stage of that upstream pipeline;
+producer discipline does not apply here. See
+`/Users/shrek/work/cambrian/ios-translation/CLAUDE.md` for producer context.
 
 ## 2. Repo layout
 
@@ -29,7 +36,7 @@ for producer context if needed.
 ├── CameraKit/                        # local Swift package (library-only)
 │   ├── Package.swift                 # swift-tools-version:6.2; iOS 26; strict concurrency
 │   ├── Sources/CameraKit/            # library source
-│   ├── Tests/CameraKitTests/         # swift-testing suites, one per stage
+│   ├── Tests/CameraKitTests/         # swift-testing suites (app-hosted; §8)
 │   ├── CONTRACTS.md                  # auto-regenerated current shape (§6.2)
 │   ├── DECISIONS.md                  # append-only subagent decision log
 │   └── state.md                      # per-stage progress ledger — read for current state
@@ -44,56 +51,37 @@ for producer context if needed.
 └── docs/                             # progress-report.md + superpowers/
 ```
 
-For current stage, live scaffolds, and what's shipped, read `CameraKit/state.md` —
-that file is the source of truth for project state; CLAUDE.md only documents
-structure and rules.
+For current project state and what's shipped, read `CameraKit/state.md` — that
+file is the source of truth for project state; CLAUDE.md only documents structure
+and rules.
 
-## 3. Pipeline role and stage discipline
+## 3. Historical: stage pipeline (complete)
 
-Each brief at `implementation/briefs/stage-NN.md` is the authoritative spec for
-its stage. Per-stage workflow:
+The library was built via a 12-stage, brief-driven pipeline (now complete) — each
+stage specced by `implementation/briefs/stage-NN.md`. See `CameraKit/state.md` and
+the briefs for the per-stage record. Current work is additive/Phase-based (§1), not
+stage-by-stage.
 
-1. Read `CameraKit/state.md` from the prior stage.
-2. **Pre-flight inventory**: for every entry under "Scaffolding still live",
-   `grep -rn <slug> CameraKit/Sources/` must return ≥1 hit. Mismatch halts the
-   session and requires escalation — source drift is not quietly patched.
-3. Read `implementation/briefs/stage-NN.md`.
-4. Read cited architecture refs (§5), domain refs (§6), and the
-   `implementation/architecture/api-skeletons/Sources/CameraKit/` stubs for
-   every file named in §4.
-5. Implement per §4 in dependency order.
-6. Run §11 verification using the method prescribed in §6 (XcodeBuildMCP or
-   wrapper scripts — never raw `swift build` / `swift test`): build, test filter,
-   scaffold greps, and any device smoke the brief's §11 calls for. Then update
-   `state.md` per §12.
-7. Stop. Request user approval before any git operation.
+## 4. Historical: scaffold-slug convention
 
-**FEATURE** stages add user-visible capability and may introduce scaffolds;
-**MIGRATION** stages retire ≥1 scaffold with a production primitive, preserve
-every prior test, and add no user-visible capability.
-
-## 4. Scaffold-slug convention
-
-Scaffolds are marked inline by an exact-string code comment `// scaffolding:NN:kebab-slug`,
-where `NN` is the stage that introduced them. That comment is the grep target for
-the next stage's pre-flight check. Do not paraphrase the slug, do not re-punctuate
-it, do not split it across lines. A scaffold may only be retired by the stage
-whose §1 `Retires scaffolding from: …` entry names it — early retirement breaks
-the stage-index ordering and invalidates `state.md` as proof of progress.
+Temporary code carried an inline marker `// scaffolding:NN:kebab-slug` (`NN` = the
+stage that introduced it) and was retired in-order by a later stage. The chain ran
+to completion — **0 scaffolds remain** (`grep -rn 'scaffolding:' CameraKit/Sources/`
+confirms).
 
 ## 5. Target shape
 
 - Package lives in a subdirectory (`CameraKit/`), not at the repo root.
 - `eva-swift-stitch.xcodeproj` remains the app host: owns `Info.plist`, signing,
   schemes, and `NSCameraUsageDescription` (via `INFOPLIST_KEY_NSCameraUsageDescription`
-  build setting, not a Plist key). `NSPhotoLibraryAddUsageDescription` lands at
-  Stage 07 the same way. `CameraKit` is linked as a local SwiftPM dependency; the
+  build setting, not a Plist key). `NSPhotoLibraryAddUsageDescription` is wired
+  the same way. `CameraKit` is linked as a local SwiftPM dependency; the
   app target imports it and presents `CameraView()`. Bundle ID:
   `com.cambrian.eva-swift-stitch`; iPad only.
 - iOS 26 deployment target; Swift 6 language mode; `SWIFT_STRICT_CONCURRENCY =
   complete` is enforced at build time — treat concurrency warnings as errors.
-- **`CameraKitCxx` (C++ target) + OpenCV xcframework arrive at Stage 08.** Do not
-  scaffold either earlier — stages 01–07 carry pure-Swift fallbacks deliberately.
+- **`CameraKitCxx` (C++ target) + OpenCV xcframework** provide the image-processing
+  path (added at Stage 08; Swift/C++ interop bridges them).
 
 ## 6. Common operations
 
@@ -190,8 +178,8 @@ when xcode is offline. `context7` covers third-party libraries; xcode
 Run targets, preferred order: **physical iPad** (required for R-21 camera-indicator
 and R-22 off-main `startRunning`); **Mac "Designed for iPad"** (day-to-day —
 exercises real capture). **Simulators are not an option on this machine** (see
-top of §6). Per-stage HITL / DEFERRED evidence lands under `measurements/stage-NN/`;
-each brief's §12 names the exact file paths.
+top of §6). Build-time HITL / DEFERRED evidence lives under `measurements/stage-NN/`
+(historical; each brief's §12 names the exact paths).
 
 ### 6.0 One-time host setup
 
@@ -408,25 +396,19 @@ underlying issue and ask again — do not `--amend` around it.
   is its own struct — `-only-testing:eva-swift-stitchTests/Stage10Tests`
   (filename) matches NOTHING; use the actual struct name from the file
   (`Stage10CoordinatorTests`, `Stage10HappyPathTests`, etc.).
-- **The current brief is the source of truth for its stage.** If `architecture/`
-  or `ios-platform-guide/` appears to contradict the brief, the brief wins; log
-  the conflict in `CameraKit/state.md` under "Decisions taken that weren't in
-  briefs" so upstream can patch it.
 - **Never edit anything under `implementation/`.** `briefs/`, `architecture/`,
-  `domain-revised/`, and `ios-platform-guide/` are upstream artifacts. Gaps go in
-  `state.md` under "Open questions for next stage" and get patched upstream.
-- **Never install a future-stage primitive early.** No completion-handler D-10
-  guard before Stage 09; no C++ `PixelSink` pool before Stage 08; no
-  `OSAllocatedUnfairLock` uniform guard before Stage 05. Each stage is deliberate
-  about what it does *not* do — pulling primitives forward breaks the chain.
-- **Never retire a scaffold out of order.** The chain is locked by each brief's
-  §1 `Retires scaffolding from: …`.
+  `domain-revised/`, and `ios-platform-guide/` are read-only upstream artifacts —
+  the clean-room reference corpus the library was produced from.
 - **Never echo Android API names** (`Camera2`, `CameraCaptureSession`,
   `HandlerThread`, `ImageReader`, `SurfaceTexture`, `EGLContext`, `MediaRecorder`,
   `AHardwareBuffer`) in Swift source, tests, or comments — that is the classic
   tell that the clean-room separation leaked.
 - **Cite `ADR-##` / `D-##` / `G-##` in code comments when the "why" is
-  non-obvious.** Name the anchor; do not paraphrase the platform guide.
+  non-obvious.** Name the anchor; do not paraphrase the platform guide. Do
+  **not** cite CLAUDE.md by section number from source, tests, config, or
+  scripts — section numbers move when this file is reorganized. State the reason
+  inline, or cite a stable `ADR-##`/`G-##`/`D-##` anchor instead. (Plans and
+  specs may cite CLAUDE.md freely — they're point-in-time records.)
 - **`AVCaptureSession` mutations and `AVCaptureDevice.lockForConfiguration()` run
   on `sessionQueue` (ADR-07); the `AVCaptureVideoDataOutput` sample-buffer delegate
   is `nonisolated` on the `delivery` queue (ADR-02).** Actors coordinate with
@@ -553,7 +535,8 @@ underlying issue and ask again — do not `--amend` around it.
   (scaffold / TESTABLE / FLAGGED / HITL / DEFERRED).
 - `implementation/architecture/README.md` — concern-file map + cross-file matrix.
 - `implementation/ios-platform-guide/README.md` — `ADR-##` / `G-##` registry.
-- `implementation/briefs/stage-NN.md` — spec for the current stage.
+- `implementation/briefs/stage-NN.md` — the per-stage build specs (historical
+  reference; all stages complete).
 
 ## 10. Flutter plugin consumption — `camerakit-only` synthetic branch
 

@@ -3,7 +3,7 @@
 #
 # Usage: scripts/test-summary.sh [--scheme NAME] [--filter SUITE] [--destination DEST] [--verbose]
 #   --scheme      default: eva-swift-stitch (app scheme, hosts CameraKitTests
-#                 via the dual-membership pattern documented in CLAUDE.md §8)
+#                 via dual-membership — app-hosted tests that run on device)
 #                 — switch to `CameraKit` only when running the package's
 #                 SwiftPM testTarget directly (rare; not runnable on device).
 #   --filter      passed as `-only-testing:<value>`
@@ -12,7 +12,7 @@
 #   --verbose     dump full xcodebuild log at the end
 #
 # Destination: physical iPad preferred, Mac "Designed for iPad" fallback.
-# Simulators are NEVER used (memory constraint on this machine — see CLAUDE.md §6).
+# Simulators are NEVER used (memory constraint on this machine).
 # Raw log persists at .build-logs/<ts>-test-<scheme>.log; structured xcsift JSON
 # at .build-logs/<ts>-test-<scheme>.json. Read either at any time.
 set -uo pipefail
@@ -39,7 +39,7 @@ if [[ -z "$DESTINATION" ]]; then
   #
   # eva-swift-stitchTests is app-hosted (TEST_HOST=eva-swift-stitch.app) and
   # compiles the package's test sources directly via the dual-membership
-  # pattern (CLAUDE.md §8). Physical iPad is the canonical run target.
+  # pattern. Physical iPad is the canonical run target.
   DESTS=$(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
   DEVICE_UUID=$(echo "$DESTS" \
     | grep -E '\{ *platform:iOS, ' \

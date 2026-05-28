@@ -75,8 +75,8 @@ public struct CameraView: View {
         // innermost-first (top-to-bottom on screen): expandedBar (conditional)
         // → bottomBar (always). Splitting the expanded bar into its own inset
         // stops it from pushing the bottomBar off-screen when the calibration
-        // sidebar is also open (CLAUDE.md §8 — bottom-bar idiom:
-        // independently-anchored insets).
+        // sidebar is also open (the bottom-bar idiom: independently-anchored
+        // insets).
         .safeAreaInset(edge: .bottom, spacing: 8) {
             if showExpandedBar {
                 ExpandedSliderBar(viewModel: viewModel, enablement: enablement)
@@ -693,7 +693,8 @@ struct MTKViewRepresentable: UIViewRepresentable {
 /// Drives the `MTKView` draw loop and blits the texture returned by the accessor.
 ///
 /// Acquire drawable → unconditional clear-pass → conditional blit → always present
-/// (CLAUDE.md §8 invariant — never return between drawable acquire and present).
+/// (invariant: never return between drawable acquire and present, or the layer
+/// shows uninitialized GPU memory — green artifacts).
 final class MTKViewCoordinator: NSObject, MTKViewDelegate {
 
     let textureAccessor: () -> MTLTexture?
