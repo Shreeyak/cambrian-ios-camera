@@ -484,6 +484,8 @@ let destination = await rec.photosDestination
 // adds the PHPhotoLibrary roundtrip latency, which is acceptable
 // because the caller opted into Photos.
 ⋮----
+let url = URL(fileURLWithPath: uri)
+⋮----
 // Non-fatal: file is safe at outputURL. Log richly + surface
 // to the public errorStream so the caller can react.
 ⋮----
@@ -1808,7 +1810,7 @@ let resumeOnce: @Sendable () -> Void = {
 let stopGroupDoneMs = self.clock.nowMs()
 let stopWriterStatus = await writer.status.rawValue
 ⋮----
-let url = outputURL?.absoluteString ?? ""
+let url = outputURL?.path ?? ""
 ⋮----
 let truncErr = CameraError(
 ⋮----
