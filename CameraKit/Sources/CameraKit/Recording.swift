@@ -100,11 +100,6 @@ public actor Recording {
 
     // MARK: - Public Methods
 
-    /// Test seam: publish the current state through the hook so tests can observe it.
-    func observeCurrentStateForTest() {
-        hooks.publishState(state)
-    }
-
     public func currentState() -> RecordingState { state }
     public func currentDroppedNotReady() -> Int { droppedNotReady }
 
@@ -270,3 +265,13 @@ public actor Recording {
         return url
     }
 }
+
+// MARK: - Test seams (internal — accessed via @testable import)
+#if DEBUG
+extension Recording {
+    /// Test seam: publish the current state through the hook so tests can observe it.
+    func observeCurrentStateForTest() {
+        hooks.publishState(state)
+    }
+}
+#endif
