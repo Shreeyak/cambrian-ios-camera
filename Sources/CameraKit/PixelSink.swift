@@ -324,7 +324,11 @@ public actor ConsumerRegistry {
     nonisolated func dropCount(for stream: StreamId) -> UInt64 {
         state.withLock { $0.dropCounts[stream] ?? 0 }
     }
+}
 
+// MARK: - Test seams (internal — accessed via @testable import)
+#if DEBUG
+extension ConsumerRegistry {
     /// Test seam: synthetically bump the Swift-side per-lane drop counter so
     /// `metricsStream()` aggregation can be exercised without driving real
     /// mailbox overflow (D-11).
@@ -342,6 +346,7 @@ public actor ConsumerRegistry {
         cppPool.consumerCount(stream: stream.rawPoolId)
     }
 }
+#endif
 
 // MARK: - StreamId C++ pool lane index
 
