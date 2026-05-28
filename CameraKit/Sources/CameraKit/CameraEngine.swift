@@ -631,6 +631,13 @@ public actor CameraEngine {
         // (`cameraSession` stays nil). Task 5 as-built.
         reconciledSessionRunning = (currentPhase != .background)
         setGate(currentPhase == .active)
+        // open() requires camera permission, so a successfully-opened engine has
+        // it. Mirror that: otherwise the `.active` reconcile's mid-session-
+        // revocation guard reads the live AVFoundation check, whose result depends
+        // on the test host's real permission state on the device — making these
+        // pure state-machine tests pass/fail per-device. The revocation test
+        // overrides this with `_setPermissionStatusForTest(.denied)` afterwards.
+        permissionStatusProvider = { .authorized }
     }
 
     /// Test-only: read the state machine's current `SessionState` (stateStream only yields on publish).
