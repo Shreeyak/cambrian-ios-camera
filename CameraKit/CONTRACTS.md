@@ -131,7 +131,7 @@ private var osOwnsDevice: Bool {
 ⋮----
 private func shouldDeferCommandLabel(target: SessionState) -> Bool {
 ⋮----
-private func backgroundReconcileParkForTest() async {
+private func parkBackgroundReconcileIfArmed() async {
 ```
 
 ## File: CameraKit/Sources/CameraKit/CameraEngine+TestSupport.swift
@@ -1496,7 +1496,7 @@ let lo = trim
 let hi = count - trim
 var sum: Float = 0
 ⋮----
-func setGate(_ open: Bool) {
+func setGateForTest(_ open: Bool) {
 ⋮----
 var latestNaturalBufferForTest: CVPixelBuffer? { latestNaturalBuffer }
 var latestProcessedBufferForTest: CVPixelBuffer? { latestProcessedBuffer }

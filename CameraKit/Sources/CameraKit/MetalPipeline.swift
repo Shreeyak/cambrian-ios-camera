@@ -1125,17 +1125,20 @@ final class MetalPipeline: @unchecked Sendable {
         )
     }
 
-    /// Opens or closes the pipeline's submission gate.
-    ///
-    /// Used by Stage02Tests.
-    func setGate(_ open: Bool) {
-        submissionGate.store(open, ordering: .sequentiallyConsistent)
-    }
 }
 
 // MARK: - Test seams (internal — accessed via @testable import)
 #if DEBUG
 extension MetalPipeline {
+    /// Test seam: opens/closes the pipeline's shared submission gate directly.
+    ///
+    /// For pipeline-level tests (Stage02) that exercise commit gating without a
+    /// full engine. Production drives the same shared gate through `CameraEngine`
+    /// (which owns the atomic and passes it in at construction).
+    func setGateForTest(_ open: Bool) {
+        submissionGate.store(open, ordering: .sequentiallyConsistent)
+    }
+
     // Stage 06: pool-backed buffer accessors replace the removed single-buffer properties.
     var latestNaturalBufferForTest: CVPixelBuffer? { latestNaturalBuffer }
     var latestProcessedBufferForTest: CVPixelBuffer? { latestProcessedBuffer }

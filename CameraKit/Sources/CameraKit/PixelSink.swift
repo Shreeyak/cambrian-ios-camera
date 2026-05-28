@@ -318,9 +318,12 @@ public actor ConsumerRegistry {
         for c in toFinish { c.finish() }
     }
 
-    // MARK: - Test-visible metrics
+    // MARK: - Metrics
 
-    /// Per-lane drop counter — readable from tests via @testable import.
+    /// Production per-lane drop counter, aggregated by `metricsStream()`.
+    ///
+    /// Also read directly from tests via `@testable import` — a clean call into
+    /// production, not a test seam.
     nonisolated func dropCount(for stream: StreamId) -> UInt64 {
         state.withLock { $0.dropCounts[stream] ?? 0 }
     }
