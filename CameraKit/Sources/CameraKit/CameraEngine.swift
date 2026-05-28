@@ -1571,7 +1571,8 @@ public actor CameraEngine {
         // for `destination == .none` (the default); for `.copy`/`.move` this
         // adds the PHPhotoLibrary roundtrip latency, which is acceptable
         // because the caller opted into Photos.
-        if destination != .none, let url = URL(string: uri) {
+        if destination != .none {
+            let url = URL(fileURLWithPath: uri)
             do {
                 try await PhotosLibraryClient.publish(
                     url: url, kind: .video, destination: destination
