@@ -1119,9 +1119,9 @@ Launch the app via `mcp__XcodeBuildMCP__build_run_device`. Verify:
 - [ ] Trigger an interruption (Control Center pull-down or Split View); confirm session state goes to `.interrupted` then back to `.streaming` (via device logs: `[interruption] entering .interrupted` → `[interruption] ended — reverting to .streaming`).
 - [ ] No regressions in record start/stop, still capture, or Canny edge-count overlay (Phase 1B sanity).
 
-- [ ] **Step 15.2: Capture evidence to `measurements/phase-2/`**
+- [ ] **Step 15.2: Capture evidence to `docs/measurements/phase-2/`**
 
-Create `measurements/phase-2/verification.md`:
+Create `docs/measurements/phase-2/verification.md`:
 - Test bundle pass count + iPad UDID + iOS version
 - HITL items with timestamps from `camerakit.log` (use the `ipad-logs` skill recipes)
 
@@ -1141,7 +1141,7 @@ Prepend a new "# state.md — Migration Phase 2" section above the Phase-1B sect
 - Current stage: Phase 2 complete
 - Public-surface changes (additions + renames + demotions)
 - Test bundle baseline (e.g. "138 passed / 0 failed / 0 skipped")
-- HITL evidence pointer to `measurements/phase-2/verification.md`
+- HITL evidence pointer to `docs/measurements/phase-2/verification.md`
 
 - [ ] **Step 16.3: Append to `CameraKit/DECISIONS.md`**
 

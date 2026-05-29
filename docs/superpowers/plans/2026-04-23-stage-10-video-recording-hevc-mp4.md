@@ -70,7 +70,7 @@ Use `mcp__XcodeBuildMCP__build_device` (primary) or `scripts/build-summary.sh` (
     /// AE lower frame-rate bound while recording — allows AE to halve in low light.
     /// constants.md#FRAME_RATE_RECORDING_MIN_FPS.
     static let frameRateRecordingMinFps: Int = 15
-    /// Default video bitrate. TARGET_BITRATE_MBPS is marked "measurements/" upstream;
+    /// Default video bitrate. TARGET_BITRATE_MBPS is marked "docs/measurements/" upstream;
     /// 40 Mbps is reasonable for 4K HEVC @ 30fps. See state.md open questions.
     static let recordingTargetBitrateBpsDefault: Int = 40_000_000
     /// Deadline for AVAssetWriter.finishWriting. Past this, cancel to avoid corrupt MP4
@@ -1378,7 +1378,7 @@ git commit -m "test(stage-10): wire Stage10Tests into eva-swift-stitchTests targ
 
 ## Task 16: state.md + HITL stub
 
-**Files:** `CameraKit/state.md`, `measurements/stage-10/recording.md`
+**Files:** `CameraKit/state.md`, `docs/measurements/stage-10/recording.md`
 
 - [ ] **Step 1: Prepend Stage 10 section to state.md**
 
@@ -1406,13 +1406,13 @@ public actor Recording { ... }
 - `## Decisions taken that weren't in briefs — Stage 10`:
   - **RecordingState reshape** — brief §4 vs architecture §Recording state machine disagree; brief wins for this stage (CLAUDE.md §8). Flag upstream.
   - **RecordingOptions / RecordingStart reshape** — matched architecture §Parameters + §Start flow; deleted prior Stage 01 stubs.
-  - **`recordingTargetBitrateBpsDefault = 40_000_000`** — brief §Parameters table says "measurements/"; 40 Mbps is a reasonable default for 4K HEVC @ 30fps pending on-device measurement. Log as open question.
+  - **`recordingTargetBitrateBpsDefault = 40_000_000`** — brief §Parameters table says "docs/measurements/"; 40 Mbps is a reasonable default for 4K HEVC @ 30fps pending on-device measurement. Log as open question.
   - **`AssetWriting` / `AssetWriterPixelBufferAdapting` protocol seam** — not in brief; required for the 4 TESTABLEs that fake `AVAssetWriter`. Mirrors `CaptureDeviceProviding` pattern already in the repo.
   - **`Watchdog.disarmAll` static helper** (carried from Stage 09) — n/a here, retain prior decision.
 - `## Open questions for next stage`:
   - `TARGET_BITRATE_MBPS` upstream value after device measurements.
   - Stage 12 retires `10:synchronous-drain-pause` via `UIApplication.beginBackgroundTask` wrap.
-  - Empirical format-fps range fallback (DEFERRED 10:empirical-format-fps-range-fallback) — evidence in `measurements/stage-10/`.
+  - Empirical format-fps range fallback (DEFERRED 10:empirical-format-fps-range-fallback) — evidence in `docs/measurements/stage-10/`.
 
 - [ ] **Step 2: Regenerate CONTRACTS.md**
 
@@ -1420,7 +1420,7 @@ public actor Recording { ... }
 bash scripts/regen-contracts.sh
 ```
 
-- [ ] **Step 3: Create HITL stub `measurements/stage-10/recording.md`**
+- [ ] **Step 3: Create HITL stub `docs/measurements/stage-10/recording.md`**
 
 ```markdown
 # Stage 10 — HITL recording evidence
@@ -1453,7 +1453,7 @@ Date: ________
 - [ ] **Step 4: Commit**
 
 ```bash
-git add CameraKit/state.md CameraKit/CONTRACTS.md measurements/stage-10/recording.md
+git add CameraKit/state.md CameraKit/CONTRACTS.md docs/measurements/stage-10/recording.md
 git commit -m "docs(stage-10): state.md Stage 10; HITL evidence stubs; regen CONTRACTS"
 ```
 
@@ -1473,7 +1473,7 @@ On physical iPad Pro M1:
 - Call `pause()` mid-recording; confirm `.paused` state + finalized file in Photos.
 - `resume()`; confirm preview returns.
 
-Record evidence in `measurements/stage-10/recording.md`.
+Record evidence in `docs/measurements/stage-10/recording.md`.
 
 - [ ] **Step 3: Scaffold acceptance**
 

@@ -95,8 +95,8 @@ $ scripts/build-summary.sh
 DEST: physical iPad <udid>
 BUILD: success
 Errors: 0  Warnings: 0
-Log:  .build-logs/<ts>-build-eva-swift-stitch.log
-JSON: .build-logs/<ts>-build-eva-swift-stitch.json
+Log:  .build-logs/<ts>-build-ios_example_app.log
+JSON: .build-logs/<ts>-build-ios_example_app.json
 ```
 
 - Resolves the destination: physical iPad → Mac "Designed for iPad" → error
@@ -110,12 +110,12 @@ JSON: .build-logs/<ts>-build-eva-swift-stitch.json
 Wraps `xcodebuild test`. Same logging/destination behavior as `build-summary`.
 
 ```bash
-$ scripts/test-summary.sh --filter eva-swift-stitchTests/Stage12CoordinatorTests
+$ scripts/test-summary.sh --filter ios_example_appTests/Stage12CoordinatorTests
 TESTS: success
 Build errors: 0  Warnings: 0  Failed cases: 0
 ```
 
-- Defaults to scheme `eva-swift-stitch` (the app-hosted target that runs
+- Defaults to scheme `ios_example_app` (the app-hosted target that runs
   CameraKitTests on device via dual-membership — see CLAUDE.md §8).
 - `--filter SUITE` → `-only-testing:<SUITE>`. Each `@Suite` is its own struct,
   so filter by the struct name, not the filename.
@@ -142,7 +142,7 @@ insufficient.
 
 Dual-membership wiring for CameraKitTests. Re-runs the xcodeproj-side wiring
 that compiles every `.swift` file in `CameraKit/Tests/CameraKitTests/` inside
-the app-hosted `eva-swift-stitchTests` Xcode target (the one that runs on the
+the app-hosted `ios_example_appTests` Xcode target (the one that runs on the
 iPad). The SwiftPM `testTarget` in `Package.swift` is left untouched. Idempotent.
 
 ```bash
@@ -240,8 +240,8 @@ rendering, the open window). Reach for it rarely.
 
 ```bash
 brew install xcode-build-server swift-format ripgrep repomix xcsift jq lefthook
-xcode-build-server config -project eva-swift-stitch.xcodeproj \
-                          -scheme eva-swift-stitch
+xcode-build-server config -project ios_example_app/ios_example_app.xcodeproj \
+                          -scheme ios_example_app
 lefthook install
 ```
 

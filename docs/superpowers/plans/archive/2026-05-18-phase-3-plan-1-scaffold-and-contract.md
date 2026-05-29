@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-05-20** by `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`. This plan targeted cam2fd integration which is no longer the architecture. Phase B's plan will be written fresh.
+
 # Phase 3 — Plan 1: Plugin Scaffold + Pigeon Contract Amendments
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
