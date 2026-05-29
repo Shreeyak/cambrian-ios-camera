@@ -10,14 +10,15 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         configuration: OpenConfiguration?,
         completion: @escaping (Result<SessionCapabilities, any Error>) -> Void
     ) {
-        if engine != nil {
-            // open() returns capabilities for a fresh session — a second open
-            // without close is a programming error the Dart facade surfaces.
+        if engine != nil || isClosing {
+            // open() returns capabilities for a fresh session. A second open
+            // without close — or an open while a previous close is still tearing
+            // down — is a programming error the Dart facade surfaces.
             completion(
                 .failure(
                     PigeonError(
                         code: "\(CameraErrorCode.invalidState)",
-                        message: "engine already open; call close() before reopening",
+                        message: "engine already open or closing; await close() before reopening",
                         details: ["isFatal": false]
                     )))
             return
@@ -46,10 +47,18 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
     }
 
     func close(completion: @escaping (Result<Void, any Error>) -> Void) {
-        let engine = self.engine
+        guard !isClosing, let engine = self.engine else {
+            // Already closed, or a close is already in flight — idempotent no-op.
+            completion(.success(()))
+            return
+        }
+        // Keep `engine` non-nil and mark `isClosing` until teardown finishes, so
+        // a concurrent open() is rejected until the old session is fully closed.
+        // This reorder (vs niling synchronously up front) is the #3 fix for the
+        // close→open AVCaptureSession race.
+        isClosing = true
         let oldStreamTasks = self.streamTasks
         let oldTextures = self.textures
-        self.engine = nil
         self.streamTasks = []
         self.textures = [:]
         Task {
@@ -57,11 +66,16 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
             // Texture-registry calls must run on the platform/main thread.
             await MainActor.run {
                 for (id, entry) in oldTextures {
+                    entry.0.setEngine(nil)
                     entry.1.cancel()
                     self.registrar.textures().unregisterTexture(id)
                 }
             }
-            await engine?.close()
+            await engine.close()
+            await MainActor.run {
+                self.engine = nil
+                self.isClosing = false
+            }
             completion(.success(()))
         }
     }

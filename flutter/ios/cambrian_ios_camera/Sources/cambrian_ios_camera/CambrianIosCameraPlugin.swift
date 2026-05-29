@@ -38,6 +38,10 @@ public final class CambrianIosCameraPlugin: NSObject {
 
     let registrar: FlutterPluginRegistrar
     var engine: (any CameraEngineProtocol)?
+    /// True while `close()` is tearing the engine down. Guards `open()`/`close()`
+    /// so a concurrent (un-awaited) close→open can't race two AVCaptureSessions
+    /// onto the camera before the first session finishes closing.
+    var isClosing = false
     var textures: [Int64: (EnginePixelBufferTexture, Task<Void, Never>)] = [:]
     var streamTasks: [Task<Void, Never>] = []
 

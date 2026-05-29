@@ -2,27 +2,38 @@ import CameraKit
 import CoreVideo
 import Flutter
 import Foundation
+import os
 
 /// One FlutterTexture instance per active preview stream.
 ///
 /// `copyPixelBuffer` is called on Flutter's raster thread; it looks up the
-/// current pixel buffer for this stream from the plugin's engine
-/// (mailbox lookup — cheap, no copy) and returns it +1 retained. Flutter
-/// releases after rendering. Per Phase B spec §3 "Open-state coupling":
-/// pre-open this returns `nil` and the texture shows black until the first
-/// frame after `open()`.
+/// current pixel buffer for this stream from the engine (mailbox lookup —
+/// cheap, no copy) and returns it +1 retained. Flutter releases after
+/// rendering. Per Phase B spec §3 "Open-state coupling": pre-open this returns
+/// `nil` and the texture shows black until the first frame after `open()`.
 final class EnginePixelBufferTexture: NSObject, FlutterTexture {
-    weak var plugin: CambrianIosCameraPlugin?
     let stream: StreamId
 
-    init(plugin: CambrianIosCameraPlugin, stream: StreamId) {
-        self.plugin = plugin
+    // `copyPixelBuffer` runs on Flutter's raster thread, but the engine is
+    // set/cleared on the main thread (open()/close()/armPendingTextures). The
+    // lock makes that cross-thread hand-off data-race-free instead of reading a
+    // bare `var` off the plugin from another thread.
+    private let engineBox = OSAllocatedUnfairLock<(any CameraEngineProtocol)?>(
+        initialState: nil)
+
+    init(stream: StreamId) {
         self.stream = stream
         super.init()
     }
 
+    /// Publishes (or clears) the engine the raster thread reads. Called on the
+    /// main thread from createPreviewTexture / armPendingTextures / close.
+    func setEngine(_ engine: (any CameraEngineProtocol)?) {
+        engineBox.withLock { $0 = engine }
+    }
+
     func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
-        guard let engine = plugin?.engine else { return nil }
+        guard let engine = engineBox.withLock({ $0 }) else { return nil }
         guard let buf = engine.currentPixelBuffer(stream: stream.toCameraKit()) else {
             return nil
         }
@@ -43,7 +54,10 @@ extension CambrianIosCameraPlugin {
         stream: StreamId,
         completion: @escaping (Result<Int64, any Error>) -> Void
     ) {
-        let texture = EnginePixelBufferTexture(plugin: self, stream: stream)
+        let texture = EnginePixelBufferTexture(stream: stream)
+        // nil before open(); armPendingTextures() publishes the live engine
+        // after open() sets self.engine.
+        texture.setEngine(engine)
         let textureId = registrar.textures().register(texture)
         let task = makeTextureSubscriberTask(
             textureId: textureId, stream: stream, engine: engine)
@@ -61,6 +75,7 @@ extension CambrianIosCameraPlugin {
             completion(.success(()))
             return
         }
+        entry.0.setEngine(nil)
         entry.1.cancel()
         registrar.textures().unregisterTexture(textureId)
         completion(.success(()))
@@ -72,6 +87,7 @@ extension CambrianIosCameraPlugin {
     /// Called from `open()` after `self.engine` is set.
     func armPendingTextures() {
         for (textureId, entry) in textures {
+            entry.0.setEngine(engine)  // publish the now-live engine to the raster-thread reader
             entry.1.cancel()  // belt-and-braces; pending task is no-op
             let stream = entry.0.stream
             let newTask = makeTextureSubscriberTask(
