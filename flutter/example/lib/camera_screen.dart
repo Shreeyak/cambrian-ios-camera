@@ -47,7 +47,9 @@ class _CameraScreenState extends State<CameraScreen> {
         if (mounted) setState(() => _state = s);
       }).catchError((_) {});
       _frameSub = _engine.frameResultStream().listen((f) {
-        if (mounted) setState(() => _isoCurrent = f.iso);
+        // No setState per frame — at ~30fps that rebuilds the whole tree. The
+        // 500ms _ticker below drives the status readout that shows this.
+        _isoCurrent = f.iso;
       });
       _recSub = _engine.recordingStateStream().listen((r) {
         if (!mounted) return;

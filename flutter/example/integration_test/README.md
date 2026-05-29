@@ -20,7 +20,7 @@ on-disk file, so this is optional.)
 
 ## 2. Disable auto-lock
 
-```
+```text
 Settings → Display & Brightness → Auto-Lock → Never
 ```
 
@@ -31,7 +31,7 @@ written; an auto-lock during that window faults the AVCaptureSession.
 
 Test 2 (Lifecycle transitions) emits a `print()` line:
 
-```
+```text
 INTEGRATION_PROMPT: press the home button now, then bring the app back
 ```
 

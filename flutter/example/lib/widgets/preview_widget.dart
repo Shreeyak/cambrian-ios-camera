@@ -13,6 +13,7 @@ class PreviewWidget extends StatefulWidget {
 
 class _PreviewWidgetState extends State<PreviewWidget> {
   int? _textureId;
+  bool _textureCreateFailed = false;
   StreamSubscription<SessionState>? _stateSub;
   SessionState _lastState = SessionState.closed;
 
@@ -32,6 +33,10 @@ class _PreviewWidgetState extends State<PreviewWidget> {
     }).catchError((_) {});
     widget.engine.createPreviewTexture(stream: StreamId.processed).then((id) {
       if (mounted) setState(() => _textureId = id);
+    }).catchError((Object _) {
+      // createPreviewTexture shouldn't fail on iOS, but if it does, drop the
+      // spinner and show the placeholder rather than hang on it forever.
+      if (mounted) setState(() => _textureCreateFailed = true);
     });
   }
 
@@ -46,7 +51,11 @@ class _PreviewWidgetState extends State<PreviewWidget> {
   @override
   Widget build(BuildContext context) {
     final id = _textureId;
-    if (id == null) return const Center(child: CircularProgressIndicator());
+    if (id == null) {
+      return _textureCreateFailed
+          ? const _NoSignal()
+          : const Center(child: CircularProgressIndicator());
+    }
     final isRendering = _lastState == SessionState.streaming ||
         _lastState == SessionState.paused;
     return isRendering ? Texture(textureId: id) : const _NoSignal();

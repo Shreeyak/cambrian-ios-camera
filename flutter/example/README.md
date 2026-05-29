@@ -1,6 +1,7 @@
 # cambrian_ios_camera_example
 
-A new Flutter project.
+Example app demonstrating the `cambrian_ios_camera` Flutter plugin — live
+preview, capture, recording, calibration, and settings on a physical iPad.
 
 ## Getting Started
 

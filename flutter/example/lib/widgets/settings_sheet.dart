@@ -30,13 +30,16 @@ class _SettingsSheetState extends State<SettingsSheet> {
   void initState() {
     super.initState();
     widget.engine.currentSettings().then((s) {
-      if (!mounted || s == null) return;
+      if (!mounted) return;
+      // s may be null (engine not reporting settings yet) — still seed every
+      // control from capability defaults so the sheet renders instead of
+      // hanging on the spinner.
       setState(() {
-        _iso = s.iso?.toDouble() ?? widget.caps.isoMin;
-        _expNs = s.exposureTimeNs?.toDouble() ??
+        _iso = s?.iso?.toDouble() ?? widget.caps.isoMin;
+        _expNs = s?.exposureTimeNs?.toDouble() ??
             widget.caps.exposureDurationMinNs.toDouble();
-        _focus = s.focusDistance ?? widget.caps.focusMin;
-        _evComp = s.evCompensation?.toDouble() ?? 0;
+        _focus = s?.focusDistance ?? widget.caps.focusMin;
+        _evComp = s?.evCompensation?.toDouble() ?? 0;
       });
     });
   }

@@ -6,6 +6,23 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# Detect the iPad once and export it so every device check (2,3,5,6) pins the
+# SAME device. This project rotates between two iPads; independent per-check
+# detection could otherwise split checks across them. `|| true` stops a no-match
+# grep from aborting under `set -e` before the friendly error below runs.
+if [[ -z "${IPAD_UDID:-}" ]]; then
+  IPAD_UDID=$(xcrun xctrace list devices 2>&1 \
+    | grep -iE 'iPad' \
+    | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}' \
+    | head -1) || true
+fi
+if [[ -z "$IPAD_UDID" ]]; then
+  echo "No connected iPad found; export IPAD_UDID=<xctrace UDID> and retry." >&2
+  echo "Simulators are disallowed on this machine (CLAUDE.md §6)." >&2
+  exit 1
+fi
+export IPAD_UDID
+
 step () { echo; echo "==> $1"; }
 
 step "[1/7] Dart unit + example smoke"
@@ -26,13 +43,9 @@ step "[5/7] ios_example_app smoke build (iPad)"
 scripts/build-summary.sh
 
 step "[6/7] flutter example release build (iPad)"
-UDID="${IPAD_UDID:-$(xcrun xctrace list devices 2>&1 | grep -iE 'iPad' | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}' | head -1)}"
-if [[ -z "$UDID" ]]; then
-  echo "No iPad found; export IPAD_UDID=<xctrace UDID> and retry." >&2
-  exit 1
-fi
-# Build only — don't keep the app running headless.
-(cd flutter/example && flutter build ios --device-id="$UDID" --release)
+# Build only — don't keep the app running headless. IPAD_UDID was detected and
+# exported once at the top, so this check uses the same device as the rest.
+(cd flutter/example && flutter build ios --device-id="$IPAD_UDID" --release)
 
 step "[7/7] swift-format lint --strict on CameraKit sources"
 swift-format lint --strict CameraKit/Sources/CameraKit/*.swift
