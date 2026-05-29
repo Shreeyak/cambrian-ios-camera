@@ -15,9 +15,23 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "14E07E152F8E513D00E9F7FC"
-               BuildableName = "eva-swift-stitch.app"
-               BlueprintName = "eva-swift-stitch"
-               ReferencedContainer = "container:eva-swift-stitch.xcodeproj">
+               BuildableName = "ios_example_app.app"
+               BlueprintName = "ios_example_app"
+               ReferencedContainer = "container:ios_example_app.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "14E07E252F8E513F00E9F7FC"
+               BuildableName = "ios_example_appTests.xctest"
+               BlueprintName = "ios_example_appTests"
+               ReferencedContainer = "container:ios_example_app.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -30,14 +44,13 @@
       shouldAutocreateTestPlan = "YES">
       <Testables>
          <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
+            skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CameraKitTests"
-               BuildableName = "CameraKitTests"
-               BlueprintName = "CameraKitTests"
-               ReferencedContainer = "container:CameraKit">
+               BlueprintIdentifier = "14E07E252F8E513F00E9F7FC"
+               BuildableName = "ios_example_appTests.xctest"
+               BlueprintName = "ios_example_appTests"
+               ReferencedContainer = "container:ios_example_app.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -57,9 +70,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "14E07E152F8E513D00E9F7FC"
-            BuildableName = "eva-swift-stitch.app"
-            BlueprintName = "eva-swift-stitch"
-            ReferencedContainer = "container:eva-swift-stitch.xcodeproj">
+            BuildableName = "ios_example_app.app"
+            BlueprintName = "ios_example_app"
+            ReferencedContainer = "container:ios_example_app.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -74,9 +87,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "14E07E152F8E513D00E9F7FC"
-            BuildableName = "eva-swift-stitch.app"
-            BlueprintName = "eva-swift-stitch"
-            ReferencedContainer = "container:eva-swift-stitch.xcodeproj">
+            BuildableName = "ios_example_app.app"
+            BlueprintName = "ios_example_app"
+            ReferencedContainer = "container:ios_example_app.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

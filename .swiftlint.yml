@@ -1,14 +1,13 @@
-# SwiftLint configuration for eva-swift-stitch
+# SwiftLint configuration for ios_example_app
 # iPad-only app; Swift strict concurrency enforced at build time
 
 included:
-  - eva-swift-stitch
-  - eva-swift-stitchTests
-  - eva-swift-stitchUITests
+  - ios_example_app/ios_example_app
+  - ios_example_app/Tests
+  - ios_example_app/UITests
 
 excluded:
-  - eva-swift-stitch.xcodeproj
-  - fastlane
+  - ios_example_app/ios_example_app.xcodeproj
 
 opt_in_rules:
   - array_init
@@ -56,10 +55,10 @@ function_body_length:
 type_name:
   allowed_symbols: ["_"]   # permit underscore in Xcode-generated names
   excluded:                 # Xcode-generated boilerplate with lowercase prefix
-    - eva_swift_stitchApp
-    - eva_swift_stitchTests
-    - eva_swift_stitchUITests
-    - eva_swift_stitchUITestsLaunchTests
+    - ios_example_appApp
+    - ios_example_appTests
+    - ios_example_appUITests
+    - ios_example_appUITestsLaunchTests
 
 identifier_name:
   min_length:

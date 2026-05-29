@@ -1,6 +1,6 @@
 // Stage08CannyTests — relocated from CameraKit/Tests/CameraKitTests/Stage08Tests.swift.
 // Phase 1B (2026-05-15). `cannyStubConsumerReceivesTrackerFrames` moved here
-// because `CppCannyStub` now lives in the eva-swift-stitch app target (AppCxx/).
+// because `CppCannyStub` now lives in the ios_example_app app target (AppCxx/).
 // Single-target membership (app-test only) by deliberate exception to CLAUDE.md §8
 // — same pattern as Phase 1A's Stage11UITests.swift.
 import CoreMedia
@@ -9,7 +9,7 @@ import Foundation
 import Testing
 
 @testable import CameraKit
-@testable import eva_swift_stitch  // CppCannyStub now lives in the app target.
+@testable import ios_example_app  // CppCannyStub now lives in the app target.
 
 @Suite("Stage 08 Canny (app-target)", .progressLogged)
 struct Stage08CannyTests {

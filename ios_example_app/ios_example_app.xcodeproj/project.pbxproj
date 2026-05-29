@@ -13,16 +13,15 @@
 		05EBAEEEA7E3802F0248BCA1 /* DisplayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A006996C3386DD396979F953 /* DisplayViewModel.swift */; };
 		09ABB819A33A2634300E0FDF /* Stage13CalibrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B41F4786693B0AE021B2232 /* Stage13CalibrationTests.swift */; };
 		0D564774D754090505282403 /* ViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B5C08ABF73F3F47F010206 /* ViewModel.swift */; };
-		14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */; };
+		14E07E1A2F8E513D00E9F7FC /* ios_example_appApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E192F8E513D00E9F7FC /* ios_example_appApp.swift */; };
 		14E07E1E2F8E513F00E9F7FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */; };
 		14E07E212F8E513F00E9F7FC /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */; };
-		14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */; };
-		14E07E352F8E513F00E9F7FC /* eva_swift_stitchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */; };
-		14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */; };
+		14E07E2B2F8E513F00E9F7FC /* ios_example_appTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E2A2F8E513F00E9F7FC /* ios_example_appTests.swift */; };
+		14E07E352F8E513F00E9F7FC /* ios_example_appUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E342F8E513F00E9F7FC /* ios_example_appUITests.swift */; };
+		14E07E372F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift */; };
 		1597FE0511AFD9C0406D7498 /* Stage09Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE72B917051A958CCDA6299B /* Stage09Tests.swift */; };
 		2408C79007473C6B21EF6DFA /* CppCannyStub.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F42AF85980B2337113CF89 /* CppCannyStub.swift */; };
 		278E32053DA41734DC1B4992 /* CaptureNaturalPictureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 389FEB9B19ABEE545040C1BB /* CaptureNaturalPictureTests.swift */; };
-		29BFA18C798626709B154076 /* OutputPathResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28C7FCEF95918350F268DBE7 /* OutputPathResolutionTests.swift */; };
 		2C3C1285DDA0A8726F1995F1 /* RgbaConversionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32EB05562EB8BEEFE212FFA1 /* RgbaConversionTests.swift */; };
 		2D7E29E3BBD70A605BADF784 /* LifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C5B722FC845063B2B5272C /* LifecycleTests.swift */; };
 		3543BD01FED4893DD5F89AEF /* CalibrationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F84BFEC7AD76462115AEAB /* CalibrationViewModel.swift */; };
@@ -46,8 +45,10 @@
 		A3E014673AD8F07BE9D93639 /* HardwareControlsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5A8E98AF2312BB5DA99C5C /* HardwareControlsViewModel.swift */; };
 		B50DA96F146199918095B448 /* RecordingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3CEB8DADD3C9D49E9D2E72C /* RecordingViewModel.swift */; };
 		B8DA959F46CE3AB83631D9F3 /* opencv2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FA1F10D5A87499A96772E693 /* opencv2.xcframework */; };
+		BD3955AFC187B25B51F527BB /* CameraEngineProtocolConformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7466C1B4E9F3DFD7C227B95 /* CameraEngineProtocolConformanceTests.swift */; };
 		C82F8FF22301253C7C29DA32 /* CABIParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CAE570E5E991D0D48A41E91 /* CABIParityTests.swift */; };
 		CB227B149EADC82F7D5CAA98 /* Stage11Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47509CEAA74698DC7E545FE /* Stage11Tests.swift */; };
+		CBFEBC1997CE64D939CC59AA /* OutputPathResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D792CFEF8AD548B1FC3C678E /* OutputPathResolutionTests.swift */; };
 		D2A0B170AB46745B4267B24E /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B518A58555B2ECB69FBF3DC /* CameraView.swift */; };
 		DA1DF80B9D022A083AF98C55 /* CannyConsumer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3CACE9E98EC5AE5B501040FE /* CannyConsumer.cpp */; };
 		E3130A01AC496C58DFBEF068 /* Stage10Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */; };
@@ -66,14 +67,14 @@
 			containerPortal = 14E07E0E2F8E513D00E9F7FC /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 14E07E152F8E513D00E9F7FC;
-			remoteInfo = "eva-swift-stitch";
+			remoteInfo = ios_example_app;
 		};
 		14E07E312F8E513F00E9F7FC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 14E07E0E2F8E513D00E9F7FC /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 14E07E152F8E513D00E9F7FC;
-			remoteInfo = "eva-swift-stitch";
+			remoteInfo = ios_example_app;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -96,18 +97,17 @@
 		02F84BFEC7AD76462115AEAB /* CalibrationViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CalibrationViewModel.swift; sourceTree = "<group>"; };
 		0B518A58555B2ECB69FBF3DC /* CameraView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
 		12E5CA41360E6FF4ED76A53D /* Stage05Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage05Tests.swift; sourceTree = "<group>"; };
-		14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "eva-swift-stitch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchApp.swift; sourceTree = "<group>"; };
+		14E07E162F8E513D00E9F7FC /* ios_example_app.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ios_example_app.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		14E07E192F8E513D00E9F7FC /* ios_example_appApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ios_example_appApp.swift; sourceTree = "<group>"; };
 		14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		14E07E202F8E513F00E9F7FC /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "eva-swift-stitchTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchTests.swift; sourceTree = "<group>"; };
-		14E07E302F8E513F00E9F7FC /* eva-swift-stitchUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "eva-swift-stitchUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITests.swift; sourceTree = "<group>"; };
-		14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = eva_swift_stitchUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		14E07E262F8E513F00E9F7FC /* ios_example_appTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ios_example_appTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		14E07E2A2F8E513F00E9F7FC /* ios_example_appTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ios_example_appTests.swift; sourceTree = "<group>"; };
+		14E07E302F8E513F00E9F7FC /* ios_example_appUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ios_example_appUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		14E07E342F8E513F00E9F7FC /* ios_example_appUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ios_example_appUITests.swift; sourceTree = "<group>"; };
+		14E07E362F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ios_example_appUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		14E07E432F8E51EC00E9F7FC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		255FA5191553CA836E7A35A8 /* Stage08CannyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage08CannyTests.swift; sourceTree = "<group>"; };
-		28C7FCEF95918350F268DBE7 /* OutputPathResolutionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OutputPathResolutionTests.swift; sourceTree = "<group>"; };
 		29B3BABBAA97C933F7EC4DCB /* CounterConsumer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = CounterConsumer.h; sourceTree = "<group>"; };
 		32EB05562EB8BEEFE212FFA1 /* RgbaConversionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RgbaConversionTests.swift; sourceTree = "<group>"; };
 		33C5B722FC845063B2B5272C /* LifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LifecycleTests.swift; sourceTree = "<group>"; };
@@ -129,19 +129,21 @@
 		9CDCED4C4EA5FA40AF4E7215 /* Stage04Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage04Tests.swift; sourceTree = "<group>"; };
 		A006996C3386DD396979F953 /* DisplayViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DisplayViewModel.swift; sourceTree = "<group>"; };
 		A499A435F949C833F11A2B43 /* CounterConsumer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; path = CounterConsumer.cpp; sourceTree = "<group>"; };
-		AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage10Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage10Tests.swift; sourceTree = "<group>"; };
+		AACBC19441C6AC41AA94CFFD /* Stage10Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage10Tests.swift; path = ../CameraKit/Tests/CameraKitTests/Stage10Tests.swift; sourceTree = "<group>"; };
 		ABF10587E507E1048C8C847C /* Stage11UITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage11UITests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
 		BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotosLibraryClientTests.swift; sourceTree = "<group>"; };
 		C3CEB8DADD3C9D49E9D2E72C /* RecordingViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingViewModel.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
 		D6D8F6AA0B5F4841A0CD0038 /* MailboxTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MailboxTests.swift; sourceTree = "<group>"; };
+		D7466C1B4E9F3DFD7C227B95 /* CameraEngineProtocolConformanceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CameraEngineProtocolConformanceTests.swift; sourceTree = "<group>"; };
+		D792CFEF8AD548B1FC3C678E /* OutputPathResolutionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OutputPathResolutionTests.swift; sourceTree = "<group>"; };
 		DABEEEB1238FBD1FD99E0F73 /* TestProgressLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestProgressLog.swift; sourceTree = "<group>"; };
-		DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TestPixelHelpers.swift; path = CameraKit/Tests/CameraKitTests/TestPixelHelpers.swift; sourceTree = "<group>"; };
+		DBC5E6164A776C4D19A9884F /* TestPixelHelpers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TestPixelHelpers.swift; path = ../CameraKit/Tests/CameraKitTests/TestPixelHelpers.swift; sourceTree = "<group>"; };
 		DBF4B8958FFF36C3B92510DB /* SliderDebouncer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SliderDebouncer.swift; sourceTree = "<group>"; };
 		DE72B917051A958CCDA6299B /* Stage09Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage09Tests.swift; sourceTree = "<group>"; };
 		E12A8AFD46F3AC3415D5E4BC /* Stage07Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage07Tests.swift; sourceTree = "<group>"; };
-		E47509CEAA74698DC7E545FE /* Stage11Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage11Tests.swift; path = CameraKit/Tests/CameraKitTests/Stage11Tests.swift; sourceTree = "<group>"; };
+		E47509CEAA74698DC7E545FE /* Stage11Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Stage11Tests.swift; path = ../CameraKit/Tests/CameraKitTests/Stage11Tests.swift; sourceTree = "<group>"; };
 		E8F42AF85980B2337113CF89 /* CppCannyStub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CppCannyStub.swift; sourceTree = "<group>"; };
 		ED4F5E261160C019501B76D6 /* ErrorPresenterViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErrorPresenterViewModel.swift; sourceTree = "<group>"; };
 		EDBE6F3956C9C8906E817ED5 /* ProcessingViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProcessingViewModel.swift; sourceTree = "<group>"; };
@@ -218,18 +220,19 @@
 				389FEB9B19ABEE545040C1BB /* CaptureNaturalPictureTests.swift */,
 				32EB05562EB8BEEFE212FFA1 /* RgbaConversionTests.swift */,
 				33C5B722FC845063B2B5272C /* LifecycleTests.swift */,
-				28C7FCEF95918350F268DBE7 /* OutputPathResolutionTests.swift */,
+				D7466C1B4E9F3DFD7C227B95 /* CameraEngineProtocolConformanceTests.swift */,
+				D792CFEF8AD548B1FC3C678E /* OutputPathResolutionTests.swift */,
 			);
 			name = CameraKitTests;
-			path = CameraKit/Tests/CameraKitTests;
+			path = ../CameraKit/Tests/CameraKitTests;
 			sourceTree = "<group>";
 		};
 		14E07E0D2F8E513D00E9F7FC = {
 			isa = PBXGroup;
 			children = (
-				14E07E182F8E513D00E9F7FC /* eva-swift-stitch */,
-				14E07E292F8E513F00E9F7FC /* eva-swift-stitchTests */,
-				14E07E332F8E513F00E9F7FC /* eva-swift-stitchUITests */,
+				14E07E182F8E513D00E9F7FC /* ios_example_app */,
+				14E07E292F8E513F00E9F7FC /* Tests */,
+				14E07E332F8E513F00E9F7FC /* UITests */,
 				14E07E172F8E513D00E9F7FC /* Products */,
 				06A512ED5FC2EDE614E14D0D /* CameraKitTests */,
 				66178965FC79084512BA4BD9 /* CameraKit */,
@@ -240,24 +243,24 @@
 		14E07E172F8E513D00E9F7FC /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */,
-				14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */,
-				14E07E302F8E513F00E9F7FC /* eva-swift-stitchUITests.xctest */,
+				14E07E162F8E513D00E9F7FC /* ios_example_app.app */,
+				14E07E262F8E513F00E9F7FC /* ios_example_appTests.xctest */,
+				14E07E302F8E513F00E9F7FC /* ios_example_appUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		14E07E182F8E513D00E9F7FC /* eva-swift-stitch */ = {
+		14E07E182F8E513D00E9F7FC /* ios_example_app */ = {
 			isa = PBXGroup;
 			children = (
 				14E07E432F8E51EC00E9F7FC /* Info.plist */,
-				14E07E192F8E513D00E9F7FC /* eva_swift_stitchApp.swift */,
+				14E07E192F8E513D00E9F7FC /* ios_example_appApp.swift */,
 				14E07E1D2F8E513F00E9F7FC /* Assets.xcassets */,
 				14E07E1F2F8E513F00E9F7FC /* Preview Content */,
 				0180F31D54B458CEB93EF6B1 /* UI */,
 				74088CABCBA2F09A99F67F53 /* AppCxx */,
 			);
-			path = "eva-swift-stitch";
+			path = ios_example_app;
 			sourceTree = "<group>";
 		};
 		14E07E1F2F8E513F00E9F7FC /* Preview Content */ = {
@@ -268,24 +271,24 @@
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
-		14E07E292F8E513F00E9F7FC /* eva-swift-stitchTests */ = {
+		14E07E292F8E513F00E9F7FC /* Tests */ = {
 			isa = PBXGroup;
 			children = (
-				14E07E2A2F8E513F00E9F7FC /* eva_swift_stitchTests.swift */,
+				14E07E2A2F8E513F00E9F7FC /* ios_example_appTests.swift */,
 				ABF10587E507E1048C8C847C /* Stage11UITests.swift */,
 				255FA5191553CA836E7A35A8 /* Stage08CannyTests.swift */,
 				3CAE570E5E991D0D48A41E91 /* CABIParityTests.swift */,
 			);
-			path = "eva-swift-stitchTests";
+			path = Tests;
 			sourceTree = "<group>";
 		};
-		14E07E332F8E513F00E9F7FC /* eva-swift-stitchUITests */ = {
+		14E07E332F8E513F00E9F7FC /* UITests */ = {
 			isa = PBXGroup;
 			children = (
-				14E07E342F8E513F00E9F7FC /* eva_swift_stitchUITests.swift */,
-				14E07E362F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift */,
+				14E07E342F8E513F00E9F7FC /* ios_example_appUITests.swift */,
+				14E07E362F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift */,
 			);
-			path = "eva-swift-stitchUITests";
+			path = UITests;
 			sourceTree = "<group>";
 		};
 		55B96687A8A946447581150F /* include */ = {
@@ -312,7 +315,7 @@
 				FA1F10D5A87499A96772E693 /* opencv2.xcframework */,
 			);
 			name = Frameworks;
-			path = Frameworks;
+			path = ../Frameworks;
 			sourceTree = "<group>";
 		};
 		74088CABCBA2F09A99F67F53 /* AppCxx */ = {
@@ -349,9 +352,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		14E07E152F8E513D00E9F7FC /* eva-swift-stitch */ = {
+		14E07E152F8E513D00E9F7FC /* ios_example_app */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 14E07E3A2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitch" */;
+			buildConfigurationList = 14E07E3A2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "ios_example_app" */;
 			buildPhases = (
 				14E07E122F8E513D00E9F7FC /* Sources */,
 				14E07E132F8E513D00E9F7FC /* Frameworks */,
@@ -362,17 +365,17 @@
 			);
 			dependencies = (
 			);
-			name = "eva-swift-stitch";
+			name = ios_example_app;
 			packageProductDependencies = (
 				4EFB126527016EEBF27C9B62 /* CameraKit */,
 			);
-			productName = "eva-swift-stitch";
-			productReference = 14E07E162F8E513D00E9F7FC /* eva-swift-stitch.app */;
+			productName = ios_example_app;
+			productReference = 14E07E162F8E513D00E9F7FC /* ios_example_app.app */;
 			productType = "com.apple.product-type.application";
 		};
-		14E07E252F8E513F00E9F7FC /* eva-swift-stitchTests */ = {
+		14E07E252F8E513F00E9F7FC /* ios_example_appTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 14E07E3D2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchTests" */;
+			buildConfigurationList = 14E07E3D2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "ios_example_appTests" */;
 			buildPhases = (
 				14E07E222F8E513F00E9F7FC /* Sources */,
 				14E07E232F8E513F00E9F7FC /* Frameworks */,
@@ -383,18 +386,18 @@
 			dependencies = (
 				14E07E282F8E513F00E9F7FC /* PBXTargetDependency */,
 			);
-			name = "eva-swift-stitchTests";
+			name = ios_example_appTests;
 			packageProductDependencies = (
 				774759B7C7A55D0C56E89D14 /* CameraKit */,
 				0E55D77F81A3C795C0243955 /* CameraKitInterop */,
 			);
-			productName = "eva-swift-stitchTests";
-			productReference = 14E07E262F8E513F00E9F7FC /* eva-swift-stitchTests.xctest */;
+			productName = ios_example_appTests;
+			productReference = 14E07E262F8E513F00E9F7FC /* ios_example_appTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		14E07E2F2F8E513F00E9F7FC /* eva-swift-stitchUITests */ = {
+		14E07E2F2F8E513F00E9F7FC /* ios_example_appUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 14E07E402F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchUITests" */;
+			buildConfigurationList = 14E07E402F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "ios_example_appUITests" */;
 			buildPhases = (
 				14E07E2C2F8E513F00E9F7FC /* Sources */,
 				14E07E2D2F8E513F00E9F7FC /* Frameworks */,
@@ -405,9 +408,9 @@
 			dependencies = (
 				14E07E322F8E513F00E9F7FC /* PBXTargetDependency */,
 			);
-			name = "eva-swift-stitchUITests";
-			productName = "eva-swift-stitchUITests";
-			productReference = 14E07E302F8E513F00E9F7FC /* eva-swift-stitchUITests.xctest */;
+			name = ios_example_appUITests;
+			productName = ios_example_appUITests;
+			productReference = 14E07E302F8E513F00E9F7FC /* ios_example_appUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -433,7 +436,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 14E07E112F8E513D00E9F7FC /* Build configuration list for PBXProject "eva-swift-stitch" */;
+			buildConfigurationList = 14E07E112F8E513D00E9F7FC /* Build configuration list for PBXProject "ios_example_app" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -443,15 +446,15 @@
 			);
 			mainGroup = 14E07E0D2F8E513D00E9F7FC;
 			packageReferences = (
-				4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */,
+				4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference ".." */,
 			);
 			productRefGroup = 14E07E172F8E513D00E9F7FC /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				14E07E152F8E513D00E9F7FC /* eva-swift-stitch */,
-				14E07E252F8E513F00E9F7FC /* eva-swift-stitchTests */,
-				14E07E2F2F8E513F00E9F7FC /* eva-swift-stitchUITests */,
+				14E07E152F8E513D00E9F7FC /* ios_example_app */,
+				14E07E252F8E513F00E9F7FC /* ios_example_appTests */,
+				14E07E2F2F8E513F00E9F7FC /* ios_example_appUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -487,7 +490,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				14E07E1A2F8E513D00E9F7FC /* eva_swift_stitchApp.swift in Sources */,
+				14E07E1A2F8E513D00E9F7FC /* ios_example_appApp.swift in Sources */,
 				3543BD01FED4893DD5F89AEF /* CalibrationViewModel.swift in Sources */,
 				D2A0B170AB46745B4267B24E /* CameraView.swift in Sources */,
 				ED5858F17D15B3DA74966D87 /* ControlEnablement.swift in Sources */,
@@ -509,7 +512,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				14E07E2B2F8E513F00E9F7FC /* eva_swift_stitchTests.swift in Sources */,
+				14E07E2B2F8E513F00E9F7FC /* ios_example_appTests.swift in Sources */,
 				3B9F836323CAF649EEFF341B /* Stage01Tests.swift in Sources */,
 				F1E3F510681959371A363F32 /* Stage02Tests.swift in Sources */,
 				7EB189650E75BB6918421A44 /* Stage03Tests.swift in Sources */,
@@ -535,7 +538,8 @@
 				278E32053DA41734DC1B4992 /* CaptureNaturalPictureTests.swift in Sources */,
 				2C3C1285DDA0A8726F1995F1 /* RgbaConversionTests.swift in Sources */,
 				2D7E29E3BBD70A605BADF784 /* LifecycleTests.swift in Sources */,
-				29BFA18C798626709B154076 /* OutputPathResolutionTests.swift in Sources */,
+				BD3955AFC187B25B51F527BB /* CameraEngineProtocolConformanceTests.swift in Sources */,
+				CBFEBC1997CE64D939CC59AA /* OutputPathResolutionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -543,8 +547,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				14E07E372F8E513F00E9F7FC /* eva_swift_stitchUITestsLaunchTests.swift in Sources */,
-				14E07E352F8E513F00E9F7FC /* eva_swift_stitchUITests.swift in Sources */,
+				14E07E372F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift in Sources */,
+				14E07E352F8E513F00E9F7FC /* ios_example_appUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -553,12 +557,12 @@
 /* Begin PBXTargetDependency section */
 		14E07E282F8E513F00E9F7FC /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 14E07E152F8E513D00E9F7FC /* eva-swift-stitch */;
+			target = 14E07E152F8E513D00E9F7FC /* ios_example_app */;
 			targetProxy = 14E07E272F8E513F00E9F7FC /* PBXContainerItemProxy */;
 		};
 		14E07E322F8E513F00E9F7FC /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 14E07E152F8E513D00E9F7FC /* eva-swift-stitch */;
+			target = 14E07E152F8E513D00E9F7FC /* ios_example_app */;
 			targetProxy = 14E07E312F8E513F00E9F7FC /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -695,18 +699,18 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"eva-swift-stitch/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "\"ios_example_app/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/Frameworks",
+					"$(SRCROOT)/../Frameworks",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+					"$(SRCROOT)/../CameraKit/Sources/CameraKitCxx/include",
 				);
-				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
+				INFOPLIST_FILE = ios_example_app/Info.plist;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "CameraKit saves captured still images to your photo library.";
@@ -721,11 +725,11 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "-cxx-interoperability-mode=default";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitch";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.ios-example-app";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "ios_example_app/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -740,18 +744,18 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"eva-swift-stitch/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "\"ios_example_app/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/Frameworks",
+					"$(SRCROOT)/../Frameworks",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+					"$(SRCROOT)/../CameraKit/Sources/CameraKitCxx/include",
 				);
-				INFOPLIST_FILE = "eva-swift-stitch/Info.plist";
+				INFOPLIST_FILE = ios_example_app/Info.plist;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to scan";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "CameraKit saves captured still images to your photo library.";
@@ -766,11 +770,11 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "-cxx-interoperability-mode=default";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitch";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.ios-example-app";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "ios_example_app/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -787,24 +791,24 @@
 				ENABLE_TESTABILITY = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/Frameworks",
+					"$(SRCROOT)/../Frameworks",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+					"$(SRCROOT)/../CameraKit/Sources/CameraKitCxx/include",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "-cxx-interoperability-mode=default";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchTests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.ios-example-appTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "ios_example_app/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/eva-swift-stitch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/eva-swift-stitch";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ios_example_app.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ios_example_app";
 			};
 			name = Debug;
 		};
@@ -818,24 +822,24 @@
 				ENABLE_TESTABILITY = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/Frameworks",
+					"$(SRCROOT)/../Frameworks",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/CameraKit/Sources/CameraKitCxx/include",
+					"$(SRCROOT)/../CameraKit/Sources/CameraKitCxx/include",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "-cxx-interoperability-mode=default";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchTests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.ios-example-appTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_OBJC_BRIDGING_HEADER = "eva-swift-stitch/AppCxx/AppCxx-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "ios_example_app/AppCxx/AppCxx-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/eva-swift-stitch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/eva-swift-stitch";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ios_example_app.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ios_example_app";
 			};
 			name = Release;
 		};
@@ -846,13 +850,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.ios-example-appUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = "eva-swift-stitch";
+				TEST_TARGET_NAME = ios_example_app;
 			};
 			name = Debug;
 		};
@@ -863,20 +867,20 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.eva-swift-stitchUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cambrian.ios-example-appUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = "eva-swift-stitch";
+				TEST_TARGET_NAME = ios_example_app;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		14E07E112F8E513D00E9F7FC /* Build configuration list for PBXProject "eva-swift-stitch" */ = {
+		14E07E112F8E513D00E9F7FC /* Build configuration list for PBXProject "ios_example_app" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				14E07E382F8E513F00E9F7FC /* Debug */,
@@ -885,7 +889,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		14E07E3A2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitch" */ = {
+		14E07E3A2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "ios_example_app" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				14E07E3B2F8E513F00E9F7FC /* Debug */,
@@ -894,7 +898,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		14E07E3D2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchTests" */ = {
+		14E07E3D2F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "ios_example_appTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				14E07E3E2F8E513F00E9F7FC /* Debug */,
@@ -903,7 +907,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		14E07E402F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "eva-swift-stitchUITests" */ = {
+		14E07E402F8E513F00E9F7FC /* Build configuration list for PBXNativeTarget "ios_example_appUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				14E07E412F8E513F00E9F7FC /* Debug */,
@@ -915,26 +919,26 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */ = {
+		4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference ".." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = CameraKit;
+			relativePath = ..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		0E55D77F81A3C795C0243955 /* CameraKitInterop */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */;
+			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference ".." */;
 			productName = CameraKitInterop;
 		};
 		4EFB126527016EEBF27C9B62 /* CameraKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */;
+			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference ".." */;
 			productName = CameraKit;
 		};
 		774759B7C7A55D0C56E89D14 /* CameraKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference "CameraKit" */;
+			package = 4CDE782646D8B196D0549C1F /* XCLocalSwiftPackageReference ".." */;
 			productName = CameraKit;
 		};
 /* End XCSwiftPackageProductDependency section */

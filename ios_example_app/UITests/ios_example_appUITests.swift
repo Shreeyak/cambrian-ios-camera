@@ -1,13 +1,13 @@
 //
-//  eva_swift_stitchUITests.swift
-//  eva-swift-stitchUITests
+//  ios_example_appUITests.swift
+//  ios_example_appUITests
 //
 //  Created by shrek on 4/14/26.
 //
 
 import XCTest
 
-final class eva_swift_stitchUITests: XCTestCase {
+final class ios_example_appUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

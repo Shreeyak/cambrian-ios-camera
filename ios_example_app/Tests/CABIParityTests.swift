@@ -10,7 +10,7 @@ import Foundation
 import Testing
 
 @testable import CameraKit
-@testable import eva_swift_stitch  // counter_consumer_* C-ABI via bridging header
+@testable import ios_example_app  // counter_consumer_* C-ABI via bridging header
 
 @Suite("Phase-1B C-ABI parity", .progressLogged)
 struct CABIParityTests {

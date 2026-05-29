@@ -4,7 +4,7 @@ import Metal
 import Testing
 
 @testable import CameraKit
-@testable import eva_swift_stitch
+@testable import ios_example_app
 
 @Suite("Stage 11 — control enablement matrix", .progressLogged)
 struct Stage11ControlEnablementTests {
@@ -473,7 +473,7 @@ struct Stage11ErrorRoutingTests {
 
 /// Test-only thread-safe wrapper.
 ///
-/// Avoids `import Atomics` — the `eva-swift-stitchTests` target does not link
+/// Avoids `import Atomics` — the `ios_example_appTests` target does not link
 /// `swift-atomics`, so `ManagedAtomic` causes a linker error.
 actor ManagedAtomicSafe<T: Sendable> {
     private var value: T

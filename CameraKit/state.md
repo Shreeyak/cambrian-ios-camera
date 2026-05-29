@@ -1,3 +1,123 @@
+# state.md — Flutter monorepo restructure (2026-05-20)
+
+Repo restructured for two-personality (Swift SPM + Flutter plugin) shipping.
+Spec: `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`.
+Plan: `docs/superpowers/plans/2026-05-20-flutter-plugin-monorepo-plan.md`.
+
+## Phase B — Flutter plugin v1.0.0 (2026-05-22)
+
+**Spec:** `docs/superpowers/specs/2026-05-22-flutter-plugin-phase-b-design.md`
+**Plan:** `docs/superpowers/plans/2026-05-22-flutter-plugin-phase-b.md`
+
+Phase B is post-pipeline (no stage briefs, no preflight). It populates
+`flutter/` with the `cambrian_ios_camera` plugin:
+
+- Singleton `CameraEngine` (one per plugin instance; HostApi methods take no
+  engineId — multi-engine / engineId-keyed HostApi is **rejected by design**,
+  permanent, not deferred) exposed via Pigeon `@HostApi` + five
+  `@EventChannelApi` broadcast streams (state, frame-result, recording,
+  calibration, error). Streams are **non-replaying** by design — a replay
+  (BehaviorSubject) would mask a stalled pipeline; consumers seed initial
+  state with a fresh `currentState()` snapshot read on subscribe, then observe
+  the live stream.
+- Plugin-owned **native** lifecycle: `FlutterSceneLifeCycleDelegate` +
+  `registrar.addSceneDelegate(self)` + a host `FlutterSceneDelegate` subclass
+  (Info.plist `UISceneDelegateClassName = $(PRODUCT_MODULE_NAME).SceneDelegate`).
+  UIScene callbacks → `engine.setLifecyclePhase`. Dart has **no** lifecycle
+  surface — we drive the engine off what the camera device is actually doing,
+  not a stale Dart-side event. (Raw `UIWindowSceneDelegate` + addApplicationDelegate
+  never fires scene callbacks — that was the black-preview root cause.)
+- Zero-copy preview via `FlutterTexture` + `Texture(textureId:)`.
+- One-time CameraKit additions for adapter mockability/snapshot:
+  `CameraEngineProtocol` and `currentStateSnapshot()` (mirrors
+  `currentSettingsSnapshot()` — fresh actor read, not a replay).
+- Tests: Dart unit (`flutter/test/`), example widget smoke
+  (`flutter/example/test/`), Swift adapter XCTest (`RunnerTests`, app-hosted
+  on iPad — needs the SceneDelegate XCTest guard), and 3 integration tests
+  on iPad (Test 2 Lifecycle skipped in v1.0 — needs XCUIDevice automation).
+- Capture-save: `captureImage` derives the image format from the output-path
+  extension (`.tif`→TIFF, `.jpg`→JPEG, …) via CameraKit's `OutputPathResolver`
+  (merged from main 2026-05-25); example app exposes Documents via
+  `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`.
+- Android stub throwing `PlatformException(code: 'iOSOnly')`.
+- Joint git-tag versioning — `vX.Y.Z` drives both SPM + Flutter consumers.
+- Example app at `flutter/example/` — lean, processed-lane only. Visible name
+  "Cambrian Camera" (CFBundleDisplayName only; the Runner target/scheme stays
+  "Runner" — Flutter tooling hardcodes it).
+- Test/release scripts: `flutter/example/scripts/test-{swift-adapter,integration}.sh`,
+  `scripts/test-phase-b.sh`, `scripts/release-gate.sh` (7-check gate).
+
+CameraKit's full test suite untouched. The adapter is a thin translation layer
+(Phase B spec §1 load-bearing property #2 — "if the adapter is doing real
+work, the work belongs in CameraKit").
+
+## Restructure 2026-05-20 — Flutter monorepo
+
+- **`Package.swift` moved to repo root**; `CameraKit/Package.swift` deleted.
+  Real `.testTarget(CameraKitTests)` dropped — SPM never built it correctly
+  anyway. `SPMTestStub` testTarget with `#error` directs `swift test` to
+  the Xcode path.
+- **`eva-swift-stitch` → `ios_example_app`** (project + scheme + 3 targets
+  + source dirs). Project relocated to `ios_example_app/ios_example_app.xcodeproj`.
+  App sources at `ios_example_app/ios_example_app/`. Bundle ID
+  `com.cambrian.eva-swift-stitch` → `com.cambrian.ios-example-app` (Tests/
+  UITests preserve their suffix). PRODUCT_NAME left as `$(TARGET_NAME)`.
+- **`measurements/` → `docs/measurements/`**. All path refs updated in source
+  comments, state.md, DECISIONS.md, current docs.
+- **`flutter/` scaffolded** with placeholder README; Phase B will populate.
+- **`.githooks/pre-push` deleted**. The synthetic-branch hook would force-
+  push broken content after Package.swift moved. `camerakit-only` branch on
+  origin (SHA `6fbdc6b`) is frozen as safety-net snapshot.
+- **Phase 3 plans + spec archived** to `docs/superpowers/{plans,specs}/archive/`
+  with SUPERSEDED-banner. cam2fd integration is no longer the architecture.
+- **GitHub repo renamed**: `eva-swift-stitch` → `cambrian-ios-camera`.
+  Auto-redirect on the old URL means existing clones still work.
+- **`fastlane/` + `Gemfile` removed** (user-authorized scope expansion;
+  fastlane unused).
+- **Verifications (A7 15-check suite)**: Build on iPad ✓ (BUILD SUCCEEDED,
+  app launched, PID 1723); Info.plist keys all present (Camera + Photos
+  + UIFileSharingEnabled + UIRequiresFullScreen + iPad orientations);
+  stage-preflight ✓; LSP buildServer.json regenerated ✓; `swift test`
+  fires `SPMTestStub` `#error` ✓; check-legacy-names.sh PASS ✓; no
+  legacy refs in live code/docs.
+- **Merged in main's 8-bit BGRA end-to-end + scenePhase off-map guard fix**
+  via `git merge main` (commits `c5a18be..aac6361`, 21 commits). The
+  scenePhase guard (`eeaf955`) resolves the `interrupted → streaming
+  (kind=command)` race documented in
+  `/tmp/camera-engine-scenephase-race-brief.md`. The 8-bit BGRA work removed
+  `OpenConfiguration.lanesEightBit` (one fewer Pigeon field for Phase B).
+  Conflict resolution: 7 files (`.githooks/pre-push` kept-deleted;
+  `CONTRACTS.md` regenerated; `state.md` both top-entries kept; CLAUDE.md
+  resolved manually; `measurements/phase-3-prep/8bit-bgra-delivery.md`
+  relocated to `docs/measurements/phase-3-prep/`).
+- **Merged in main's lifecycle-ownership rework** via `git merge main`
+  (28 commits, headlined by `4e9a811` AppLifecyclePhase + required
+  initialPhase, `31ca8af` removal of user-intent pause/resume, and
+  `673a2df` Flutter Dart-side guidance in CameraKit/README.md). Phase B
+  design (sections 1–4) requires update — see the impact audit below.
+  Conflict resolution: 3 files (`CONTRACTS.md` regenerated; `state.md`
+  lifecycle entry added at top; CLAUDE.md resolved manually). Symlinks
+  in `implementation/` reset to HEAD (relative paths) before merge so
+  main's update to absolute paths could land.
+- **Known issue (pre-existing)**: SwiftLint crashes on sourcekitdInProc
+  load — toolchain mismatch, unrelated to restructure.
+- Date: 2026-05-20. Pre-restructure snapshot: tag `pre-restructure-2026-05-20`
+  (main @ c4641ec). Final commits land on branch `flutter-monorepo-restructure`;
+  see `git log main..flutter-monorepo-restructure` for the full series.
+
+## Follow-ups — pending (restructure)
+
+- **[PENDING] Remove the CONTRACTS.md regeneration mechanism.** Delete
+  `CameraKit/CONTRACTS.md`, `scripts/regen-contracts.sh`, and the `regen-contracts`
+  pre-commit step in `lefthook.toml`; redirect the live docs that point to it
+  (CLAUDE.md §6.0/§6.1/§6.2/§9, `docs/tooling.md`, `scripts/CLAUDE.md`) toward
+  `.swiftinterface` (`scripts/dump-interface.sh`) and reading `CameraKit/Sources/`
+  directly. The generated API mirror is obsolete scaffolding now that CameraKit
+  ships as a cleanly-consumable root SPM package — same logic that retired the
+  `camerakit-only` subtree branch. Deferred 2026-05-29 to its own PR after the
+  monorepo (Phase A) and flutter-plugin (Phase B) PRs merge. Plan:
+  `docs/superpowers/plans/2026-05-29-remove-contracts-mechanism.md`.
+
 # state.md — Test-seam DEBUG gating + production/test clarity (2026-05-28)
 
 All test-only seams are now compiled out of the Release binary behind `#if DEBUG`,
@@ -122,7 +242,7 @@ current phase alone. See the field guide `docs/ios-camera-lifecycle.md`.
   background *launch*) not separately
   reproduced — structurally guaranteed by `initialPhase: .background` + reconcile;
   defer to natural occurrence. Evidence:
-  `measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
+  `docs/measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
 
 ## Follow-ups
 
@@ -309,7 +429,7 @@ None added; none retired.
   still-capture HDR fidelity unchanged (visual confirmation by user;
   architecturally untouched — Pass-6 → still pool → vImage path is
   independent of Pass-7). Evidence at
-  `measurements/phase-3-prep/rgba8-conversion.md`.
+  `docs/measurements/phase-3-prep/rgba8-conversion.md`.
 
 ## Decisions taken — Pre-Phase-3 RGBA8
 
@@ -377,7 +497,7 @@ None added; none retired.
   color transform) and the processed output is transformed; EXIF
   carries `"lane": "natural"` vs `"lane": "processed"` inside
   `CamPlugin/v1`. Evidence under
-  `measurements/capture-natural-picture/2026-05-15/`.
+  `docs/measurements/capture-natural-picture/2026-05-15/`.
 
 ## Decisions taken — `captureNaturalPicture`
 
@@ -505,7 +625,7 @@ ScenePhase pause/resume now publishes `SessionState.paused`/`.streaming`
 (mid-session follow-up to user feedback). AVF `wasInterruptedNotification`
 path verified by unit test only — Control Center / Notification Center on
 iPad don't trigger AVF interruption (system keeps camera bound). Evidence:
-`measurements/phase-2/verification.md`.
+`docs/measurements/phase-2/verification.md`.
 
 Public-surface changes (Phase 2):
 
@@ -622,7 +742,7 @@ HITL: relocated Canny consumer registers via the seam after
 `engine.open()` on iPad; `cppConsumers=1` on stream=2 (tracker) stable
 across 1500+ frames (~50 s), `surface=true` every yield, zero overwrites
 or drops in any `[metrics] window emit`. Evidence:
-`measurements/phase-1b/canny-overlay.md`.
+`docs/measurements/phase-1b/canny-overlay.md`.
 
 Bridge state: `CameraKitInterop` **stays exported** as a SwiftPM product
 (reversing the Phase 1A memo's prediction). The dual-membered
@@ -722,7 +842,7 @@ Stage 12 complete (MIGRATION). Retired the final scaffold
 scaffold across stages 01–11 is retired. Full test bundle: **125 passed /
 0 failed / 0 skipped** on Shreeyak's iPad (UDID `00008027-000539EA0184402E`,
 iOS 26.x), scheme `eva-swift-stitch`, via `mcp__XcodeBuildMCP__test_device`.
-Both §8 HITL items **verified on device 2026-05-14** — `measurements/stage-12/observability.md`.
+Both §8 HITL items **verified on device 2026-05-14** — `docs/measurements/stage-12/observability.md`.
 
 ## Scaffolding still live
 
@@ -828,7 +948,7 @@ path on device.
 ### HITL evidence — verified on device 2026-05-14
 
 Per Stage 12 brief §8 — iPad device manual passes. Both verified on Shreeyak's
-iPad (iPad8,9, iOS 26); full evidence in `measurements/stage-12/observability.md`.
+iPad (iPad8,9, iOS 26); full evidence in `docs/measurements/stage-12/observability.md`.
 
 | Slug | Evidence | Status |
 |------|----------|--------|
@@ -1335,7 +1455,7 @@ Per Stage 11 brief §11. iPad device manual passes captured separately; not bloc
 
 - ~~Bug 4 from `docs/stage-11-pre-existing-bugs.md` — `processedTex` long-session freeze. Needs HITL on iPad: 5+ min run + temporary Pass 2 / pool-state logging in `MetalPipeline`. Hypotheses (unverified): silent Pass 2 error, processed pool exhaustion, uniforms.withLock contention, ObservationIgnored race on `DisplayViewModel.processedTex`. Fix before retiring `10:synchronous-drain-pause` in Stage 12.~~ **RESOLVED (2026-05-21 audit).** Stale entry: bug was fixed 2026-04-30 / verified on iPad 2026-05-09 (live mailbox forwarding), and the strand-prone still-capture mailbox was later deleted entirely by D-2P-12 (8-bit BGRA, 2026-05-20) — grep for `stillCapturePool|armCapture|pendingCaptureContinuation` under `CameraKit/Sources/` returns 0 hits. Processed lane now uses per-frame `Mailbox` forwarding (`MetalPipeline.swift:684-686, 766-767`). See `docs/pending-issues-2026-05-21.md`.
 - `SessionState.closing` enum reconciliation (Decision #50). Either add the case in `architecture/04-state.md` and use it, or drop `.closing` from brief §8 enablement matrix.
-- HITL evidence under `measurements/stage-11/` — three slugs deferred.
+- HITL evidence under `docs/measurements/stage-11/` — three slugs deferred.
 - ADR-22 error routing for `updateSettings` failures (Decision #58).
 
 ## What's built — Stage 10 (permanent)
@@ -1381,9 +1501,9 @@ public actor Recording { ... }
 | `10:resume-from-pause-restarts-session` | PASS | Stage10Tests |
 | `10:adaptor-not-ready-drops-frame` | PASS | Stage10Tests |
 | `10:fatal-finalize-emits-recording-failed` | PASS | Stage10Tests |
-| `10:mp4-plays-in-photos` | DEFERRED | HITL — see measurements/stage-10/recording.md |
-| `10:low-light-ae-drops-below-30fps` | DEFERRED | HITL — see measurements/stage-10/recording.md |
-| `10:empirical-format-fps-range-fallback` | DEFERRED | HITL — see measurements/stage-10/recording.md |
+| `10:mp4-plays-in-photos` | DEFERRED | HITL — see docs/measurements/stage-10/recording.md |
+| `10:low-light-ae-drops-below-30fps` | DEFERRED | HITL — see docs/measurements/stage-10/recording.md |
+| `10:empirical-format-fps-range-fallback` | DEFERRED | HITL — see docs/measurements/stage-10/recording.md |
 
 ## Decisions taken that weren't in briefs — Stage 10
 
@@ -1391,7 +1511,7 @@ public actor Recording { ... }
 
 44. **`AssetWriting` / `AssetWriterPixelBufferAdapting` protocol seam.** Not in brief. Required for TESTABLEs that fake `AVAssetWriter`. Mirrors `CaptureDeviceProviding` pattern already in repo.
 
-45. **`recordingTargetBitrateBpsDefault = 40_000_000`.** Brief §Parameters says "measurements/"; 40 Mbps is a reasonable default for 4K HEVC @ 30fps pending on-device measurement. Open question for next stage.
+45. **`recordingTargetBitrateBpsDefault = 40_000_000`.** Brief §Parameters says "docs/measurements/"; 40 Mbps is a reasonable default for 4K HEVC @ 30fps pending on-device measurement. Open question for next stage.
 
 46. **`pause()` resets AE frame-rate range only in `stopRecording()`, not in `pause()`.** Consistent with the brief's intent that `pause()` is a session-only teardown; AE range reset on resume is not specified. Open question for Stage 12.
 
@@ -1401,7 +1521,7 @@ public actor Recording { ... }
 
 1. `TARGET_BITRATE_MBPS` upstream value after device measurements.
 2. Stage 12 retires `10:synchronous-drain-pause` via `UIApplication.beginBackgroundTask` wrap.
-3. Empirical format-fps range fallback — evidence in `measurements/stage-10/recording.md`.
+3. Empirical format-fps range fallback — evidence in `docs/measurements/stage-10/recording.md`.
 4. BUG (carried from Stage 09): `09:camera-in-use-self-heal-device` FAIL — fix needed for Stage 10 or 11.
 5. Should `pause()` also reset AE frame-rate range to preview mode?
 
@@ -1450,14 +1570,14 @@ public struct SystemClock: CameraKitClock { ... }
 | `09:ae-convergence-timeout-emits` | PASS | Stage09Tests (constants/type validation; device integration DEFERRED) |
 | `09:fps-degraded-requires-streak` | PASS | Stage09Tests (constants/type validation; device integration DEFERRED) |
 | `09:error-stream-delivers-every-transition` | PASS | Stage09Tests |
-| `09:recovery-banner-on-simulated-capture-failure` | PASS | HITL — LLDB-triggered frame stall; banner rendered correctly. `measurements/stage-09/recovery.md` |
-| `09:camera-in-use-self-heal-device` | FAIL | HITL — interruption notification unreliable; recovery loop crashed instead of fatal alert. Bug logged. `measurements/stage-09/recovery.md` |
+| `09:recovery-banner-on-simulated-capture-failure` | PASS | HITL — LLDB-triggered frame stall; banner rendered correctly. `docs/measurements/stage-09/recovery.md` |
+| `09:camera-in-use-self-heal-device` | FAIL | HITL — interruption notification unreliable; recovery loop crashed instead of fatal alert. Bug logged. `docs/measurements/stage-09/recovery.md` |
 
 ## Decisions taken that weren't in briefs — Stage 09
 
 39. **`TestClock` implemented as `final class` with `ManagedAtomic<UInt64>` + `NSLock`, not `actor`.** `CameraKitClock.nowMs()` is a synchronous non-isolated protocol requirement; an actor cannot satisfy it without `nonisolated(unsafe)`, which races under strict concurrency. `final class` with `ManagedAtomic` for the counter satisfies both `Sendable` and the sync requirement cleanly.
 
-40. **AE and FPS tests are constant-validation stubs, not full integration tests.** Full integration requires driving `snapshotStream()` and `noteFrameDelivered()` with a `TestClock` against a live engine. Designated DEFERRED per brief §11; device HITL evidence in `measurements/stage-09/recovery.md`.
+40. **AE and FPS tests are constant-validation stubs, not full integration tests.** Full integration requires driving `snapshotStream()` and `noteFrameDelivered()` with a `TestClock` against a live engine. Designated DEFERRED per brief §11; device HITL evidence in `docs/measurements/stage-09/recovery.md`.
 
 41. **`Watchdog.disarmAll(_:)` honored as `static func` delegating to `pair.disarmAll()`.** Brief §4 specifies a "static helper" spelling; both `WatchdogPair.disarmAll()` (instance) and `Watchdog.disarmAll(_:)` (static) are exposed per the brief's intent.
 
@@ -1522,7 +1642,7 @@ public func getNativePipelineHandle() -> UInt64?  // CameraEngine
 | `06:frame-set-publication` | PASS | carried forward |
 | `06:swift-consumer-drop-on-busy` | PASS | carried forward |
 | `07:still-capture-in-flight-guard` | PASS | carried forward |
-| `08:external-canny-stub-runs-on-device` | PASS | `measurements/stage-08/canny.md` — iPad Pro M1, OpenCV v4.13, non-zero time-varying edge counts confirmed |
+| `08:external-canny-stub-runs-on-device` | PASS | `docs/measurements/stage-08/canny.md` — iPad Pro M1, OpenCV v4.13, non-zero time-varying edge counts confirmed |
 
 ## Decisions taken that weren't in briefs — Stage 08
 
@@ -1530,7 +1650,7 @@ See decisions 35–38 in `CameraKit/DECISIONS.md`.
 
 ## Open questions for next stage
 
-1. **HITL `08:external-canny-stub-runs-on-device`** — pending device run; evidence template in `measurements/stage-08/canny.md`.
+1. **HITL `08:external-canny-stub-runs-on-device`** — resolved (PASS); evidence in `docs/measurements/stage-08/canny.md`.
 2. **ADR-13 upstream revision** — C++ interop transitivity requires all importers to enable the flag; upstream should revise ADR-13.
 3. **OpenCV xcframework Mac slice** — xcframework contains only `ios-arm64`; Mac "Designed for iPad" fallback build unverified for Stage 08 C++ targets.
 4. **Carried open questions from Stage 07** (focalLengthMm, sigmoid curve, D-17 revision).
@@ -1583,9 +1703,9 @@ public func captureImage(outputPath: String? = nil) async throws -> StillCapture
 | `07:exif-envelope-contains-camplugin-v1` | PASS | Stage07Tests/exifEnvelopeContainsCamPluginV1 |
 | `07:photo-library-authorization-denied-falls-back` | PASS | Stage07Tests/photoLibraryAuthorizationDeniedFallsBack |
 | `07:exif-standard-dictionary-present` | PASS | Stage07Tests/exifStandardDictionaryPresent |
-| `07:tiff-opens-in-preview-and-photos` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
-| `07:saved-banner-appears-three-seconds` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
-| `07:authorization-dialog-first-capture` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
+| `07:tiff-opens-in-preview-and-photos` | DEFERRED | HITL — `docs/measurements/stage-07/capture.md` |
+| `07:saved-banner-appears-three-seconds` | DEFERRED | HITL — `docs/measurements/stage-07/capture.md` |
+| `07:authorization-dialog-first-capture` | DEFERRED | HITL — `docs/measurements/stage-07/capture.md` |
 
 ## Decisions taken that weren't in briefs — Stage 07
 
@@ -1705,8 +1825,8 @@ public nonisolated func currentProcessedTexture() -> (any MTLTexture)?
 | `06:subscribe-then-cancel-releases-subscriber` | PASS | Stage06Tests/subscribeThenCancelReleasesSubscriber — count drops to 0 after task cancel + yield. |
 | `06:register-callback-throws-not-wired` | PASS | Stage06Tests/registerCallbackThrowsNotWired — InteropError.notWired thrown. |
 | `06:natural-stream-is-subscribable` | PASS | Stage06Tests/naturalStreamIsSubscribable — .natural lane delivers FrameSet. |
-| `06:tracker-thumbnail-appears-on-subscribe` | PASS | HITL — `measurements/stage-06/consumers.md`. Device: iPad 00008027-000539EA0184402E, iOS 26. |
-| `06:debug-overlay-shows-frame-number-capture-time` | PASS | HITL — `measurements/stage-06/consumers.md`. N increments monotonically; t non-decreasing. |
+| `06:tracker-thumbnail-appears-on-subscribe` | PASS | HITL — `docs/measurements/stage-06/consumers.md`. Device: iPad 00008027-000539EA0184402E, iOS 26. |
+| `06:debug-overlay-shows-frame-number-capture-time` | PASS | HITL — `docs/measurements/stage-06/consumers.md`. N increments monotonically; t non-decreasing. |
 
 ## Manual test evidence — Stage 05
 
@@ -1727,8 +1847,8 @@ public nonisolated func currentProcessedTexture() -> (any MTLTexture)?
 | `04:processing-params-persistence-roundtrip` | PASS | Stage04Tests/processingParamsPersistenceRoundtrip — per-test UUID suite. |
 | `04:center-patch-trimmed-mean` | PASS | Stage04Tests/centerPatchTrimmedMean — uniform fill + 10% outliers. |
 | `04:set-crop-region-updates-uniform` | PASS | Stage04Tests/setCropRegionUpdatesUniform — happy + out-of-bounds throw. |
-| `04:color-slider-visual-correctness` | PASS | `measurements/stage-04/color.md`. Verified Shreeyak's iPad iOS 26.4.1. |
-| `04:rapid-slider-stress-sees-occasional-torn-frame` | PASS | `measurements/stage-04/color.md`. 0 glitches observed in ~10s stress. |
+| `04:color-slider-visual-correctness` | PASS | `docs/measurements/stage-04/color.md`. Verified Shreeyak's iPad iOS 26.4.1. |
+| `04:rapid-slider-stress-sees-occasional-torn-frame` | PASS | `docs/measurements/stage-04/color.md`. 0 glitches observed in ~10s stress. |
 
 ## Decisions taken that weren't in briefs — Stage 06
 

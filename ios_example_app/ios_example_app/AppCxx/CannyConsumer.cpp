@@ -1,6 +1,6 @@
 // CannyConsumer — OpenCV-backed Canny edge detection per ADR-29.
 // Phase 1B (2026-05-15) — relocated from CameraKit/Sources/CameraKitCxx/
-// CannyStubConsumer.cpp into the eva-swift-stitch app target so the
+// CannyStubConsumer.cpp into the ios_example_app app target so the
 // CameraKit package becomes OpenCV-free.
 //
 // Receives tracker-stream frames via the C-ABI canny_stub_on_frame entrypoint

@@ -2,7 +2,7 @@
 # sync-test-target.sh — dual-membership wiring for CameraKitTests.
 #
 # Re-runs the xcodeproj-side wiring that compiles every .swift file in
-# CameraKit/Tests/CameraKitTests/ inside the eva-swift-stitchTests Xcode
+# CameraKit/Tests/CameraKitTests/ inside the ios_example_appTests Xcode
 # target (host-app-hosted, runnable on physical iPad). The SwiftPM
 # testTarget in CameraKit/Package.swift is left untouched — that's the
 # package's portability contract when CameraKit is extracted to its own
@@ -23,9 +23,9 @@ ruby <<'RUBY'
 require 'set'
 require 'xcodeproj'
 
-PROJECT          = 'eva-swift-stitch.xcodeproj'
-TEST_TARGET_NAME = 'eva-swift-stitchTests'
-APP_TARGET_NAME  = 'eva-swift-stitch'
+PROJECT          = 'ios_example_app/ios_example_app.xcodeproj'
+TEST_TARGET_NAME = 'ios_example_appTests'
+APP_TARGET_NAME  = 'ios_example_app'
 SOURCE_DIR       = 'CameraKit/Tests/CameraKitTests'
 GROUP_NAME       = 'CameraKitTests'
 

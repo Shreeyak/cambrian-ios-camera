@@ -1,4 +1,4 @@
-# eva-swift-stitch (app host)
+# ios_example_app (app host)
 
 The SwiftUI dev-harness app that hosts the `CameraKit` package. It owns
 `Info.plist`, signing, schemes, app lifecycle, and the host-only UI (camera
@@ -15,7 +15,7 @@ landscape-right via three layers:
 1. **`Info.plist`** — `UISupportedInterfaceOrientations~ipad` is landscape-right
    only (plus `UIRequiresFullScreen`), so the OS never presents another
    orientation.
-2. **`UIApplicationDelegateAdaptor`** (`eva_swift_stitchApp.swift`) — returns
+2. **`UIApplicationDelegateAdaptor`** (`ios_example_appApp.swift`) — returns
    `OrientationLock.declaredSupported` (`.landscapeRight`) from
    `application(_:supportedInterfaceOrientationsFor:)`, locking the UIKit window
    regardless of device rotation. `OrientationLock` (`UI/OrientationLock.swift`)

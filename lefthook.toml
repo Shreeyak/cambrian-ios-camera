@@ -1,4 +1,4 @@
-# lefthook.toml — git hooks for eva-swift-stitch, managed by lefthook
+# lefthook.toml — git hooks for cambrian-ios-camera, managed by lefthook
 # (https://lefthook.dev).
 #
 # WHY lefthook instead of git's core.hooksPath + a .githooks/ dir:
@@ -37,17 +37,8 @@ run = "swift-format lint --strict {staged_files}"
 glob = "CameraKit/Sources/CameraKit/*.swift"
 run = "scripts/regen-contracts.sh && git add CameraKit/CONTRACTS.md"
 
-[pre-push]
-
-# Keep the camerakit-only synthetic branch in sync so the Flutter consumer
-# (cam2fd) can subtree-pull it.
-#
-# Implemented as a lefthook *script* (`.lefthook/pre-push/sync-camerakit-only.sh`),
-# NOT a command, on purpose: lefthook commands are file-filtered and skip with
-# "no matching push files" when a push changes nothing, whereas scripts run
-# unconditionally on every push. We want this to fire on EVERY push so the
-# synthetic branch self-heals even after a no-op / non-CameraKit push. The script
-# is git-state-driven and idempotent (no-op when origin/camerakit-only is already
-# current), so running it every time is cheap and safe.
-[pre-push.scripts."sync-camerakit-only.sh"]
-runner = "bash"
+# No [pre-push] stage. The camerakit-only synthetic-branch subtree-sync was
+# retired in the 2026-05-20 Flutter-monorepo restructure: moving Package.swift to
+# the repo root means `git subtree split --prefix=CameraKit` no longer yields a
+# valid SPM package (the manifest is outside CameraKit/). The Flutter plugin at
+# flutter/ is the replacement consumption model. See CLAUDE.md §10.

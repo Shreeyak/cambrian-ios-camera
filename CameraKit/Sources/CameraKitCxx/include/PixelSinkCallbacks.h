@@ -56,7 +56,7 @@ bool  capture_atomic_try_acquire(void* handle);
 void  capture_atomic_release(void* handle);
 
 // Phase 1B (2026-05-15): the canny_stub_* C-ABI relocated to the
-// eva-swift-stitch app target — see eva-swift-stitch/AppCxx/include/CannyConsumer.h.
+// ios_example_app app target — see ios_example_app/ios_example_app/AppCxx/include/CannyConsumer.h.
 
 #ifdef __cplusplus
 }

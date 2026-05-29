@@ -10,6 +10,11 @@ buildServer.json
 .build/
 .swiftpm/
 
+# Root-level Package.resolved — library convention (consumers re-resolve).
+# Xcode-side Package.resolved (under ios_example_app/.../xcshareddata/swiftpm/)
+# is NOT ignored — it pins the app's deps and should be committed.
+/Package.resolved
+
 # Persistent xcodebuild logs from scripts/{build,test}-summary.sh
 .build-logs/
 
