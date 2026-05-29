@@ -8,9 +8,30 @@ import 'pigeon/cambrian_ios_camera_api.g.dart' as g;
 /// The Dart-side CameraEngine facade.
 ///
 /// Mirrors CameraKit's public Swift surface 1:1; methods delegate to the Pigeon
-/// HostApi. Caught `PlatformException`s are re-thrown as `CameraException`.
+/// HostApi. Caught `PlatformException`s are re-thrown as [CameraException].
+///
+/// ## Lifecycle convention — prefer one engine per session
+///
+/// The **strong convention is single-use**: construct a `CameraEngine`,
+/// [open] it, use it, then [close] (or [dispose]) it — and create a *fresh*
+/// instance for the next session. This mirrors Flutter's official `camera`
+/// plugin and keeps lifecycle reasoning simple; it is the recommended pattern.
+///
+/// Reuse **is** supported — calling [open] again after [close] reopens this
+/// same instance and its event streams resume — but it is not the recommended
+/// path. Reach for it only when you deliberately hold one long-lived engine
+/// (e.g. a shared controller) and want to release the camera between uses.
+///
+/// Note: app background/foreground does **not** require close/open — that is
+/// handled natively (UIScene → CameraKit) and this facade exposes no lifecycle
+/// surface.
 class CameraEngine {
   final g.CameraEngineHostApi _api;
+
+  /// True for the production constructor (owns the real EventChannel bridges,
+  /// re-established on each [open]); false for the testing constructor, where
+  /// tests pump the broadcast controllers directly.
+  final bool _ownsProductionStreams;
 
   // Per-stream broadcast controllers. In production these are fed by listening
   // to the Pigeon EventChannel streams (top-level g.streamX() functions). In
@@ -50,29 +71,47 @@ class CameraEngine {
 
   /// Production constructor — wires the default Pigeon HostApi and bridges each
   /// EventChannel stream into its broadcast controller.
-  CameraEngine() : _api = g.CameraEngineHostApi() {
+  CameraEngine()
+      : _api = g.CameraEngineHostApi(),
+        _ownsProductionStreams = true {
     _wireProductionStreams();
   }
 
   /// Internal constructor used by `CameraEngineTesting.create`. Does not wire
   /// production EventChannel streams — tests pump the controllers directly.
-  CameraEngine._testing({required g.CameraEngineHostApi api}) : _api = api;
+  CameraEngine._testing({required g.CameraEngineHostApi api})
+      : _api = api,
+        _ownsProductionStreams = false;
 
+  /// (Re)establishes the EventChannel->controller bridges. Idempotent (`??=`),
+  /// so [open] can call it again after a [close] to support reuse: the broadcast
+  /// controllers are never closed, so existing subscribers stay attached across
+  /// an open/close/open cycle and simply resume receiving events.
   void _wireProductionStreams() {
-    _stateBridge = g.streamState().listen(_stateSource.add);
-    _errorBridge = g.streamErrors().listen(_errorSource.add);
-    _cfgBridge =
-        g.streamStreamConfigurations().listen(_cfgSource.add);
-    _frameBridge = g.streamFrameResults().listen(_frameSource.add);
-    _recordingBridge =
-        g.streamRecordingStates().listen(_recordingSource.add);
+    _stateBridge ??= g.streamState().listen(_stateSource.add);
+    _errorBridge ??= g.streamErrors().listen(_errorSource.add);
+    _cfgBridge ??= g.streamStreamConfigurations().listen(_cfgSource.add);
+    _frameBridge ??= g.streamFrameResults().listen(_frameSource.add);
+    _recordingBridge ??= g.streamRecordingStates().listen(_recordingSource.add);
   }
 
   // MARK: - Lifecycle
 
-  Future<g.SessionCapabilities> open([g.OpenConfiguration? config]) =>
-      _guard(() => _api.open(config));
+  /// Opens a camera session and returns its [g.SessionCapabilities].
+  ///
+  /// May be called again after [close] to reopen this same instance — the
+  /// EventChannel bridges are (re)established here first, so the streams keep
+  /// delivering across an open/close/open cycle. Prefer a fresh instance per
+  /// session, though (see the class-level convention).
+  Future<g.SessionCapabilities> open([g.OpenConfiguration? config]) {
+    if (_ownsProductionStreams) _wireProductionStreams();
+    return _guard(() => _api.open(config));
+  }
 
+  /// Releases the camera session. Cancels the EventChannel bridges (the
+  /// broadcast controllers stay open, so subscribers survive a later reopen).
+  /// The instance may be reopened with [open], though a fresh instance per
+  /// session is the recommended convention.
   Future<void> close() async {
     await _stateBridge?.cancel();
     await _errorBridge?.cancel();

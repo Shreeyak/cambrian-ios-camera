@@ -79,6 +79,9 @@ class CambrianIosCameraPlugin :
     override fun currentProcessingParameters(callback: (Result<ProcessingParameters?>) -> Unit) =
         callback(Result.failure(iosOnly("currentProcessingParameters")))
 
+    override fun currentState(callback: (Result<SessionState>) -> Unit) =
+        callback(Result.failure(iosOnly("currentState")))
+
     override fun updateSettings(settings: CameraSettings, callback: (Result<Unit>) -> Unit) =
         callback(Result.failure(iosOnly("updateSettings")))
 
