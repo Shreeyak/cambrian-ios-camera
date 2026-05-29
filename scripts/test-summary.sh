@@ -41,12 +41,20 @@ if [[ -z "$DESTINATION" ]]; then
   # compiles the package's test sources directly via the dual-membership
   # pattern. Physical iPad is the canonical run target.
   DESTS=$(xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
-  DEVICE_UUID=$(echo "$DESTS" \
-    | grep -E '\{ *platform:iOS, ' \
-    | grep -v placeholder \
-    | head -1 \
-    | sed -E 's/.*id:([A-Fa-f0-9-]+).*/\1/')
-  if [[ -n "$DEVICE_UUID" ]]; then
+  # Readiness gate: pick the canonical iPad (first listed) and check THAT
+  # device — never switch to a different iPad. A locked / preparation-errored
+  # iPad shows up in -showdestinations with an `error:` annotation (e.g. "may
+  # need to be unlocked"); catch it now and fail fast, otherwise `xcodebuild
+  # test` blocks waiting for the destination before timing out.
+  DEVICE_LINE=$(echo "$DESTS" | grep -E '\{ *platform:iOS, ' | grep -v placeholder | head -1)
+  if [[ -n "$DEVICE_LINE" ]]; then
+    if echo "$DEVICE_LINE" | grep -q 'error:'; then
+      ERRTXT=$(echo "$DEVICE_LINE" | sed -E 's/.*error:[[:space:]]*([^}]*)\}?.*/\1/')
+      echo "✖ iPad not ready: ${ERRTXT}" >&2
+      echo "  → unlock the iPad (replug if needed), then retry. (Set Auto-Lock=Never on the test iPad to avoid mid-run locks.)" >&2
+      exit 1
+    fi
+    DEVICE_UUID=$(echo "$DEVICE_LINE" | sed -E 's/.*id:([A-Fa-f0-9-]+).*/\1/')
     DESTINATION="platform=iOS,id=$DEVICE_UUID"
     echo "DEST: physical iPad $DEVICE_UUID"
   elif echo "$DESTS" | grep -qE 'platform:macOS.*variant:Designed for (iPad|\[iPad'; then
@@ -68,8 +76,13 @@ JSON=".build-logs/${TS}-test-${SCHEME}.json"
 # profile (CLAUDE.md §5), which expires ~weekly. Xcode's GUI silently
 # regenerates it; xcodebuild on the CLI will NOT unless this flag is passed,
 # failing with "unable to generate a profile". Safe for a local dev machine.
+# -destination-timeout 15: bound the wait for the device to become available.
+# A healthy connected iPad resolves in ~1-3s, so 15s is several× margin (absorbs
+# a transient reconnect) yet fails fast if the device is locked/disconnected —
+# vs the long default. The readiness gate above already catches an already-locked
+# iPad in seconds; this only backstops a drop between that check and the run.
 CMD=(xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" \
-     -destination "$DESTINATION" -allowProvisioningUpdates test)
+     -destination "$DESTINATION" -destination-timeout 15 -allowProvisioningUpdates test)
 if [[ -n "$FILTER" ]]; then
   CMD+=(-only-testing:"$FILTER")
 fi
