@@ -1356,9 +1356,9 @@ All four slugs must return ≥1 hit before any Stage 08 edit.
 | `07:exif-envelope-contains-camplugin-v1` | TODO | Stage07Tests/exifEnvelopeContainsCamPluginV1 |
 | `07:photo-library-authorization-denied-falls-back` | TODO | Stage07Tests/photoLibraryAuthorizationDeniedFallsBack |
 | `07:exif-standard-dictionary-present` | TODO | Stage07Tests/exifStandardDictionaryPresent |
-| `07:tiff-opens-in-preview-and-photos` | DEFERRED | HITL — `docs/measurements/stage-07/capture.md` |
-| `07:saved-banner-appears-three-seconds` | DEFERRED | HITL — `docs/measurements/stage-07/capture.md` |
-| `07:authorization-dialog-first-capture` | DEFERRED | HITL — `docs/measurements/stage-07/capture.md` |
+| `07:tiff-opens-in-preview-and-photos` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
+| `07:saved-banner-appears-three-seconds` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
+| `07:authorization-dialog-first-capture` | DEFERRED | HITL — `measurements/stage-07/capture.md` |
 
 ## Open questions for next stage
 

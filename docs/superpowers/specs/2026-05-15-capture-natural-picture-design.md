@@ -205,7 +205,7 @@ Assertions:
   (no CameraKit color transform), image should be color-transformed. Save both
   to Photos library; confirm both PHAssets exist with correct timestamps and
   expected resolutions.
-- HITL evidence: `docs/measurements/capture-natural-picture/<date>/`.
+- HITL evidence: `measurements/capture-natural-picture/<date>/`.
 - One PR pending explicit git approval per CLAUDE.md §7.
 
 ## File inventory

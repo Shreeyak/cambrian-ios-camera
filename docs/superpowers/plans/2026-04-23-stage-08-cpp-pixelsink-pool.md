@@ -34,7 +34,7 @@
 
 **Create:**
 - `CameraKit/Tests/CameraKitTests/Stage08Tests.swift`
-- `docs/measurements/stage-08/canny.md` — HITL evidence template for `08:external-canny-stub-runs-on-device`
+- `measurements/stage-08/canny.md` — HITL evidence template for `08:external-canny-stub-runs-on-device`
 
 ---
 
@@ -1372,7 +1372,7 @@ git commit -m "test(stage-08): Stage08Tests — cpp-pixelsink roundtrip, canny s
 
 **Files:**
 - Modify: `CameraKit/state.md`
-- Create: `docs/measurements/stage-08/canny.md`
+- Create: `measurements/stage-08/canny.md`
 - Modify: `CameraKit/DECISIONS.md`
 
 - [ ] **Step 1: Scaffold inventory — confirm retired scaffolds are gone**
@@ -1397,10 +1397,10 @@ Expected: all pass.
 - [ ] **Step 3: Create HITL evidence template**
 
 ```bash
-mkdir -p docs/measurements/stage-08
+mkdir -p measurements/stage-08
 ```
 
-Create `docs/measurements/stage-08/canny.md` as a template to be filled in during
+Create `measurements/stage-08/canny.md` as a template to be filled in during
 the HITL run on iPad Pro M1:
 
 ```markdown
@@ -1427,7 +1427,7 @@ OpenCV version: v4.13 (Frameworks/opencv2.framework)
 - [ ] No crashes or OpenCV asserts over a 60-second capture session.
 
 ### Result
-(Fill in: PASS / FAIL with evidence paths under `docs/measurements/stage-08/`.)
+(Fill in: PASS / FAIL with evidence paths under `measurements/stage-08/`.)
 ```
 
 - [ ] **Step 4: Log decisions in DECISIONS.md**
@@ -1455,7 +1455,7 @@ Append to `CameraKit/DECISIONS.md`:
     `CannyStubConsumer.cpp` per ADR-11 — no OpenCV type appears in public
     headers or the C-ABI. HITL 08:external-canny-stub-runs-on-device is
     attempted on iPad Pro M1 with evidence captured in
-    `docs/measurements/stage-08/canny.md`.
+    `measurements/stage-08/canny.md`.
 
 37. **InteropError.notWired removed; invalidCallbacks is the new guard (Stage 08).**
     notWired existed only as a scaffolding error. Real registerCallback validates both
@@ -1518,7 +1518,7 @@ public func getNativePipelineHandle() -> UInt64?  // on CameraEngine
 | `06:frame-set-publication` | PASS | carried forward |
 | `06:swift-consumer-drop-on-busy` | PASS | carried forward |
 | `07:still-capture-in-flight-guard` | PASS | carried forward |
-| `08:external-canny-stub-runs-on-device` | HITL | `docs/measurements/stage-08/canny.md` — iPad Pro M1, OpenCV v4.13 Canny on tracker stream |
+| `08:external-canny-stub-runs-on-device` | HITL | `measurements/stage-08/canny.md` — iPad Pro M1, OpenCV v4.13 Canny on tracker stream |
 
 ## Decisions taken that weren't in briefs — Stage 08
 
@@ -1541,7 +1541,7 @@ Expected: BUILD success, all tests pass.
 - [ ] **Step 7: Commit final**
 
 ```bash
-git add CameraKit/state.md CameraKit/DECISIONS.md docs/measurements/stage-08/
+git add CameraKit/state.md CameraKit/DECISIONS.md measurements/stage-08/
 git commit -m "chore(stage-08): update state.md, DECISIONS.md, HITL evidence stub"
 ```
 
@@ -1571,7 +1571,7 @@ git commit -m "chore(stage-08): update state.md, DECISIONS.md, HITL evidence stu
 **Not covered (explicitly deferred):**
 - Production tuning of Canny thresholds (50/150 are defaults).
 - HITL `08:external-canny-stub-runs-on-device` evidence capture — template
-  created at `docs/measurements/stage-08/canny.md`; run on iPad Pro M1 fills it in.
+  created at `measurements/stage-08/canny.md`; run on iPad Pro M1 fills it in.
 
 **Placeholder scan:** No TBD / TODO in task steps. All code is complete.
 

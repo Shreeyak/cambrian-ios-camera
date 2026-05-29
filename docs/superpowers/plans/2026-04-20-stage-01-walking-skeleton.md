@@ -1322,7 +1322,7 @@ Use XcodeBuildMCP:
 
 - [ ] **Step 10.5: Record measurements evidence**
 
-Create `docs/measurements/stage-01/preview.md` with:
+Create `measurements/stage-01/preview.md` with:
 - Screenshot path (or description of what was observed)
 - Confirmation that preview rendered within 2s of launch
 - Device/platform used
@@ -1334,7 +1334,7 @@ Stage 01 §10 says `swift build --package-path .`. Because the package lives in 
 - [ ] **Step 10.7: Final commit**
 
 ```bash
-git add docs/measurements/ state.md   # if state.md exists; create if not
+git add measurements/ state.md   # if state.md exists; create if not
 git commit -m "stage-01: HITL evidence + acceptance notes"
 ```
 
@@ -1365,7 +1365,7 @@ git commit -m "stage-01: HITL evidence + acceptance notes"
 | All three scaffold slugs present in `Sources/` | Task 10 |
 | `swift build --package-path CameraKit/` passes | Task 10 |
 | `swift test --package-path CameraKit/ --filter Stage01Tests` passes | Task 10 |
-| HITL evidence recorded in `docs/measurements/stage-01/` | Task 10 |
+| HITL evidence recorded in `measurements/stage-01/` | Task 10 |
 
 ### Structural notes
 

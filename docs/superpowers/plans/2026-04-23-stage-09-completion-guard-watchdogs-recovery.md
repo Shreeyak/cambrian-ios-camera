@@ -1488,7 +1488,7 @@ public protocol CameraKitClock: Sendable { ... }
 public struct SystemClock: CameraKitClock { ... }
 ```
 
-- `## Manual test evidence — Stage 09` — 8 PASS rows for Stage09Tests + 2 HITL DEFERRED rows pointing at `docs/measurements/stage-09/recovery.md`.
+- `## Manual test evidence — Stage 09` — 8 PASS rows for Stage09Tests + 2 HITL DEFERRED rows pointing at `measurements/stage-09/recovery.md`.
 - `## Decisions taken that weren't in briefs — Stage 09` — log any divergences (e.g. `Clock` abstraction introduced, `WatchdogPair.disarmAll()` exposed as instance method with a `Watchdog.disarmAll(_:)` static helper).
 - `## Open questions for next stage` — carry forward open items plus any new ones.
 
@@ -1510,7 +1510,7 @@ git commit -m "docs(stage-09): state.md Stage 09 complete; regenerate CONTRACTS.
 ## Task 18: Final verification + HITL stub
 
 **Files:**
-- Create: `docs/measurements/stage-09/recovery.md` (stub for HITL runs)
+- Create: `measurements/stage-09/recovery.md` (stub for HITL runs)
 
 - [ ] **Step 1: Full build + test run**
 
@@ -1556,7 +1556,7 @@ Date: ________
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/measurements/stage-09/recovery.md
+git add measurements/stage-09/recovery.md
 git commit -m "docs(stage-09): HITL evidence stub for recovery banner + CAMERA_IN_USE self-heal"
 ```
 

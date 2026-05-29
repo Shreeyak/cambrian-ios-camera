@@ -1259,7 +1259,7 @@ git commit -m "test(stage-11): wire Stage11Tests into eva-swift-stitchTests targ
 
 ## Task 15: state.md + HITL stub
 
-**Files:** `CameraKit/state.md`, `docs/measurements/stage-11/ui.md`
+**Files:** `CameraKit/state.md`, `measurements/stage-11/ui.md`
 
 - [ ] **Step 1: Prepend Stage 11 section to state.md**
 
@@ -1280,9 +1280,9 @@ Include:
 | `11:non-fatal-error-shows-toast` | PASS | Stage11ErrorUITests/nonFatalErrorShowsToast |
 | `11:fatal-error-shows-blocking-dialog` | PASS | Stage11ErrorUITests/fatalErrorShowsBlockingDialog |
 | `11:scanning-animation-binds-to-session-state` | PASS | Stage11EnablementTests/scanningAnimationBindsToSessionState |
-| `11:full-bar-and-sidebar-match-domain-09` | DEFERRED | HITL — `docs/measurements/stage-11/ui.md` |
-| `11:liquid-glass-and-landscape-lock` | DEFERRED | HITL — `docs/measurements/stage-11/ui.md` |
-| `11:accessibility-voiceover-pass` | DEFERRED | HITL — `docs/measurements/stage-11/ui.md` |
+| `11:full-bar-and-sidebar-match-domain-09` | DEFERRED | HITL — `measurements/stage-11/ui.md` |
+| `11:liquid-glass-and-landscape-lock` | DEFERRED | HITL — `measurements/stage-11/ui.md` |
+| `11:accessibility-voiceover-pass` | DEFERRED | HITL — `measurements/stage-11/ui.md` |
 
 - `## Decisions taken that weren't in briefs — Stage 11`:
   - **`WhiteBalanceGains.init(fromGrayWorld:)` landed in `FrameSet.swift`** — brief §4 said `Settings.swift`, but the type lives in `FrameSet.swift`; keeping the convenience colocated with the type.
@@ -1300,7 +1300,7 @@ Include:
 bash scripts/regen-contracts.sh
 ```
 
-- [ ] **Step 3: Create HITL stub `docs/measurements/stage-11/ui.md`**
+- [ ] **Step 3: Create HITL stub `measurements/stage-11/ui.md`**
 
 ```markdown
 # Stage 11 — HITL UI evidence
@@ -1309,7 +1309,7 @@ bash scripts/regen-contracts.sh
 Device: iPad Pro M1.
 - Capture screenshots of: bottom bar idle, bottom bar recording, expanded bar, calibration sidebar.
 - Compare visually against `domain-revised/09-ui-behaviors.md` §Bottom Controls Bar / §Expanded Bar / §Color Calibration Sidebar.
-- Store screenshots at `docs/measurements/stage-11/screenshots/`.
+- Store screenshots at `measurements/stage-11/screenshots/`.
 PASS / FAIL: ________
 Date: ________
 
@@ -1332,7 +1332,7 @@ Date: ________
 - [ ] **Step 4: Commit**
 
 ```bash
-git add CameraKit/state.md CameraKit/CONTRACTS.md docs/measurements/stage-11/ui.md
+git add CameraKit/state.md CameraKit/CONTRACTS.md measurements/stage-11/ui.md
 git commit -m "docs(stage-11): state.md Stage 11; HITL evidence stubs; regen CONTRACTS"
 ```
 
@@ -1356,7 +1356,7 @@ Expected: BUILD SUCCEEDED + all tests green. Read `.build-logs/*.json` on any fa
 - Cover sensor → preview → `FRAME_STALL` / AE convergence notification toasts fire appropriately.
 - VoiceOver sweep (DEFERRED).
 
-Record in `docs/measurements/stage-11/ui.md` + screenshots in `docs/measurements/stage-11/screenshots/`.
+Record in `measurements/stage-11/ui.md` + screenshots in `measurements/stage-11/screenshots/`.
 
 - [ ] **Step 3: Scaffold acceptance**
 

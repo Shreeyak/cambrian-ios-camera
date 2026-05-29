@@ -1904,8 +1904,8 @@ Stage 01 — Walking skeleton — bare natural preview on screen
 - All value types: `SessionCapabilities`, `Size`, `Rect`, `OpenConfiguration`, `SessionState`, `StreamId`, `RecordingState`, `EngineError` (and subtypes), `CaptureDeviceProviding` protocol
 
 ## Manual test evidence
-- HITL `01:preview-renders-first-frame`: PENDING — no physical device exercised this session. Requires iPad Pro M1. Record screenshot + note in `docs/measurements/stage-01/preview.md` on first device run.
-- DEFERRED `01:empirical-format-enumeration`: PENDING — record `AVCaptureDevice.formats` list (dimensions, frame-rate ranges, formatDescription) on target hardware in `docs/measurements/stage-01/formats.md`.
+- HITL `01:preview-renders-first-frame`: PENDING — no physical device exercised this session. Requires iPad Pro M1. Record screenshot + note in `measurements/stage-01/preview.md` on first device run.
+- DEFERRED `01:empirical-format-enumeration`: PENDING — record `AVCaptureDevice.formats` list (dimensions, frame-rate ranges, formatDescription) on target hardware in `measurements/stage-01/formats.md`.
 - Instruments Time Profiler (brief §11): PENDING — 30s capture on iPad Pro M1 confirming `commit` is called from the `delivery` queue, not the engine actor.
 
 ## Decisions taken that weren't in briefs

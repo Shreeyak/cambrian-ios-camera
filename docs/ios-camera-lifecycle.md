@@ -737,8 +737,8 @@ works through the plugin; you only deliver the phase forwards.
 *Grounded in CameraKit at the line anchors above (post-2026-05 lifecycle-ownership
 rework: `setLifecyclePhase` / `reconcile` / `osOwnsDevice` live in
 `CameraEngine+Lifecycle.swift`; device events in `CameraEngine.swift`). Bug
-evidence: `docs/measurements/phase-3-hitl/2026-05-20/notes.md`; Control Center
-investigation: `docs/measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
+evidence: `measurements/phase-3-hitl/2026-05-20/notes.md`; Control Center
+investigation: `measurements/lifecycle-ownership/2026-05-21-device-hitl.md`.
 Architecture anchors: ADR-02 (delivery queue), ADR-07 (sessionQueue), ADR-09 / D-06
 (submission gate), ADR-30 (async-with-timeout), D-13 (disarm-before-recovering),
 D-14 (terminal self-heal).*

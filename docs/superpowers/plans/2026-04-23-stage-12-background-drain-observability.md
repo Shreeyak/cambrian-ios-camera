@@ -1028,7 +1028,7 @@ git commit -m "test(stage-12): wire Stage12Tests into eva-swift-stitchTests targ
 
 ## Task 11: state.md + HITL stub
 
-**Files:** `CameraKit/state.md`, `docs/measurements/stage-12/observability.md`
+**Files:** `CameraKit/state.md`, `measurements/stage-12/observability.md`
 
 - [ ] **Step 1: Prepend Stage 12 section to state.md**
 
@@ -1056,8 +1056,8 @@ public final class UIApplicationBackgroundTaskHost: BackgroundTaskHost
 | `12:end-background-task-called-on-all-paths` | PASS | Stage12Tests/endBackgroundTaskCalledOnAllPaths (3 scenarios) |
 | `10:record-start-stop-happy-path` (preserved) | PASS | Stage10HappyPathTests |
 | `10:recording-truncated-on-deadline` (preserved) | PASS | Stage10HappyPathTests |
-| `12:home-button-drain-produces-finalized-mp4-device` | DEFERRED | HITL — `docs/measurements/stage-12/observability.md` |
-| `12:debug-overlay-shows-live-overwrite-counts` | DEFERRED | HITL — `docs/measurements/stage-12/observability.md` |
+| `12:home-button-drain-produces-finalized-mp4-device` | DEFERRED | HITL — `measurements/stage-12/observability.md` |
+| `12:debug-overlay-shows-live-overwrite-counts` | DEFERRED | HITL — `measurements/stage-12/observability.md` |
 
 - `## Decisions taken that weren't in briefs — Stage 12`:
   - **`BackgroundTaskHost` abstraction** — not literally named in brief §4; required so `12:background-task-drain-produces-finalized-mp4` / `12:expiration-handler-cancels-not-finishes` can run without `UIApplication.shared` (unit-test headless). Mirrors the `AssetWriting` seam pattern from Stage 10.
@@ -1073,7 +1073,7 @@ public final class UIApplicationBackgroundTaskHost: BackgroundTaskHost
 bash scripts/regen-contracts.sh
 ```
 
-- [ ] **Step 3: Create HITL stub `docs/measurements/stage-12/observability.md`**
+- [ ] **Step 3: Create HITL stub `measurements/stage-12/observability.md`**
 
 ```markdown
 # Stage 12 — HITL observability + drain evidence
@@ -1102,7 +1102,7 @@ Date: ________
 - [ ] **Step 4: Commit**
 
 ```bash
-git add CameraKit/state.md CameraKit/CONTRACTS.md docs/measurements/stage-12/observability.md
+git add CameraKit/state.md CameraKit/CONTRACTS.md measurements/stage-12/observability.md
 git commit -m "docs(stage-12): state.md Stage 12 complete — all scaffolds retired; HITL stubs; regen CONTRACTS"
 ```
 
@@ -1123,7 +1123,7 @@ Expected: BUILD SUCCEEDED + all stages green. Read `.build-logs/*.json` on failu
 - Start 10s recording, home-button mid-stream → confirm `.mp4` in Photos (or empty-not-corrupt file if budget exceeded).
 - Force low-memory expiration via a debug harness (`host.fireExpiration(...)` hook) → confirm `cancelWriting` path; file empty; no leaked `UIBackgroundTaskIdentifier`.
 - Long-press Resolution → overlay shows non-zero counts when a slow subscriber is attached.
-- Record in `docs/measurements/stage-12/observability.md`.
+- Record in `measurements/stage-12/observability.md`.
 
 - [ ] **Step 3: Corpus clean-slate check**
 
