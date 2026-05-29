@@ -674,3 +674,14 @@ on origin is frozen at its last valid pre-restructure SHA as a safety snapshot
 and can be deleted at PR-merge time.
 
 See `README.md` for the full consumer-facing version.
+
+**Flutter integration test constraints:**
+- `flutter test integration_test` requires **USB** connectivity to the iPad — wireless
+  tethering fails with "Cannot start app on wirelessly tethered iOS device". The error
+  message suggests `--publish-port` but that flag does not exist in Flutter 3.41.6 stable.
+  Connect via USB cable before running `flutter/example/scripts/test-integration.sh`
+  or gate check [3/7].
+- VM service "Connection refused" on the first run is transient (timing). Retry once
+  before investigating.
+- `xcodebuild test` (Swift adapter tests) works fine wirelessly; only `flutter test
+  integration_test` requires USB.

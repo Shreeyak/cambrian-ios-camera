@@ -5852,13 +5852,13 @@ tag-time. Per Phase B spec §8 'GitHub Release notes'."
 
 ---
 
-## Phase 11: Release
+## Phase 11: Release (targeting v1.2.0 — v1.0.0/v1.0.1 shipped from main separately)
 
 ### Task 49: Run `scripts/release-gate.sh` and fix any failures
 
 **Files:** N/A (verification + fixes)
 
-- [ ] **Step 1: Run the gate**
+- [x] **Step 1: Run the gate**
 
 ```bash
 scripts/release-gate.sh
@@ -5877,11 +5877,11 @@ Expected: all 7 gates pass. If any fails:
 | flutter example build | `flutter build ios` errors usually come from Pods or signing |
 | swift-format | Run `swift-format -i CameraKit/Sources/**/*.swift` to auto-fix; if rule is `BeginDocumentationCommentWithOneLineSummary`, split the doc comment manually |
 
-- [ ] **Step 2: Commit any fixes**
+- [x] **Step 2: Commit any fixes**
 
 ```bash
 git add -p
-git commit -m "fix: release-gate.sh polishes for v1.0.0"
+git commit -m "fix: release-gate.sh polishes for v1.2.0"
 ```
 
 Re-run the gate until green. The gate must report `==> Release gate: all 7 checks passed.` before proceeding.
@@ -5895,17 +5895,26 @@ Re-run the gate until green. The gate must report `==> Release gate: all 7 check
 **Files:**
 - Modify: `flutter/pubspec.yaml` (bump if needed)
 - Modify: `flutter/example/pubspec.yaml` (bump if needed)
+- Rename + overwrite: `docs/release-notes-v1.0.0.md` → `docs/release-notes-draft.md`
 
-- [ ] **Step 1: Confirm versions are at 1.0.0**
+- [ ] **Step 0: Write release notes draft**
+
+Rename `docs/release-notes-v1.0.0.md` to `docs/release-notes-draft.md` and overwrite its
+contents with v1.2.0 release notes describing the monorepo restructure (Package.swift moved
+to repo root, `flutter/` plugin added, script/tooling improvements). This file is used once
+by `gh release create` and can be deleted afterwards — GitHub is the canonical home for the
+rendered notes.
+
+- [ ] **Step 1: Confirm versions are at 1.2.0**
 
 ```bash
 grep "^version:" flutter/pubspec.yaml flutter/example/pubspec.yaml
 ```
-Expected: both show `1.0.0` or `1.0.0+1`. If a bump is needed:
+Expected: both show `1.2.0` or `1.2.0+1`. If a bump is needed:
 
 ```bash
-sed -i '' 's/^version: .*/version: 1.0.0+1/' flutter/pubspec.yaml
-sed -i '' 's/^version: .*/version: 1.0.0+1/' flutter/example/pubspec.yaml
+sed -i '' 's/^version: .*/version: 1.2.0/' flutter/pubspec.yaml
+sed -i '' 's/^version: .*/version: 1.2.0/' flutter/example/pubspec.yaml
 ```
 
 - [ ] **Step 2: Request approval, then commit the version bump (if any)**
@@ -5914,7 +5923,7 @@ Wait for user "yes". Then:
 
 ```bash
 git add flutter/pubspec.yaml flutter/example/pubspec.yaml
-git commit -m "release: v1.0.0"
+git commit -m "release: v1.2.0"
 ```
 
 - [ ] **Step 3: Request approval, then create the annotated tag**
@@ -5922,13 +5931,13 @@ git commit -m "release: v1.0.0"
 Wait for user "yes". Then:
 
 ```bash
-git tag -a -s v1.0.0 -m "v1.0.0 — first release of CameraKit + cambrian_ios_camera"
+git tag -a v1.2.0 -m "v1.2.0 — restructure repo as Flutter+Swift monorepo (Package.swift at root, flutter/ plugin alongside CameraKit)"
 ```
 
 - [ ] **Step 4: Local verification of the tag**
 
 ```bash
-git tag -v v1.0.0           # signature check
+git tag -v v1.2.0           # verify tag exists
 swift package describe       # SPM accepts the tag
 (cd flutter && dart pub get) # Flutter consumer side
 ```
@@ -5939,13 +5948,13 @@ Wait for user "yes". Then:
 
 ```bash
 git push origin main
-git push origin v1.0.0
+git push origin v1.2.0
 ```
 
 - [ ] **Step 6: Create the GitHub release**
 
 ```bash
-gh release create v1.0.0 --title "v1.0.0 — first release" --notes-file docs/release-notes-v1.0.0.md
+gh release create v1.2.0 --title "v1.2.0 — Flutter+Swift monorepo restructure" --notes-file docs/release-notes-draft.md
 ```
 
 - [ ] **Step 7: Verify a fresh checkout consumes**
@@ -5960,20 +5969,20 @@ import PackageDescription
 let package = Package(
     name: "Verify",
     platforms: [.iOS(.v26)],
-    dependencies: [.package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "1.0.0")],
+    dependencies: [.package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "1.2.0")],
     targets: [.target(name: "Verify", dependencies: [.product(name: "CameraKit", package: "cambrian-ios-camera")])]
 )
 EOF
 mkdir -p Sources/Verify && echo 'import CameraKit' > Sources/Verify/Verify.swift
 swift package resolve
 ```
-Expected: resolves `cambrian-ios-camera 1.0.0`.
+Expected: resolves `cambrian-ios-camera 1.2.0`.
 
 - [ ] **Step 8: Done**
 
-The plan is complete. The repo at tag `v1.0.0` is:
+The plan is complete. The repo at tag `v1.2.0` is:
 
-- CameraKit Swift package at the repo root, SPM-resolvable from `v1.0.0`
+- CameraKit Swift package at the repo root, SPM-resolvable from `v1.2.0`
 - `flutter/` plugin importable from `pub.dev`-style git+path consumers
 - Example app at `flutter/example/`
 - 4 test layers green (~40 Dart unit, ~8 Swift adapter, 3 integration, 203 CameraKit)
@@ -5981,7 +5990,7 @@ The plan is complete. The repo at tag `v1.0.0` is:
 
 ---
 
-## After v1.0.0 — out of scope for this plan
+## After v1.2.0 — out of scope for this plan
 
 These items are tracked in the spec §"Future cleanup — deferred work":
 
