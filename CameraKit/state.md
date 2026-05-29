@@ -105,6 +105,19 @@ work, the work belongs in CameraKit").
   (main @ c4641ec). Final commits land on branch `flutter-monorepo-restructure`;
   see `git log main..flutter-monorepo-restructure` for the full series.
 
+## Follow-ups — pending (restructure)
+
+- **[PENDING] Remove the CONTRACTS.md regeneration mechanism.** Delete
+  `CameraKit/CONTRACTS.md`, `scripts/regen-contracts.sh`, and the `regen-contracts`
+  pre-commit step in `lefthook.toml`; redirect the live docs that point to it
+  (CLAUDE.md §6.0/§6.1/§6.2/§9, `docs/tooling.md`, `scripts/CLAUDE.md`) toward
+  `.swiftinterface` (`scripts/dump-interface.sh`) and reading `CameraKit/Sources/`
+  directly. The generated API mirror is obsolete scaffolding now that CameraKit
+  ships as a cleanly-consumable root SPM package — same logic that retired the
+  `camerakit-only` subtree branch. Deferred 2026-05-29 to its own PR after the
+  monorepo (Phase A) and flutter-plugin (Phase B) PRs merge. Plan:
+  `docs/superpowers/plans/2026-05-29-remove-contracts-mechanism.md`.
+
 # state.md — Test-seam DEBUG gating + production/test clarity (2026-05-28)
 
 All test-only seams are now compiled out of the Release binary behind `#if DEBUG`,
