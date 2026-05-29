@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 /// The engine-level wiring (`CameraEngine.captureNaturalPicture`) is a thin
 /// orchestrator over `MetalPipeline.latestNaturalBuffer` and
 /// `StillCapture.encode(...)` — exercised end-to-end via HITL on the iPad
-/// (`measurements/capture-natural-picture/<date>/`). These tests pin the
+/// (`docs/measurements/capture-natural-picture/<date>/`). These tests pin the
 /// pieces the engine relies on: JPEG round-trip through the shared encode
 /// path, and the `"lane"` marker in the `CamPlugin/v1` EXIF envelope.
 @Suite("CaptureNaturalPictureTests — captureNaturalPicture", .progressLogged)

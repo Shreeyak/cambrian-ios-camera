@@ -16,8 +16,8 @@
 # Build output is redirected to .build-logs/<ts>-build-launch-<config>.log.
 set -uo pipefail
 
-PROJECT="eva-swift-stitch.xcodeproj"
-SCHEME="eva-swift-stitch"
+PROJECT="ios_example_app/ios_example_app.xcodeproj"
+SCHEME="ios_example_app"
 CONFIG="Debug"
 
 while [[ $# -gt 0 ]]; do

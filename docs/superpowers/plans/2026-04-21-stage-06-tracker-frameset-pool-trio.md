@@ -1590,7 +1590,7 @@ git commit -m "test(stage-06): Stage06Tests + Stage04 migration to pool-backed t
 **Model:** (human-in-the-loop; no agent.)
 
 **Files:**
-- Create: `measurements/stage-06/consumers.md`
+- Create: `docs/measurements/stage-06/consumers.md`
 
 - [ ] **Step 9.1: Device smoke — debug overlay**
 
@@ -1614,7 +1614,7 @@ With Instruments > Allocations attached, unsubscribe the tracker stream; observe
 
 - [ ] **Step 9.4: Write evidence file**
 
-Create `measurements/stage-06/consumers.md` with:
+Create `docs/measurements/stage-06/consumers.md` with:
 - Device + iOS version + build hash.
 - Screenshots / screen captures for §9.1–§9.3.
 - PASS/FAIL for each HITL test ID from brief §8:
@@ -1624,7 +1624,7 @@ Create `measurements/stage-06/consumers.md` with:
 - [ ] **Step 9.5: Commit evidence**
 
 ```bash
-git add measurements/stage-06/consumers.md
+git add docs/measurements/stage-06/consumers.md
 git commit -m "docs(stage-06): HITL evidence — tracker thumbnail + debug overlay"
 ```
 
@@ -1679,7 +1679,7 @@ Then **stop**. Per CLAUDE.md §7, do not push or open a PR without explicit user
 - [ ] `swift build` (via `mcp__XcodeBuildMCP__build_device`) passes, no new warnings.
 - [ ] All prior-stage tests (`Stage0[1-5]Tests`) pass unchanged.
 - [ ] New TESTABLE tests (`Stage06Tests` — all seven) pass.
-- [ ] HITL tests confirmed on iPad Pro M1; evidence at `measurements/stage-06/consumers.md`.
+- [ ] HITL tests confirmed on iPad Pro M1; evidence at `docs/measurements/stage-06/consumers.md`.
 - [ ] `grep -rn '06:simple-consumer-swift-only' Sources/` ≥1 hit; `grep -rn '01:simple-metal-passthrough\|01:skip-completion-guard' Sources/` each ≥1 hit.
 
 ## 4. Open risks / watch items

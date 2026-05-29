@@ -159,7 +159,7 @@ enum PhotosLibraryClient {
         case .accessUserDenied:
             codeName = "accessUserDenied"
             hint =
-                "User denied Photos access. Re-enable in Settings → eva-swift-stitch → "
+                "User denied Photos access. Re-enable in Settings → ios_example_app → "
                 + "Photos (Add Photos Only or All Photos)."
         case .accessRestricted:
             codeName = "accessRestricted"
