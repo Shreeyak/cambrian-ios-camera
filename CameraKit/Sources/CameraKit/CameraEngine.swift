@@ -233,6 +233,15 @@ public actor CameraEngine {
             })
     }
 
+    /// Returns the engine's actual current `SessionState` (the state machine's
+    /// live value).
+    ///
+    /// A fresh point-in-time read — NOT a replay of a past event. Lets a late
+    /// observer (e.g. a Flutter preview widget that subscribes after `open()`
+    /// already published `.streaming`) learn the true current state instead of
+    /// waiting for the next transition. `.closed` before `open()`.
+    public func currentStateSnapshot() -> SessionState { stateMachine.current }
+
     /// Returns the last successfully committed settings, or nil if none have been applied.
     public func currentSettingsSnapshot() -> CameraSettings? { currentSettings }
 

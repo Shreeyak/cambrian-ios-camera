@@ -238,6 +238,8 @@ var permissionStatusProvider: () -> CameraPermissionStatus = {
 ⋮----
 var lifecycleTestHook: LifecycleTestHook?
 ⋮----
+public func currentStateSnapshot() -> SessionState { stateMachine.current }
+⋮----
 public func currentSettingsSnapshot() -> CameraSettings? { currentSettings }
 ⋮----
 public func currentProcessingParametersSnapshot() -> ProcessingParameters? {
@@ -582,6 +584,42 @@ func onSessionEvent(_ event: CameraSession.SessionEvent) async {
 ⋮----
 let err = CameraError(code: .cameraAccessError, message: msg, isFatal: false)
 ```
+## File: CameraKit/Sources/CameraKit/CameraEngineProtocol.swift
+```swift
+public protocol CameraEngineProtocol: Actor {
+⋮----
+func setLifecyclePhase(_ phase: AppLifecyclePhase) async
+func open(configuration: OpenConfiguration) async throws -> SessionCapabilities
+func close() async
+⋮----
+func currentStateSnapshot() -> SessionState
+func currentSettingsSnapshot() -> CameraSettings?
+func currentProcessingParametersSnapshot() -> ProcessingParameters?
+⋮----
+func stateStream() -> AsyncStream<SessionState>
+func errorStream() -> AsyncStream<CameraError>
+func streamConfigurationStream() -> AsyncStream<StreamConfiguration>
+func frameResultStream() -> AsyncStream<FrameResult>
+func recordingStateStream() -> AsyncStream<RecordingState>
+⋮----
+func updateSettings(_ settings: CameraSettings) async throws
+func setResolution(size: Size) async throws
+func setProcessingParams(_ params: ProcessingParameters) async
+func setCropRegion(_ rect: Rect) async throws
+⋮----
+func captureImage(
+⋮----
+func captureNaturalPicture(
+⋮----
+func startRecording(options: RecordingOptions) async throws -> RecordingStart
+func stopRecording() async throws -> String
+⋮----
+func calibrateWhiteBalance() async throws -> CalibrationResult
+func calibrateBlackBalance() async throws -> CalibrationResult
+⋮----
+nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?
+```
+
 ## File: CameraKit/Sources/CameraKit/CameraKitLog.swift
 ```swift
 public enum CameraKitLog {

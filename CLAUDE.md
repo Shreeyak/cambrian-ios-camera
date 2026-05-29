@@ -4,84 +4,145 @@ This file orients a fresh Claude Code session working in this repo.
 
 ## 1. What this repo is
 
-CameraKit is a complete iOS 26 Swift camera library (real-time capture, Metal
-preview, OpenCV-backed processing). Source lives under
-`CameraKit/Sources/CameraKit/`, swift-testing suites under
-`CameraKit/Tests/CameraKitTests/`, and `CameraKit/state.md` is the running ledger
-of what has shipped. It has two consumers: the native dev harness in this repo
-(`eva-swift-stitch`) and the Flutter plugin in cam2fd, fed by the `camerakit-only`
-synthetic branch (§10).
+Home of **CameraKit** (a Swift package for iOS camera access) and
+**`cambrian_ios_camera`** (a Flutter plugin wrapping CameraKit for use from
+Flutter apps). Two examples live alongside: `ios_example_app/` (native SwiftUI
+dev harness) and `flutter/example/` (Flutter — populated in Phase B).
 
-It was built in 12 brief-driven stages (now complete — §3), then extended through
-Phases 1–3 for the Flutter consumer. That phase work — driven by plans and specs
-under `docs/superpowers/` — is the current working mode; day-to-day work is now
-additive/maintenance, not stage-by-stage.
+CameraKit was produced via a clean-room translation from cam2fd's Android camera
+implementation; the upstream brief/architecture corpus is symlinked from
+`/Users/shrek/work/cambrian/ios-translation/` and consumed read-only here.
+Stages 01–12 of that translation completed on 2026-05-15 (Stage 12 was the
+last clean-room translation stage). Subsequent work (Phase 1A/1B/2 and the
+2026-05-20 Flutter-monorepo restructure) is post-pipeline and does not follow
+the stage-briefs pattern.
 
-The library was produced clean-room from the upstream corpus symlinked under
-`implementation/`. This repo was the IMPLEMENT stage of that upstream pipeline;
-producer discipline does not apply here. See
-`/Users/shrek/work/cambrian/ios-translation/CLAUDE.md` for producer context.
+Producer discipline does not apply here. See
+`/Users/shrek/work/cambrian/ios-translation/CLAUDE.md` for upstream context.
 
 ## 2. Repo layout
 
 ```
-.
-├── eva-swift-stitch.xcodeproj        # app host; owns Info.plist, signing, schemes
-├── eva-swift-stitch/                 # app target files
-│   ├── eva_swift_stitchApp.swift     # app entry point; hosts CameraKit's root view
-│   ├── Info.plist                    # (NSCameraUsageDescription via build setting, see §5)
-│   └── Assets.xcassets + Preview Content/
-├── eva-swift-stitchTests/            # existing XCTest — app-level; library tests live under CameraKit/
-├── eva-swift-stitchUITests/          # existing XCUITest
-├── CameraKit/                        # local Swift package (library-only)
-│   ├── Package.swift                 # swift-tools-version:6.2; iOS 26; strict concurrency
-│   ├── Sources/CameraKit/            # library source
-│   ├── Tests/CameraKitTests/         # swift-testing suites (app-hosted; §8)
-│   ├── CONTRACTS.md                  # auto-regenerated current shape (§6.2)
-│   ├── DECISIONS.md                  # append-only subagent decision log
-│   └── state.md                      # per-stage progress ledger — read for current state
-├── implementation/                   # READ-ONLY upstream symlinks
+cambrian-ios-camera/  (repo root; GitHub: github.com/Shreeyak/cambrian-ios-camera)
+│
+├── Package.swift                          # CameraKit SPM manifest at root
+│                                            (uses path: pointing into CameraKit/Sources/X)
+├── CameraKit/                              # library source (NOT a nested package)
+│   ├── Sources/{CameraKit,CameraKitInterop,CameraKitCxx}/
+│   ├── Tests/CameraKitTests/               # swift-testing suites; built by the
+│   │                                         Xcode ios_example_appTests target only
+│   ├── Tests/SPMTestStub/                  # #error stub directing `swift test` to Xcode
+│   ├── CONTRACTS.md                        # auto-regenerated current shape (§6.2)
+│   ├── DECISIONS.md                        # append-only subagent decision log
+│   └── state.md                            # per-stage progress ledger
+│
+├── ios_example_app/                        # native dev harness + only Xcode project
+│   ├── ios_example_app.xcodeproj           # owns Info.plist, signing, schemes
+│   ├── ios_example_app/                    # app sources (incl. AppCxx/ Canny consumer)
+│   │   ├── ios_example_appApp.swift        # app entry point; hosts CameraKit's root view
+│   │   ├── Info.plist                      # NSCameraUsageDescription via build setting (§5)
+│   │   └── Assets.xcassets + Preview Content/
+│   ├── Tests/                              # XCTest target Info.plist;
+│   │                                         sources come from CameraKit/Tests/
+│   └── UITests/                            # XCUITest
+│
+├── flutter/                                # Phase B will populate (§10)
+│   └── README.md                           # placeholder
+│
+├── Frameworks/opencv2.xcframework          # symlink to ~/software/opencv2.xcframework;
+│                                             consumed only by ios_example_app
+│
+├── docs/
+│   ├── measurements/                       # per-stage HITL + spike notes (moved from
+│   │                                         repo root 2026-05-20)
+│   └── superpowers/{specs,plans}/          # design docs; archive/ for superseded Phase 3
+│
+├── implementation/                         # READ-ONLY upstream symlinks
 │   ├── briefs/             → …/ios-translation/implementation/briefs
 │   ├── architecture/       → …/ios-translation/implementation/architecture
 │   ├── domain-revised/     → …/ios-translation/domain-revised
 │   └── ios-platform-guide/ → …/ios-translation/ios-platform-guide
-├── fastlane/                         # release pipeline (match → gym → pilot); preserve as-is
-├── Gemfile / Gemfile.lock            # fastlane toolchain pinning
+│
+├── scripts/                                # build wrappers, contract regen, etc.
 ├── .swiftlint.yml
-└── docs/                             # progress-report.md + superpowers/
+├── README.md                               # two-personality repo intro
+└── CLAUDE.md
 ```
 
-For current project state and what's shipped, read `CameraKit/state.md` — that
-file is the source of truth for project state; CLAUDE.md only documents structure
-and rules.
+For current stage, live scaffolds, and what's shipped, read `CameraKit/state.md` —
+that file is the source of truth for project state; CLAUDE.md only documents
+structure and rules.
 
-## 3. Historical: stage pipeline (complete)
+## 3. Pipeline role and stage discipline
 
-The library was built via a 12-stage, brief-driven pipeline (now complete) — each
-stage specced by `implementation/briefs/stage-NN.md`. See `CameraKit/state.md` and
-the briefs for the per-stage record. Current work is additive/Phase-based (§1), not
-stage-by-stage.
+Each brief at `implementation/briefs/stage-NN.md` is the authoritative spec for
+its stage. Per-stage workflow:
 
-## 4. Historical: scaffold-slug convention
+1. Read `CameraKit/state.md` from the prior stage.
+2. **Pre-flight inventory**: for every entry under "Scaffolding still live",
+   `grep -rn <slug> CameraKit/Sources/` must return ≥1 hit. Mismatch halts the
+   session and requires escalation — source drift is not quietly patched.
+3. Read `implementation/briefs/stage-NN.md`.
+4. Read cited architecture refs (§5), domain refs (§6), and the
+   `implementation/architecture/api-skeletons/Sources/CameraKit/` stubs for
+   every file named in §4.
+5. Implement per §4 in dependency order.
+6. Run §11 verification using the method prescribed in §6 (XcodeBuildMCP or
+   wrapper scripts — never raw `swift build` / `swift test`): build, test filter,
+   scaffold greps, and any device smoke the brief's §11 calls for. Then update
+   `state.md` per §12.
+7. Stop. Request user approval before any git operation.
 
-Temporary code carried an inline marker `// scaffolding:NN:kebab-slug` (`NN` = the
-stage that introduced it) and was retired in-order by a later stage. The chain ran
-to completion — **0 scaffolds remain** (`grep -rn 'scaffolding:' CameraKit/Sources/`
-confirms).
+**FEATURE** stages add user-visible capability and may introduce scaffolds;
+**MIGRATION** stages retire ≥1 scaffold with a production primitive, preserve
+every prior test, and add no user-visible capability.
+
+**Stage kickoff rule (historical).** Each clean-room stage began with
+`scripts/stage-preflight.sh` (state.md ↔ source-slug coherence, `CameraKit/CONTRACTS.md`
+freshness, build green). That script was pruned in the 2026-05-28 tooling cleanup;
+the stage pipeline is complete (below), so nothing kicks off a new stage now.
+
+**Stage 12 was the last clean-room translation stage.** Subsequent work
+(Phase 1A/1B/2 in CameraKit's history, and the 2026-05-20 restructure
+documented in `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`)
+does not follow the stage briefs-and-pre-flight pattern. Phase B (Flutter
+plugin implementation) is fresh design, not a continuation of the
+clean-room stages.
+
+## 4. Scaffold-slug convention
+
+Scaffolds are marked inline by an exact-string code comment `// scaffolding:NN:kebab-slug`,
+where `NN` is the stage that introduced them. That comment is the grep target for
+the next stage's pre-flight check. Do not paraphrase the slug, do not re-punctuate
+it, do not split it across lines. A scaffold may only be retired by the stage
+whose §1 `Retires scaffolding from: …` entry names it — early retirement breaks
+the stage-index ordering and invalidates `state.md` as proof of progress.
 
 ## 5. Target shape
 
-- Package lives in a subdirectory (`CameraKit/`), not at the repo root.
-- `eva-swift-stitch.xcodeproj` remains the app host: owns `Info.plist`, signing,
-  schemes, and `NSCameraUsageDescription` (via `INFOPLIST_KEY_NSCameraUsageDescription`
-  build setting, not a Plist key). `NSPhotoLibraryAddUsageDescription` is wired
-  the same way. `CameraKit` is linked as a local SwiftPM dependency; the
-  app target imports it and presents `CameraView()`. Bundle ID:
-  `com.cambrian.eva-swift-stitch`; iPad only.
+- **`Package.swift` lives at the repo root** (moved from `CameraKit/` on
+  2026-05-20). Targets use explicit `path:` parameters pointing into
+  `CameraKit/Sources/{CameraKit,CameraKitInterop,CameraKitCxx}`. There is
+  also one `SPMTestStub` testTarget whose only purpose is to emit a `#error`
+  when someone runs `swift test`; the real test suite is Xcode-only (§8).
+- `ios_example_app/ios_example_app.xcodeproj` is the only Xcode project. It
+  owns `Info.plist`, signing, schemes, and `NSCameraUsageDescription` /
+  `NSPhotoLibraryAddUsageDescription` (via `INFOPLIST_KEY_*` build settings,
+  not literal Plist keys). `CameraKit` is linked as a local SwiftPM
+  dependency via `XCLocalSwiftPackageReference` with `relativePath: ..` (the
+  xcodeproj's parent of parent is the repo root, where `Package.swift` lives).
+  The app target imports it and presents `CameraView()`. Bundle ID:
+  `com.cambrian.ios-example-app`; iPad only.
 - iOS 26 deployment target; Swift 6 language mode; `SWIFT_STRICT_CONCURRENCY =
   complete` is enforced at build time — treat concurrency warnings as errors.
-- **`CameraKitCxx` (C++ target) + OpenCV xcframework** provide the image-processing
-  path (added at Stage 08; Swift/C++ interop bridges them).
+- **C++ + OpenCV layout (Phase 1B onward).** The `CameraKitCxx` target inside
+  the package contains the PixelSink pool seam only (no OpenCV). The OpenCV
+  consumer (Canny demo) lives in `ios_example_app/ios_example_app/AppCxx/`
+  and links the `opencv2.xcframework` via the symlink at `Frameworks/`
+  (repo root). The CameraKit Swift package itself does NOT link OpenCV.
+- **Free Apple Developer profile limit: 3 apps per device.** When installing
+  on iPad fails with "maximum number of installed apps using a free developer
+  profile", uninstall an existing one (long-press → Remove App) and retry.
 
 ## 6. Common operations
 
@@ -105,8 +166,8 @@ per-session permission prompt declined) — use the shell wrappers:
 ```bash
 scripts/build-summary.sh                                   # iOS build
 scripts/test-summary.sh                                    # CameraKit tests (default)
-scripts/test-summary.sh --filter CameraKitTests/Stage01Tests
-scripts/test-summary.sh --scheme eva-swift-stitch          # app-level tests
+scripts/test-summary.sh --filter ios_example_appTests/Stage01Tests
+scripts/test-summary.sh --scheme ios_example_app           # app-level tests
 ```
 
 Both wrappers pipe `xcodebuild` through `xcsift` (structured JSON output in
@@ -116,12 +177,13 @@ iPad" → error. The JSON file is the first thing to read on failure — it has
 file/line/message per error, not a grep approximation.
 
 **Never invoke `xcodebuild build` or `xcodebuild test` directly** in a Bash tool
-call. `swift build --package-path CameraKit/` and `swift test --package-path …`
-are also forbidden: SPM defaults to the host triple (macOS); CameraKit uses
-iOS-only AVFoundation APIs, the host build fails, and the failure cascades into
-phantom SourceKit "cannot find type Size/WhiteBalanceGains" errors across
-unrelated files. If SourceKit goes sideways: `rm -rf CameraKit/.build`, clear
-DerivedData for eva-swift-stitch, rebuild via the MCP or wrapper.
+call. `swift build` and `swift test` at the repo root are also avoided: SPM
+defaults to the host triple (macOS); CameraKit uses iOS-only AVFoundation APIs,
+the host build fails. Running `swift test` does produce the friendly
+`SPMTestStub` `#error` pointing to the Xcode path — useful as a sanity-check
+but not a substitute for the real test suite. If SourceKit goes sideways:
+`rm -rf .build`, clear DerivedData for `ios_example_app-*`, rebuild via the
+MCP or wrapper.
 
 Other operations:
 
@@ -130,7 +192,7 @@ Other operations:
 grep -rn 'NN:slug' CameraKit/Sources/
 
 # Destination introspection (when you need to see what xcodebuild considers valid):
-xcodebuild -scheme eva-swift-stitch -showdestinations
+xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme ios_example_app -showdestinations
 
 # Destination string formats (for --destination on wrappers) — DEVICE ONLY:
 #   platform=iOS,id=<udid>                                   (physical iPad; from `xcrun xctrace list devices`)
@@ -151,7 +213,7 @@ orientation locks, untracking user-state), use the system-installed Ruby
 
 ```bash
 ruby -e "require 'xcodeproj'
-p = Xcodeproj::Project.open('eva-swift-stitch.xcodeproj')
+p = Xcodeproj::Project.open('ios_example_app/ios_example_app.xcodeproj')
 # ...mutations...
 p.save"
 ```
@@ -159,8 +221,8 @@ p.save"
 **MCP ecosystem** — XcodeBuildMCP owns build/run/test/LLDB/UI on device
 targets (see above; simulators are disallowed on this machine). The **`xcode` MCP** is only for actions that need Xcode itself running
 (navigator issues, preview rendering, the open window) — reach for it rarely.
-**Fastlane** is release only (`match` → `gym` → `pilot`). If the user names a
-specific MCP and it is unavailable, stop and say so — never silently substitute.
+If the user names a specific MCP and it is unavailable, stop and say so —
+never silently substitute.
 
 **Apple API reference** — primary is **`mcp__xcode__DocumentationSearch`**:
 semantic matching over discussion prose, `frameworks` filter, content returned
@@ -178,8 +240,8 @@ when xcode is offline. `context7` covers third-party libraries; xcode
 Run targets, preferred order: **physical iPad** (required for R-21 camera-indicator
 and R-22 off-main `startRunning`); **Mac "Designed for iPad"** (day-to-day —
 exercises real capture). **Simulators are not an option on this machine** (see
-top of §6). Build-time HITL / DEFERRED evidence lives under `measurements/stage-NN/`
-(historical; each brief's §12 names the exact paths).
+top of §6). Per-stage HITL / DEFERRED evidence lands under `docs/measurements/stage-NN/`;
+each brief's §12 names the exact file paths.
 
 ### 6.0 One-time host setup
 
@@ -187,17 +249,41 @@ Each development machine needs this once:
 
 ```bash
 brew install xcode-build-server swift-format ripgrep repomix xcsift jq lefthook
-xcode-build-server config -project eva-swift-stitch.xcodeproj \
-                          -scheme eva-swift-stitch
-lefthook install                # installs BOTH the pre-commit and pre-push hooks
+cd "$(git rev-parse --show-toplevel)"
+xcode-build-server config -project ios_example_app/ios_example_app.xcodeproj \
+                          -scheme ios_example_app
+lefthook install                # installs the pre-commit hook (no pre-push — see below)
 ```
 
-The second command generates `buildServer.json` at the repo root, bridging
-sourcekit-lsp to Xcode's build system. It is gitignored (contains a
-machine-specific DerivedData path); re-run after cloning or changing scheme.
+**What `xcode-build-server` does and why we need it.** Sourcekit-lsp (Apple's
+Language Server, used by VS Code, neovim, Helix, Sublime Text, etc.) needs to
+know how Xcode would compile each Swift file to provide semantic features —
+type-resolution, jump-to-definition, find-references, hover docs, completions
+across file boundaries. Xcode itself uses an undocumented internal protocol to
+talk to its build system; sourcekit-lsp can't replicate that. The
+`xcode-build-server` (Homebrew: `brew install xcode-build-server`) is a
+third-party tool that translates between the two: it runs `xcodebuild
+-showBuildSettings` to learn the project's compile flags, then exposes them
+via the standard Build Server Protocol that sourcekit-lsp understands.
+
+Concretely: `xcode-build-server config -project
+ios_example_app/ios_example_app.xcodeproj -scheme ios_example_app` writes
+`buildServer.json` in the current directory. That file contains the workspace
+path, the scheme name, and a `build_root` pointing at the project's
+DerivedData. Sourcekit-lsp walks up from a source file's path looking for
+`buildServer.json` — so the file MUST be at the repo root (not inside
+`ios_example_app/`) to be reachable from sources in `CameraKit/Sources/`.
+
+Without this setup, sourcekit-lsp falls back to a heuristic resolver that
+can't track cross-module imports cleanly — you'll see "cannot find type X in
+scope" in your editor on Swift files that obviously compile fine.
+`buildServer.json` is gitignored (host-specific DerivedData paths); each
+developer regenerates after cloning, after switching schemes, or after Xcode
+bumps DerivedData hash. Inside Xcode itself, none of this matters — Xcode
+uses its own build system. This is purely for external editors.
 
 The third command installs the repo's git hooks, declared in `lefthook.toml` and
-managed by [lefthook](https://lefthook.dev). Two stages run:
+managed by [lefthook](https://lefthook.dev). One stage runs:
 - **pre-commit** — `swift-format lint --strict` on staged
   `CameraKit/Sources/**.swift` (the authoritative style gate) and a
   `CONTRACTS.md` regen that re-stages the refreshed file. **SwiftLint is NOT a
@@ -205,10 +291,12 @@ managed by [lefthook](https://lefthook.dev). Two stages run:
   `_*ForTest` identifiers, the large `CameraEngine` actor) as errors, and crashes
   standalone on this machine's beta toolchain (`Loading
   sourcekitdInProc.framework … failed`), so `.swiftlint.yml` is IDE-advisory only.
-- **pre-push** — `.lefthook/pre-push/sync-camerakit-only.sh` keeps the
-  `camerakit-only` synthetic branch in sync for the Flutter plugin consumer
-  (§10). It's a lefthook *script* (not a command) so it fires on **every** push;
-  a cheap tree-fingerprint guard makes it sub-second unless `CameraKit/` changed.
+
+There is **no pre-push hook**: the `camerakit-only` synthetic-branch subtree-sync
+was retired in the 2026-05-20 restructure (Package.swift now lives at the repo
+root, so `git subtree split --prefix=CameraKit` no longer yields a valid SPM
+package — the manifest is outside `CameraKit/`). The Flutter plugin at `flutter/`
+is the replacement consumption model — see §10.
 
 **Why lefthook and not git's `core.hooksPath` + a `.githooks/` dir:**
 `lefthook install` writes its runner into `.git/hooks/`, so the hooks fire
@@ -268,9 +356,9 @@ coordinator-inlined source and re-reads after edits dominate token burn.
   error.** Both wrappers try a connected physical iPad first; if none,
   Mac "Designed for iPad" (native, not a simulator); if neither, they exit
   with an error. **Simulators are never used** (top of §6).
-  `test-summary.sh` defaults to scheme `eva-swift-stitch`. CameraKitTests
-  files compile into the app-hosted `eva-swift-stitchTests` target via
-  dual-membership (§8). Filter as `-only-testing:eva-swift-stitchTests/<SuiteStructName>`
+  `test-summary.sh` defaults to scheme `ios_example_app`. CameraKitTests
+  files compile into the app-hosted `ios_example_appTests` target via
+  pbxproj wiring (§8). Filter as `-only-testing:ios_example_appTests/<SuiteStructName>`
   — note that each `@Suite` in those files is its own struct, so the
   filename does NOT work as a filter prefix.
 - **Build log is ground truth; navigator issues are advisory.** Xcode's Issue
@@ -285,7 +373,7 @@ coordinator-inlined source and re-reads after edits dominate token burn.
   it failed, trust compiler errors from the log text and cross-reference before
   quoting a navigator entry. Never base a decision on navigator issues alone.
   Persistent phantoms across rebuilds → nuke
-  `~/Library/Developer/Xcode/DerivedData/eva-swift-stitch-*` and rebuild.
+  `~/Library/Developer/Xcode/DerivedData/ios_example_app-*` and rebuild.
 - **Bound agent return format** per §6.3 below.
 
 ### 6.2 Tools: decision tree and usage
@@ -301,9 +389,8 @@ Pick the tool that fits the question. Match row by row, top-down:
 | Who calls function X? | `LSP prepareCallHierarchy` + `incomingCalls` | `LSP` MCP tool |
 | What's the type/doc of symbol at file:line? | `LSP hover` | `LSP` MCP tool |
 | Find literal pattern (scaffold slug, TODO, string occurrence) | `Grep` | Claude `Grep` tool or `rg` |
-| Build the app & launch it on the iPad | `scripts/build-launch.sh` | Auto-detects the paired iPad; `--release` for Release, else Debug. |
 | Build iOS target | `mcp__XcodeBuildMCP__build_run_device` (primary) or `scripts/build-summary.sh` (fallback) | Device-only on this machine (no sims). Wrapper pipes xcodebuild→xcsift→`.build-logs/*.json` + raw log. |
-| Run CameraKit or app tests | `mcp__XcodeBuildMCP__test_device` (primary) or `scripts/test-summary.sh` (fallback) | Device-only (no sims). Both default to scheme `eva-swift-stitch` (app-hosted CameraKitTests via dual-membership — see §8). Filter as `eva-swift-stitchTests/<SuiteStructName>`. |
+| Run CameraKit or app tests | `mcp__XcodeBuildMCP__test_device` (primary) or `scripts/test-summary.sh` (fallback) | Device-only (no sims). Both default to scheme `ios_example_app` (app-hosted CameraKitTests via pbxproj wiring — see §8). Filter as `ios_example_appTests/<SuiteStructName>`. |
 | Re-wire CameraKitTests after adding a new test file | `scripts/sync-test-target.sh` | Idempotent. Adds new `.swift` files under `CameraKit/Tests/CameraKitTests/` to the Xcode test target. See §8. |
 | Refresh CONTRACTS.md explicitly | `scripts/regen-contracts.sh` | Auto-runs on pre-commit; rarely needed by hand. |
 | Log a subagent decision | Append one line to `CameraKit/DECISIONS.md` | Stigmergy; coordinator won't re-read. |
@@ -377,38 +464,46 @@ underlying issue and ask again — do not `--amend` around it.
 
 ## 8. Load-bearing invariants
 
-- **Tests use a host app, not tool-hosted; CameraKitTests is dual-membered.**
+- **Tests use a host app, not tool-hosted; single-membership Xcode-only.**
   iOS forbids tool-hosted tests on physical-device destinations (`xcodebuild
   test` errors with `Tool-hosted testing is unavailable on device
   destinations`), and simulators are disallowed on this machine (§6). So
-  every `.swift` file in `CameraKit/Tests/CameraKitTests/` is compiled by
-  TWO targets: the SwiftPM `.testTarget(name: "CameraKitTests")` in
-  `CameraKit/Package.swift` (the package's portability contract for future
-  extraction — keep untouched), AND the Xcode `eva-swift-stitchTests` target
-  in `eva-swift-stitch.xcodeproj` (`TEST_HOST=eva-swift-stitch.app`, the
-  one that actually runs on the iPad). Canonical run command:
-  `mcp__XcodeBuildMCP__test_device` with scheme `eva-swift-stitch`, or
-  `scripts/test-summary.sh --filter eva-swift-stitchTests/<SuiteStructName>`
-  (no scheme flag needed; default is `eva-swift-stitch`). To add a new test
-  file in a future stage, create it in `CameraKit/Tests/CameraKitTests/`
-  then run `scripts/sync-test-target.sh` (idempotent). Decision #63 in
-  `CameraKit/state.md` records the rationale. Filter caveat: each `@Suite`
-  is its own struct — `-only-testing:eva-swift-stitchTests/Stage10Tests`
-  (filename) matches NOTHING; use the actual struct name from the file
+  every `.swift` file in `CameraKit/Tests/CameraKitTests/` is compiled
+  exclusively by the Xcode `ios_example_appTests` target
+  (`TEST_HOST=ios_example_app.app`, runs on iPad). The SPM-side
+  `.testTarget(name: "CameraKitTests")` was removed during the 2026-05-20
+  restructure (it was an aspirational portability contract that never
+  worked due to the macOS-host-triple AVFoundation problem); in its place
+  is `SPMTestStub` whose only purpose is to make `swift test` emit a clear
+  `#error` pointing to the Xcode path. Canonical run command:
+  `mcp__XcodeBuildMCP__test_device` with scheme `ios_example_app`, or
+  `scripts/test-summary.sh --filter ios_example_appTests/<SuiteStructName>`
+  (no scheme flag needed; default is `ios_example_app`). To add a new test
+  file, create it in `CameraKit/Tests/CameraKitTests/` then run
+  `scripts/sync-test-target.sh` (idempotent — writes pbxproj entries).
+  Filter caveat: each `@Suite` is its own struct —
+  `-only-testing:ios_example_appTests/Stage10Tests` (filename) matches
+  NOTHING; use the actual struct name from the file
   (`Stage10CoordinatorTests`, `Stage10HappyPathTests`, etc.).
+- **The current brief is the source of truth for its stage.** If `architecture/`
+  or `ios-platform-guide/` appears to contradict the brief, the brief wins; log
+  the conflict in `CameraKit/state.md` under "Decisions taken that weren't in
+  briefs" so upstream can patch it.
 - **Never edit anything under `implementation/`.** `briefs/`, `architecture/`,
-  `domain-revised/`, and `ios-platform-guide/` are read-only upstream artifacts —
-  the clean-room reference corpus the library was produced from.
+  `domain-revised/`, and `ios-platform-guide/` are upstream artifacts. Gaps go in
+  `state.md` under "Open questions for next stage" and get patched upstream.
+- **Never install a future-stage primitive early.** No completion-handler D-10
+  guard before Stage 09; no C++ `PixelSink` pool before Stage 08; no
+  `OSAllocatedUnfairLock` uniform guard before Stage 05. Each stage is deliberate
+  about what it does *not* do — pulling primitives forward breaks the chain.
+- **Never retire a scaffold out of order.** The chain is locked by each brief's
+  §1 `Retires scaffolding from: …`.
 - **Never echo Android API names** (`Camera2`, `CameraCaptureSession`,
   `HandlerThread`, `ImageReader`, `SurfaceTexture`, `EGLContext`, `MediaRecorder`,
   `AHardwareBuffer`) in Swift source, tests, or comments — that is the classic
   tell that the clean-room separation leaked.
 - **Cite `ADR-##` / `D-##` / `G-##` in code comments when the "why" is
-  non-obvious.** Name the anchor; do not paraphrase the platform guide. Do
-  **not** cite CLAUDE.md by section number from source, tests, config, or
-  scripts — section numbers move when this file is reorganized. State the reason
-  inline, or cite a stable `ADR-##`/`G-##`/`D-##` anchor instead. (Plans and
-  specs may cite CLAUDE.md freely — they're point-in-time records.)
+  non-obvious.** Name the anchor; do not paraphrase the platform guide.
 - **`AVCaptureSession` mutations and `AVCaptureDevice.lockForConfiguration()` run
   on `sessionQueue` (ADR-07); the `AVCaptureVideoDataOutput` sample-buffer delegate
   is `nonisolated` on the `delivery` queue (ADR-02).** Actors coordinate with
@@ -445,7 +540,7 @@ underlying issue and ask again — do not `--amend` around it.
 - **Creating `xcshareddata/xcschemes/` stops Xcode auto-generating schemes.**
   Once that directory exists every scheme must be an explicit `.xcscheme` file.
   The shared app scheme lives at
-  `eva-swift-stitch.xcodeproj/xcshareddata/xcschemes/eva-swift-stitch.xcscheme`.
+  `ios_example_app/ios_example_app.xcodeproj/xcshareddata/xcschemes/ios_example_app.xcscheme`.
 - **Two test iPads, two UDID schemes — always look up which is connected.**
   This project rotates between two physical iPads (Shreeyak's iPad Pro 11"
   2nd-gen, iPad8,9; and an iPad A16, iPad15,7). Each device has *two distinct
@@ -482,15 +577,16 @@ underlying issue and ask again — do not `--amend` around it.
   only captures stdout/stderr (not `Logger`); `pymobiledevice3` is broken on iOS 26
   (hardcoded RSD port + RSD v24 incompatibility); libimobiledevice is dead since
   iOS 17. The supported path is the file sink: `CameraKitLog.enableFileLogging()`
-  (called from `eva_swift_stitchApp.init()`) writes to `<Documents>/camerakit.log`;
+  (called from `ios_example_appApp.init()`) writes to `<Documents>/camerakit.log`;
   `scripts/device-log-live.sh` polls the device every 4s via `xcrun devicectl device
   copy from` and mirrors to `${TMPDIR}/camerakit-live.log`. Whenever the user asks for
   device logs (any phrasing — "get logs", "tail logs", "what does the device say",
   "log X on device"), invoke the `ipad-logs` skill — never reach for `log collect`,
   `pymobiledevice3`, `idevicesyslog`, or `start_device_log_cap`. Logger calls must
   use `.notice` (or higher) and `privacy: .public` on interpolations to be visible.
-  The script auto-detects the connected paired iPad (first reachable one wins, so
-  it works with either project iPad — no UDID to edit).
+  The script's hardcoded devicectl UDID points to Shreeyak's iPad — when running on
+  the second iPad (iPad A16), update the script's `IPAD_UDID` constant to that
+  device's *devicectl* UDID first.
   The log file is **append-only across launches** (`seekToEndOfFile()` on open);
   every launch emits one `=== CameraKit session started <ISO date> ===` marker.
   When debugging "what just happened", slice to the latest session first:
@@ -518,14 +614,11 @@ underlying issue and ask again — do not `--amend` around it.
 
 **In-repo (always resolvable):**
 
-- `CameraKit/CONTRACTS.md` — current API surface; every subagent's first read.
-  Auto-regenerated; do not edit.
+- `CameraKit/CONTRACTS.md` — current API surface + active scaffolds; every
+  subagent's first read. Auto-regenerated; do not edit.
 - `CameraKit/DECISIONS.md` — append-only stigmergy log for subagent decisions.
 - `CameraKit/state.md` — per-stage history, what's built permanently,
   deferred HITL evidence.
-- `docs/tooling.md` — the tool decision tree and per-script "what / when / why"
-  (deeper than the `scripts/CLAUDE.md` quick index). Read when choosing a tool
-  or unsure which script does what.
 
 **Upstream (symlinked, read-only):**
 
@@ -535,99 +628,60 @@ underlying issue and ask again — do not `--amend` around it.
   (scaffold / TESTABLE / FLAGGED / HITL / DEFERRED).
 - `implementation/architecture/README.md` — concern-file map + cross-file matrix.
 - `implementation/ios-platform-guide/README.md` — `ADR-##` / `G-##` registry.
-- `implementation/briefs/stage-NN.md` — the per-stage build specs (historical
-  reference; all stages complete).
+- `implementation/briefs/stage-NN.md` — spec for the current stage.
 
-## 10. Flutter plugin consumption — `camerakit-only` synthetic branch
+## 10. Flutter plugin layout — `cambrian_ios_camera` under `flutter/`
 
-CameraKit is consumed by two external clients (per Phase-2 + Phase-3 of the
-Flutter migration; see
-`docs/superpowers/specs/2026-05-14-camerakit-flutter-migration-design.md`):
+This repo ships a Flutter plugin in addition to the Swift package. The plugin
+lives at `flutter/` and follows standard Flutter plugin conventions:
 
-1. **The native dev harness** in `eva-swift-stitch/` (this repo) — consumes
-   CameraKit as a local SPM package dep, unchanged from today.
-2. **The Flutter plugin** at
-   `/Users/shrek/work/cambrian/camera2_flutter_demo/packages/cambrian_camera/`
-   — embeds CameraKit's source under `ios/CameraKit/` via `git subtree`, and
-   references it as a local SPM dep from the plugin's
-   `ios/cambrian_camera/Package.swift` (Phase 3).
-
-The cam2fd subtree pulls from a **synthetic branch** in this repo called
-`camerakit-only`. That branch has `CameraKit/`'s contents promoted to the
-root (so `Package.swift` is at `/Package.swift`, not `/CameraKit/Package.swift`)
-and history filtered to only commits touching `CameraKit/`. cam2fd's
-`ios/CameraKit/` therefore contains the package content only — no `App/`,
-no `scripts/`, no broken `implementation/` symlinks.
-
-### How it stays in sync
-
-The lefthook **pre-push** script
-(`lefthook.toml` → `.lefthook/pre-push/sync-camerakit-only.sh`) keeps the
-synthetic branch current. It's a lefthook *script* (not a command) so it runs on
-**every** push from `main` — lefthook commands skip with "no matching push files"
-on a no-op/non-CameraKit push, scripts don't. A cheap O(1) guard (the
-`HEAD:CameraKit` tree object vs the last-synced tree recorded in
-`.git/camerakit-only-synced.tree`) makes it exit in milliseconds unless
-`CameraKit/` actually changed; only then does it run `git subtree split
---prefix=CameraKit` (~40s on this history) and force-push the resulting SHA to
-`refs/heads/camerakit-only` (idempotent — a no-op vs `origin` is detected too).
-It is git-state-driven (no dependence on hook-manager plumbing). Enable once per
-clone (§6.0):
-
-```bash
-lefthook install
+```
+flutter/
+├── pubspec.yaml
+├── lib/                                  (Dart-facing API + Pigeon-generated bindings)
+├── pigeons/                              (Pigeon DSL inputs)
+├── ios/cambrian_ios_camera/Package.swift (depends on root via .package(path: "../../.."))
+├── android/                              (no-op stub, throws PlatformException)
+├── test/                                 (Dart unit tests)
+└── example/                              (standard Flutter plugin example app)
 ```
 
-Skip on a one-off push with `git push --no-verify`.
+**Status:** Phase B populated `flutter/` (v1.0.0 — singleton `CameraEngine` over
+Pigeon HostApi + five EventChannel streams, native UIScene lifecycle, zero-copy
+`FlutterTexture` preview, Android no-op stub, example app). Spec and plan:
+`docs/superpowers/specs/2026-05-22-flutter-plugin-phase-b-design.md` and
+`docs/superpowers/plans/2026-05-22-flutter-plugin-phase-b.md`; the superseded
+Phase 3 plans live in `docs/superpowers/plans/archive/`. See `CameraKit/state.md`
+for the full Phase B entry.
 
-### One-time bootstrap
+**Downstream Flutter consumption:**
 
-If `camerakit-only` doesn't exist on `origin` yet (this is true at first
-adoption), bootstrap it manually before the hook can maintain it:
-
-```bash
-git subtree split --prefix=CameraKit -b camerakit-only
-git push origin camerakit-only
+```yaml
+dependencies:
+  cambrian_ios_camera:
+    git:
+      url: https://github.com/Shreeyak/cambrian-ios-camera.git
+      path: flutter        # plugin is at flutter/, not the repo root
+      ref: v1.0.0          # pin to a tag
 ```
 
-After this, the hook handles updates automatically.
+**Legacy `camerakit-only` synthetic branch:** This repo previously maintained
+a synthetic `camerakit-only` branch on origin (regenerated by a `.githooks/pre-push`
+hook via `git subtree split --prefix=CameraKit`) for an earlier cam2fd-subtree
+consumption model. The hook was deleted in the 2026-05-20 restructure because
+moving `Package.swift` to the repo root invalidates that workflow. The branch
+on origin is frozen at its last valid pre-restructure SHA as a safety snapshot
+and can be deleted at PR-merge time.
 
-### Version pinning via tags
+See `README.md` for the full consumer-facing version.
 
-cam2fd's Package.swift can pin CameraKit by branch (latest tracking) or
-tag (stable). Branch tracking — `branch: "camerakit-only"` — always gets
-the current synthetic branch tip. Tag pinning is more stable and is
-recommended for cam2fd's releases.
-
-Tag this repo's `main` at milestone points (e.g., `v1.0.0`, `v1.1.0`).
-The pre-push hook regenerates the synthetic branch but does not propagate
-tags — tag the synthetic branch explicitly when cutting a release for
-cam2fd:
-
-```bash
-# After tagging main at a milestone:
-git tag -a v1.0.0 -m "..."                         # tag on main
-git push origin v1.0.0
-# Propagate to the synthetic branch so cam2fd can pin by tag:
-git tag -a camerakit-v1.0.0 camerakit-only -m "..."
-git push origin camerakit-v1.0.0
-```
-
-### cam2fd-side workflow (reference — actual commands run in that repo)
-
-After this repo's synthetic branch exists on `origin`:
-
-```bash
-# Initial setup (one time, in cam2fd):
-git subtree add --prefix=packages/cambrian_camera/ios/CameraKit \
-   https://github.com/Shreeyak/cambrian-ios-camera.git camerakit-only --squash
-
-# Pull updates later:
-git subtree pull --prefix=packages/cambrian_camera/ios/CameraKit \
-   https://github.com/Shreeyak/cambrian-ios-camera.git camerakit-only --squash
-```
-
-The synthesized content under `ios/CameraKit/` looks like normal files to
-anyone working in cam2fd or to downstream consumers (Eva) who copy-paste
-`cambrian_camera`. Phase 3's iOS plugin Package.swift references the
-subtreed content as `.package(path: "../CameraKit")`.
+**Flutter integration test constraints:**
+- `flutter test integration_test` requires **USB** connectivity to the iPad — wireless
+  tethering fails with "Cannot start app on wirelessly tethered iOS device". The error
+  message suggests `--publish-port` but that flag does not exist in Flutter 3.41.6 stable.
+  Connect via USB cable before running `flutter/example/scripts/test-integration.sh`
+  or gate check [3/7].
+- VM service "Connection refused" on the first run is transient (timing). Retry once
+  before investigating.
+- `xcodebuild test` (Swift adapter tests) works fine wirelessly; only `flutter test
+  integration_test` requires USB.

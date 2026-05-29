@@ -194,8 +194,8 @@ Per run, record:
 - **Visual review.** Tearing observed? (yes / no / suspected — provide
   timestamp). Cadence visually jerky? (yes / no / borderline).
 
-All numbers go into one row of `measurements/texture-bridge/<date>/results.csv`
-and are commented in plain text in `measurements/texture-bridge/<date>/notes.md`.
+All numbers go into one row of `docs/measurements/texture-bridge/<date>/results.csv`
+and are commented in plain text in `docs/measurements/texture-bridge/<date>/notes.md`.
 
 ---
 
@@ -352,7 +352,7 @@ experiments/texture-bridge-spike/
 It is **not** added to the Xcode project, **not** linked into the app
 target, **not** depended-on by `CameraKit`. It is a `.gitignore`-level
 sibling — once results are recorded under
-`measurements/texture-bridge/<date>/`, the spike directory is removed in
+`docs/measurements/texture-bridge/<date>/`, the spike directory is removed in
 the same commit that records the Phase-3 decision. Tear-down is part of
 the experiment; the directory does not become a permanent fixture.
 
@@ -375,8 +375,8 @@ production signing in fastlane.
   iPad is connected; the device's `xctrace` UDID is passed to `flutter run
   -d <udid>`. If escalation step (a) — second iPad — is invoked, both
   results.csv files are kept side-by-side under
-  `measurements/texture-bridge/<date>/{ipad-pro-11/,ipad-a16/}`.
-- **Output location.** `measurements/texture-bridge/<date>/`:
+  `docs/measurements/texture-bridge/<date>/{ipad-pro-11/,ipad-a16/}`.
+- **Output location.** `docs/measurements/texture-bridge/<date>/`:
   - `results.csv` — one row per run, columns per "Empirical signals" above.
   - `notes.md` — the human-eye observations + the Phase-3 verdict
     (no-mitigation / mitigation-N / inconclusive).
@@ -385,7 +385,7 @@ production signing in fastlane.
 - **No PR until results are in.** This is a spec; the spike's deliverable
   is the measurements directory, not a code change to `CameraKit` or
   `eva-swift-stitch`. The Phase-3 plan that follows cites
-  `measurements/texture-bridge/<date>/notes.md` as input.
+  `docs/measurements/texture-bridge/<date>/notes.md` as input.
 
 ## File inventory
 
@@ -396,10 +396,10 @@ production signing in fastlane.
 
 **New (permanent):**
 
-- `measurements/texture-bridge/<date>/results.csv`
-- `measurements/texture-bridge/<date>/notes.md`
-- `measurements/texture-bridge/<date>/recordings/run-{1,2,3}.mov`
-- `measurements/texture-bridge/<date>/histograms/run-{1,2,3}.png`
+- `docs/measurements/texture-bridge/<date>/results.csv`
+- `docs/measurements/texture-bridge/<date>/notes.md`
+- `docs/measurements/texture-bridge/<date>/recordings/run-{1,2,3}.mov`
+- `docs/measurements/texture-bridge/<date>/histograms/run-{1,2,3}.png`
 
 **Not changed:**
 
@@ -447,7 +447,7 @@ production signing in fastlane.
    use the stressor and treat any "fails under stressor, passes under
    placeholder" as a flag for mitigation.
 4. **Tear-down timing.** The spike directory is removed once
-   `measurements/texture-bridge/<date>/notes.md` records the verdict. But
+   `docs/measurements/texture-bridge/<date>/notes.md` records the verdict. But
    if the verdict is "inconclusive after 1 day" and escalation is needed,
    the spike should persist through escalation. Resolution: tear-down only
    happens on a "no-mitigation needed" or "mitigation X needed" outcome;

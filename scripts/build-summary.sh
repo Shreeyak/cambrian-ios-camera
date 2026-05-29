@@ -10,7 +10,7 @@
 # Read either at any time — this script never loses output to a pipe.
 set -uo pipefail
 
-SCHEME="eva-swift-stitch"
+SCHEME="ios_example_app"
 DESTINATION=""
 VERBOSE=0
 
@@ -27,13 +27,20 @@ if [[ -z "$DESTINATION" ]]; then
   # Hard rule: NEVER use iOS simulators on this machine (memory constraint).
   # Prefer physical iPad; fall back to Mac "Designed for iPad" (native, not a sim).
   # If neither is available, ERROR — never silently fall through to a simulator.
-  DESTS=$(xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
-  DEVICE_UUID=$(echo "$DESTS" \
-    | grep -E '\{ *platform:iOS, ' \
-    | grep -v placeholder \
-    | head -1 \
-    | sed -E 's/.*id:([A-Fa-f0-9-]+).*/\1/')
-  if [[ -n "$DEVICE_UUID" ]]; then
+  DESTS=$(xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -showdestinations 2>&1)
+  # Readiness gate: pick the canonical iPad (first listed) and check THAT
+  # device — never switch to a different iPad. A locked / preparation-errored
+  # iPad shows up in -showdestinations with an `error:` annotation (e.g. "may
+  # need to be unlocked"); catch it now and fail fast instead of blocking.
+  DEVICE_LINE=$(echo "$DESTS" | grep -E '\{ *platform:iOS, ' | grep -v placeholder | head -1)
+  if [[ -n "$DEVICE_LINE" ]]; then
+    if echo "$DEVICE_LINE" | grep -q 'error:'; then
+      ERRTXT=$(echo "$DEVICE_LINE" | sed -E 's/.*error:[[:space:]]*([^}]*)\}?.*/\1/')
+      echo "✖ iPad not ready: ${ERRTXT}" >&2
+      echo "  → unlock the iPad (replug if needed), then retry. (Set Auto-Lock=Never on the test iPad to avoid mid-run locks.)" >&2
+      exit 1
+    fi
+    DEVICE_UUID=$(echo "$DEVICE_LINE" | sed -E 's/.*id:([A-Fa-f0-9-]+).*/\1/')
     DESTINATION="platform=iOS,id=$DEVICE_UUID"
     echo "DEST: physical iPad $DEVICE_UUID"
   elif echo "$DESTS" | grep -qE 'platform:macOS.*variant:Designed for (iPad|\[iPad'; then
@@ -54,9 +61,19 @@ JSON=".build-logs/${TS}-build-${SCHEME}.json"
 echo "LOG: $LOG"
 echo "JSON: $JSON"
 
-xcodebuild -project eva-swift-stitch.xcodeproj -scheme "$SCHEME" -destination "$DESTINATION" build 2>&1 \
+# -allowProvisioningUpdates: free Apple Developer profile (CLAUDE.md §5) expires
+# ~weekly; the CLI won't regenerate it without this flag (Xcode's GUI does).
+# -destination-timeout 15: bound the wait for the device. A healthy connected
+# iPad resolves in ~1-3s, so 15s is several× margin yet fails fast on a locked/
+# disconnected device — vs the long default. (Readiness gate above already
+# catches an already-locked iPad in seconds.)
+xcodebuild -project ios_example_app/ios_example_app.xcodeproj -scheme "$SCHEME" -destination "$DESTINATION" -destination-timeout 15 -allowProvisioningUpdates build 2>&1 \
   | tee "$LOG" \
-  | xcsift --format json > "$JSON" || true
+  | xcsift --format json > "$JSON"
+# No `|| true`: it runs as a separate command and resets PIPESTATUS to 0,
+# masking a failing xcodebuild as success. `set -uo pipefail` (no -e) lets the
+# script continue past the failing pipeline while PIPESTATUS[0] keeps xcodebuild's
+# real exit code.
 XC_STATUS=${PIPESTATUS[0]}
 STATUS=$([[ "$XC_STATUS" -eq 0 ]] && echo success || echo fail)
 

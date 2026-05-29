@@ -1424,10 +1424,10 @@ git commit -m "feat(stage-03): expanded bottom bar (ISO / Shutter / Focus / Zoom
 
 ---
 
-### Task 12: HITL evidence — `measurements/stage-03/controls.md`
+### Task 12: HITL evidence — `docs/measurements/stage-03/controls.md`
 
 **Files:**
-- Create: `measurements/stage-03/controls.md`
+- Create: `docs/measurements/stage-03/controls.md`
 
 Brief §8 HITL: `03:iso-slider-updates-exposure-live`, `03:restart-restores-settings`. Brief §11: "device smoke on iPad Pro M1: exercise each slider, confirm Rule 1/2/3 coupling visually, force-quit and relaunch to verify persistence, rotate device (still landscape-right-only)."
 
@@ -1455,7 +1455,7 @@ Expected: non-nil `Data` blob.
 
 - [ ] **Step 3: Write the evidence file**
 
-Create `measurements/stage-03/controls.md`:
+Create `docs/measurements/stage-03/controls.md`:
 
 ```markdown
 # Stage 03 HITL evidence
@@ -1487,7 +1487,7 @@ If the executor cannot run this device smoke in-session (e.g. no device attached
 - [ ] **Step 4: Commit**
 
 ```bash
-git add measurements/stage-03/controls.md
+git add docs/measurements/stage-03/controls.md
 git commit -m "docs(stage-03): HITL evidence — ISO-live + restart-restores"
 ```
 
@@ -1562,8 +1562,8 @@ public let SessionCapabilities.exposureDurationRangeNs: ClosedRange<Int64> // ne
 | `03:kvo-asyncstream-adapter-emits-on-change` | PASS | Stage03Tests/kvoAsyncStreamAdapterEmitsOnChange — FakeKVODevice mutation, emission count = 1 per KVO change. |
 | `03:focus-distance-identity` | PASS | Stage03Tests/focusDistanceIdentity — `Float(0.5)` → `lensPosition` identity. |
 | `03:settings-conflict-throws` | PASS | Stage03Tests/settingsConflictThrows — throws `EngineError.notOpen` via the nil-session guard (range-validation path is exercised in HITL only, not unit-tested at Stage 03). |
-| `03:iso-slider-updates-exposure-live` | <PASS/DEFERRED> | `measurements/stage-03/controls.md`. |
-| `03:restart-restores-settings` | <PASS/DEFERRED> | `measurements/stage-03/controls.md`. |
+| `03:iso-slider-updates-exposure-live` | <PASS/DEFERRED> | `docs/measurements/stage-03/controls.md`. |
+| `03:restart-restores-settings` | <PASS/DEFERRED> | `docs/measurements/stage-03/controls.md`. |
 
 ## Decisions taken that weren't in briefs
 
@@ -1579,7 +1579,7 @@ public let SessionCapabilities.exposureDurationRangeNs: ClosedRange<Int64> // ne
 
 1. **`isAdjustingFocus` wiring** — Stage 04 (or wherever `DeviceStateSnapshot` grows an `isAdjustingFocus` field) must update the KVO adapter to observe `\.isAdjustingFocus` and flow it into both the snapshot and the `frameResultStream` focus-distance-nil semantic.
 2. **`setResolution` budget enforcement** — `Constants.resolutionResizeTimeoutSeconds = 5.0` is declared but the full budget isn't enforced end-to-end; the session-only path inherits `runOnQueue`'s 2 s per-hop budget. Full 5 s envelope with pre-resize state restore on timeout arrives with Stage 06 trio.
-3. **HITL measurements directory may not exist** — `measurements/stage-01/`, `stage-02/`, `stage-03/` entries still deferred (brief per-stage §12 names them explicitly; evidence gathering is a per-device task).
+3. **HITL measurements directory may not exist** — `docs/measurements/stage-01/`, `stage-02/`, `stage-03/` entries still deferred (brief per-stage §12 names them explicitly; evidence gathering is a per-device task).
 ```
 
 - [ ] **Step 2: Regenerate `CONTRACTS.md`**

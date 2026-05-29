@@ -81,7 +81,7 @@ A long tail of `DEFERRED` device-evidence rows. These are measurement
 artifacts to capture on-device, not code changes. **Caveat:** these are
 historical stage entries; some may have been satisfied in later stages
 without the line being struck through. Re-verify each against
-`measurements/stage-NN/` before acting.
+`docs/measurements/stage-NN/` before acting.
 
 - `07:tiff-opens-in-preview-and-photos`, `07:saved-banner-appears-three-seconds`,
   `07:authorization-dialog-first-capture` (`state.md:1351-1353`).
@@ -95,7 +95,7 @@ without the line being struck through. Re-verify each against
   `10:empirical-format-fps-range-fallback` (`state.md:1149-1151`).
 - Stage-06 crop visual end-to-end verification and Instruments pool
   high-water-mark evidence (`state.md:1526`, `:1528`).
-- Stage-11 `measurements/stage-11/` — three slugs deferred (`state.md:1103`).
+- Stage-11 `docs/measurements/stage-11/` — three slugs deferred (`state.md:1103`).
 - `04:rapid-slider-stress` device Instruments run — optional HITL
   (`state.md:1485`).
 

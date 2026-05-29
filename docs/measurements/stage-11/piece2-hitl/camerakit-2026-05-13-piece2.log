@@ -1,0 +1,462 @@
+=== camerakit log mirror started Wed May 13 14:27:22 IST 2026 ===
+=== polling device DAD37FD5-685B-50E0-911E-F9BC40BBDBE5 every 4s ===
+14:27:41.215 === CameraKit session started 2026-05-13 08:57:41 +0000 ===
+14:27:41.297 [scenePhase] scenePhase: active → inactive
+14:27:41.297 [engine] open: requesting camera permission
+14:27:41.310 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:27:41.435 [scenePhase] scenePhase: inactive → active
+14:27:41.437 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:27:42.131 [scenePhase] scenePhase: active → inactive
+14:27:42.133 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:27:44.861 [engine] open: photos auth status=3
+14:27:44.976 [engine] open: pipeline ready — 4032×3024 pool=0x105f12700
+14:27:44.977 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:27:45.320 [scenePhase] scenePhase: inactive → active
+14:27:45.322 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:27:45.362 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:27:45.362 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:27:45.389 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:28:05.165 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:28:05.166 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:28:05.169 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:28:24.648 [consumers] yield: frame=600 stream=0 surface=true cppConsumers=0
+14:28:24.649 [consumers] yield: frame=600 stream=1 surface=true cppConsumers=0
+14:28:24.657 [consumers] yield: frame=600 stream=2 surface=true cppConsumers=1
+14:28:34.538 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:28:34.538 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:28:38.321 [engine] [recording] toggle invoked, state=recording
+14:28:38.321 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:28:38.322 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:28:38.361 [engine] [recording] Recording.stop group done: durationMs=39 writerStatus=2 didCancel=false
+14:28:38.362 [engine] [recording] stopRecording exit: durationMs=41
+14:28:41.138 [consumers] yield: frame=900 stream=0 surface=true cppConsumers=0
+14:28:41.139 [consumers] yield: frame=900 stream=1 surface=true cppConsumers=0
+14:28:41.141 [consumers] yield: frame=900 stream=2 surface=true cppConsumers=1
+14:28:51.140 [consumers] yield: frame=1200 stream=0 surface=true cppConsumers=0
+14:28:51.141 [consumers] yield: frame=1200 stream=1 surface=true cppConsumers=0
+14:28:51.148 [consumers] yield: frame=1200 stream=2 surface=true cppConsumers=1
+14:28:58.548 [scenePhase] scenePhase: active → inactive
+14:28:58.550 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:28:59.877 [scenePhase] scenePhase: inactive → background
+14:28:59.877 [engine] [bgsuspend] enter gate=false stopRunning
+14:29:00.131 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:29:00.131 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:29:00.132 [engine] [bgsuspend] stopRunning returned
+14:29:00.147 [scenePhase] scenePhase background: backgroundSuspend complete
+14:31:53.722 === CameraKit session started 2026-05-13 09:01:53 +0000 ===
+14:31:53.837 [scenePhase] scenePhase: active → inactive
+14:31:53.837 [engine] open: requesting camera permission
+14:31:53.846 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:31:53.854 [engine] open: photos auth status=3
+14:31:53.899 [engine] open: pipeline ready — 4032×3024 pool=0x10a07df00
+14:31:53.899 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:31:54.296 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:31:54.297 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:31:54.300 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:31:54.616 [scenePhase] scenePhase: inactive → active
+14:31:54.618 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:32:09.455 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:32:09.456 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:32:12.878 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:32:12.879 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:32:12.887 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:32:13.991 [engine] [recording] toggle invoked, state=recording
+14:32:13.991 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:32:13.992 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:32:14.060 [engine] [recording] Recording.stop group done: durationMs=69 writerStatus=2 didCancel=false
+14:32:14.624 [engine] [recording] published-to-photos uri=file:///var/mobile/Containers/Data/Application/7A312985-1C36-4E55-903B-AC5D7C43C976/Documents/2026-05-13T09-02-09Z.mp4 destination=copy
+14:32:14.624 [engine] [recording] stopRecording exit: durationMs=634
+14:32:15.662 [scenePhase] scenePhase: active → inactive
+14:32:15.664 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:32:16.769 [scenePhase] scenePhase: inactive → background
+14:32:16.770 [engine] [bgsuspend] enter gate=false stopRunning
+14:32:17.209 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:32:17.210 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:32:17.211 [engine] [bgsuspend] stopRunning returned
+14:32:17.223 [scenePhase] scenePhase background: backgroundSuspend complete
+14:33:40.804 === CameraKit session started 2026-05-13 09:03:40 +0000 ===
+14:33:41.817 [scenePhase] scenePhase: active → inactive
+14:33:41.817 [engine] open: requesting camera permission
+14:33:41.825 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:33:41.829 [engine] open: photos auth status=3
+14:33:41.871 [engine] open: pipeline ready — 4032×3024 pool=0x11e0e7100
+14:33:41.874 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:33:42.283 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:33:42.283 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:33:42.287 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:33:44.805 [scenePhase] scenePhase: inactive → active
+14:33:44.806 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:33:44.977 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:33:44.978 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:33:45.309 [engine] [recording] toggle invoked, state=recording
+14:33:45.310 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:33:45.310 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:33:45.412 [engine] [recording] Recording.stop group done: durationMs=101 writerStatus=2 didCancel=false
+14:33:45.819 [engine] [recording] published-to-photos uri=file:///var/mobile/Containers/Data/Application/D95A8E20-9975-429C-904A-97B56FC56B75/Documents/2026-05-13T09-03-44Z.mp4 destination=move
+14:33:45.820 [engine] [recording] stopRecording exit: durationMs=510
+14:33:46.210 [engine] [recording] toggle invoked, state=idle(lastUri: Optional("file:///var/mobile/Containers/Data/Application/D95A8E20-9975-429C-904A-97B56FC56B75/Documents/2026-05-13T09-03-44Z.mp4"))
+14:33:46.211 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:33:46.543 [engine] [recording] toggle invoked, state=recording
+14:33:46.544 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:33:46.545 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:33:46.613 [engine] [recording] Recording.stop group done: durationMs=69 writerStatus=2 didCancel=false
+14:33:46.899 [engine] [recording] toggle invoked, state=idle(lastUri: Optional("file:///var/mobile/Containers/Data/Application/D95A8E20-9975-429C-904A-97B56FC56B75/Documents/2026-05-13T09-03-46Z.mp4"))
+14:33:46.899 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:33:47.009 [engine] [recording] published-to-photos uri=file:///var/mobile/Containers/Data/Application/D95A8E20-9975-429C-904A-97B56FC56B75/Documents/2026-05-13T09-03-46Z.mp4 destination=move
+14:33:47.009 [engine] [recording] stopRecording exit: durationMs=464
+14:33:47.191 [engine] [recording] toggle invoked, state=recording
+14:33:47.192 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:33:47.192 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:33:47.247 [engine] [recording] Recording.stop group done: durationMs=55 writerStatus=2 didCancel=false
+14:33:47.603 [engine] [recording] published-to-photos uri=file:///var/mobile/Containers/Data/Application/D95A8E20-9975-429C-904A-97B56FC56B75/Documents/2026-05-13T09-03-46Z.mp4 destination=move
+14:33:47.603 [engine] [recording] stopRecording exit: durationMs=412
+14:33:49.888 [scenePhase] scenePhase: active → inactive
+14:33:49.890 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:33:50.850 [scenePhase] scenePhase: inactive → background
+14:33:50.850 [engine] [bgsuspend] enter gate=false stopRunning
+14:33:51.240 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:33:51.241 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:33:51.241 [engine] [bgsuspend] stopRunning returned
+14:33:51.255 [scenePhase] scenePhase background: backgroundSuspend complete
+14:34:18.408 [engine] [watchdog] capture: stall thresholdMs=5000 token=0
+14:34:18.408 [engine] [watchdog] gpu: stall thresholdMs=3000 token=0
+14:34:18.409 [engine] [recovery] enter attempt=1/5 error=capture: no frame in 5000ms
+14:34:18.428 [scenePhase] scenePhase: background → inactive
+14:34:18.457 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:34:18.694 [scenePhase] scenePhase: inactive → active
+14:34:18.695 [engine] [bgresume] enter gate=true sessionRunning=false
+14:34:18.695 [engine] [bgresume] gate opened
+14:34:18.919 [engine] close: tearing down pipeline
+14:34:19.096 [engine] [capture] first-frame after suspend
+14:34:19.231 [engine] [bgresume] startRunning returned sessionRunning=false
+14:34:19.231 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:34:19.264 [engine] open: requesting camera permission
+14:34:19.265 [engine] open: photos auth status=3
+14:34:19.272 [consumers] unregister: token=1 stream=2 lane=cpp
+14:34:19.272 [engine] open: pipeline ready — 4032×3024 pool=0x11e0e7100
+14:34:19.278 [consumers] registerCallback: stream=2 token=2 cppCount=1
+14:34:19.535 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:34:19.535 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:34:19.539 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:34:20.585 [engine] [recording] toggle invoked, state=idle(lastUri: Optional("file:///var/mobile/Containers/Data/Application/D95A8E20-9975-429C-904A-97B56FC56B75/Documents/2026-05-13T09-03-46Z.mp4"))
+14:34:20.586 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:34:25.466 [engine] [recording] toggle invoked, state=recording
+14:34:25.467 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:34:25.467 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:34:25.534 [engine] [recording] Recording.stop group done: durationMs=67 writerStatus=2 didCancel=false
+14:34:25.948 [engine] [recording] published-to-photos uri=file:///var/mobile/Containers/Data/Application/D95A8E20-9975-429C-904A-97B56FC56B75/Documents/2026-05-13T09-04-20Z.mp4 destination=move
+14:34:25.948 [engine] [recording] stopRecording exit: durationMs=481
+14:34:26.428 [scenePhase] scenePhase: active → inactive
+14:34:26.431 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:34:27.444 [scenePhase] scenePhase: inactive → background
+14:34:27.444 [engine] [bgsuspend] enter gate=false stopRunning
+14:34:27.846 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:34:27.846 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:34:27.847 [engine] [bgsuspend] stopRunning returned
+14:34:27.859 [scenePhase] scenePhase background: backgroundSuspend complete
+14:35:23.400 === CameraKit session started 2026-05-13 09:05:23 +0000 ===
+14:35:23.476 [engine] open: requesting camera permission
+14:35:23.476 [scenePhase] scenePhase: active → inactive
+14:35:23.483 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:35:23.487 [engine] open: photos auth status=3
+14:35:23.525 [engine] open: pipeline ready — 4032×3024 pool=0x14c3bd300
+14:35:23.525 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:35:23.867 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:35:23.867 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:35:23.871 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:35:24.306 [scenePhase] scenePhase: inactive → active
+14:35:24.308 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:35:34.152 [scenePhase] scenePhase: active → inactive
+14:35:34.154 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:35:35.477 [scenePhase] scenePhase: inactive → background
+14:35:35.477 [engine] [bgsuspend] enter gate=false stopRunning
+14:35:35.808 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:35:35.809 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:35:35.810 [engine] [bgsuspend] stopRunning returned
+14:35:35.823 [scenePhase] scenePhase background: backgroundSuspend complete
+14:37:16.537 === CameraKit session started 2026-05-13 09:07:16 +0000 ===
+14:37:16.635 [engine] open: requesting camera permission
+14:37:16.635 [scenePhase] scenePhase: active → inactive
+14:37:16.643 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:37:16.650 [engine] open: photos auth status=2
+14:37:16.687 [engine] open: pipeline ready — 4032×3024 pool=0x10839d300
+14:37:16.687 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:37:17.057 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:37:17.057 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:37:17.062 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:37:17.595 [scenePhase] scenePhase: inactive → active
+14:37:17.597 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:37:23.254 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:37:23.255 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:37:27.071 [engine] [recording] toggle invoked, state=recording
+14:37:27.072 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:37:27.072 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:37:27.180 [engine] [recording] Recording.stop group done: durationMs=108 writerStatus=2 didCancel=false
+14:37:27.190 [engine] [recording] photos publish failed (destination=copy): Error Domain=PHPhotosErrorDomain Code=3311 "(null)"
+14:37:27.190 [engine] [recording] stopRecording exit: durationMs=118
+14:37:31.349 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:37:31.350 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:37:31.356 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:37:32.551 [scenePhase] scenePhase: active → inactive
+14:37:32.552 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:37:33.388 [scenePhase] scenePhase: inactive → background
+14:37:33.388 [engine] [bgsuspend] enter gate=false stopRunning
+14:37:33.793 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:37:33.795 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:37:33.796 [engine] [bgsuspend] stopRunning returned
+14:37:33.808 [scenePhase] scenePhase background: backgroundSuspend complete
+14:38:48.043 === CameraKit session started 2026-05-13 09:08:48 +0000 ===
+14:38:48.135 [scenePhase] scenePhase: active → inactive
+14:38:48.135 [engine] open: requesting camera permission
+14:38:48.143 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:38:48.151 [engine] open: photos auth status=2
+14:38:48.191 [engine] open: pipeline ready — 4032×3024 pool=0x10a8b6d00
+14:38:48.194 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:38:48.262 [scenePhase] scenePhase: inactive → active
+14:38:48.288 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:38:48.601 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:38:48.602 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:38:48.605 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:38:54.461 [scenePhase] scenePhase: active → inactive
+14:38:54.463 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:38:54.787 [scenePhase] scenePhase: inactive → active
+14:38:54.788 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:38:55.642 [scenePhase] scenePhase: active → inactive
+14:38:55.643 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:38:59.205 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:39:00.139 [scenePhase] scenePhase: inactive → background
+14:39:00.139 [engine] [bgsuspend] enter gate=false stopRunning
+14:39:00.401 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:39:00.401 [engine] [bgsuspend] stopRunning returned
+14:39:00.414 [scenePhase] scenePhase background: backgroundSuspend complete
+14:39:04.067 [engine] [watchdog] gpu: stall thresholdMs=3000 token=0
+14:39:04.067 [engine] [watchdog] capture: stall thresholdMs=5000 token=0
+14:39:04.068 [engine] [recovery] enter attempt=1/5 error=capture: no frame in 5000ms
+14:39:04.095 [scenePhase] scenePhase: background → inactive
+14:39:04.099 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:39:04.596 [engine] close: tearing down pipeline
+14:39:04.606 [scenePhase] scenePhase: inactive → active
+14:39:04.630 [engine] [bgresume] enter gate=true sessionRunning=false
+14:39:04.631 [engine] [bgresume] gate opened
+14:39:04.631 [engine] open: requesting camera permission
+14:39:04.631 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:39:04.632 [engine] open: photos auth status=2
+14:39:04.644 [engine] open: pipeline ready — 4032×3024 pool=0x10a8b6d00
+14:39:04.644 [consumers] unregister: token=1 stream=2 lane=cpp
+14:39:04.649 [consumers] registerCallback: stream=2 token=2 cppCount=1
+14:39:05.018 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:39:05.019 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:39:05.024 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:39:06.386 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:39:06.387 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:39:10.686 [engine] [recording] toggle invoked, state=recording
+14:39:10.687 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:39:10.688 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:39:10.778 [engine] [recording] Recording.stop group done: durationMs=89 writerStatus=2 didCancel=false
+14:39:10.788 [engine] [recording] photos publish failed (destination=move): Error Domain=PHPhotosErrorDomain Code=3311 "(null)"
+14:39:10.789 [engine] [recording] stopRecording exit: durationMs=101
+14:39:11.775 [scenePhase] scenePhase: active → inactive
+14:39:11.777 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:39:12.857 [scenePhase] scenePhase: inactive → background
+14:39:12.858 [engine] [bgsuspend] enter gate=false stopRunning
+14:39:13.292 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:39:13.293 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:39:13.293 [engine] [bgsuspend] stopRunning returned
+14:39:13.308 [scenePhase] scenePhase background: backgroundSuspend complete
+14:43:18.354 === CameraKit session started 2026-05-13 09:13:18 +0000 ===
+14:43:18.431 [engine] open: requesting camera permission
+14:43:18.431 [scenePhase] scenePhase: active → inactive
+14:43:18.438 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:43:18.446 [engine] open: photos auth status=2
+14:43:18.485 [engine] open: pipeline ready — 4032×3024 pool=0x13e054a00
+14:43:18.485 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:43:18.851 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:43:18.852 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:43:18.856 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:43:19.246 [scenePhase] scenePhase: inactive → active
+14:43:19.248 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:43:37.036 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:43:37.036 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:43:38.130 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:43:38.132 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:43:38.140 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:43:40.076 [engine] [recording] toggle invoked, state=recording
+14:43:40.077 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:43:40.077 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:43:40.149 [engine] [recording] Recording.stop group done: durationMs=72 writerStatus=2 didCancel=false
+14:43:40.166 [engine] [recording] photos publish failed (destination=move): PHPhotosErrorDomain code=3311 The operation couldn’t be completed. (PHPhotosErrorDomain error 3311.)
+14:43:40.167 [engine] [recording] stopRecording exit: durationMs=90
+14:43:40.875 [scenePhase] scenePhase: active → inactive
+14:43:40.877 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:43:42.196 [scenePhase] scenePhase: inactive → background
+14:43:42.197 [engine] [bgsuspend] enter gate=false stopRunning
+14:43:42.582 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:43:42.583 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:43:42.584 [engine] [bgsuspend] stopRunning returned
+14:43:42.598 [scenePhase] scenePhase background: backgroundSuspend complete
+14:45:09.807 === CameraKit session started 2026-05-13 09:15:09 +0000 ===
+14:45:09.888 [scenePhase] scenePhase: active → inactive
+14:45:09.888 [engine] open: requesting camera permission
+14:45:09.895 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:45:09.903 [engine] open: photos auth status=2
+14:45:09.941 [engine] open: pipeline ready — 4032×3024 pool=0x1423d8300
+14:45:09.941 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:45:10.019 [scenePhase] scenePhase: inactive → active
+14:45:10.032 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:45:10.333 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:45:10.334 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:45:10.337 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:45:30.159 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:45:30.160 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:45:30.167 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:45:48.241 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:45:48.243 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:45:49.577 [consumers] yield: frame=600 stream=0 surface=true cppConsumers=0
+14:45:49.578 [consumers] yield: frame=600 stream=1 surface=true cppConsumers=0
+14:45:49.589 [consumers] yield: frame=600 stream=2 surface=true cppConsumers=1
+14:45:50.829 [engine] [recording] toggle invoked, state=recording
+14:45:50.829 [engine] [recording] stopRecording entry: pipeline.isRecording=true
+14:45:50.830 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+14:45:50.928 [engine] [recording] Recording.stop group done: durationMs=98 writerStatus=2 didCancel=false
+14:45:50.931 [engine] [recording] stopRecording exit: durationMs=102
+14:45:51.538 [scenePhase] scenePhase: active → inactive
+14:45:51.542 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:45:52.334 [scenePhase] scenePhase: inactive → background
+14:45:52.334 [engine] [bgsuspend] enter gate=false stopRunning
+14:45:52.795 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:45:52.796 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:45:52.797 [engine] [bgsuspend] stopRunning returned
+14:45:52.808 [scenePhase] scenePhase background: backgroundSuspend complete
+14:47:19.982 === CameraKit session started 2026-05-13 09:17:19 +0000 ===
+14:47:20.061 [engine] open: requesting camera permission
+14:47:20.061 [scenePhase] scenePhase: active → inactive
+14:47:20.069 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:47:20.076 [engine] open: photos auth status=2
+14:47:20.116 [engine] open: pipeline ready — 4032×3024 pool=0x106051900
+14:47:20.117 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:47:20.214 [scenePhase] scenePhase: inactive → active
+14:47:20.215 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:47:20.470 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:47:20.471 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:47:20.475 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:47:36.566 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:47:36.567 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:true
+14:47:36.570 [engine] [recording] startRecording threw: invalidOutputPath(file:///tmp/eva-test.mp4)
+14:47:39.517 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:47:39.518 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:47:39.527 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:47:40.189 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:47:40.191 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:false
+14:47:40.193 [engine] [recording] startRecording threw: invalidOutputPath(file:///tmp/eva-test.mp4)
+14:47:41.199 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+14:47:41.200 [engine] [recording] startRecording entry: pipeline.isRecording=false recording==nil:false
+14:47:41.201 [engine] [recording] startRecording threw: invalidOutputPath(file:///tmp/eva-test.mp4)
+14:47:58.713 [consumers] yield: frame=600 stream=0 surface=true cppConsumers=0
+14:47:58.714 [consumers] yield: frame=600 stream=1 surface=true cppConsumers=0
+14:47:58.722 [consumers] yield: frame=600 stream=2 surface=true cppConsumers=1
+14:48:18.710 [consumers] yield: frame=900 stream=0 surface=true cppConsumers=0
+14:48:18.711 [consumers] yield: frame=900 stream=1 surface=true cppConsumers=0
+14:48:18.719 [consumers] yield: frame=900 stream=2 surface=true cppConsumers=1
+14:48:38.702 [consumers] yield: frame=1200 stream=0 surface=true cppConsumers=0
+14:48:38.704 [consumers] yield: frame=1200 stream=1 surface=true cppConsumers=0
+14:48:38.711 [consumers] yield: frame=1200 stream=2 surface=true cppConsumers=1
+14:48:44.187 === CameraKit session started 2026-05-13 09:18:44 +0000 ===
+14:48:44.263 [scenePhase] scenePhase: active → inactive
+14:48:44.263 [engine] open: requesting camera permission
+14:48:44.271 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:48:44.277 [engine] open: photos auth status=2
+14:48:44.314 [engine] open: pipeline ready — 4032×3024 pool=0x107a7fc00
+14:48:44.317 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:48:44.403 [scenePhase] scenePhase: inactive → active
+14:48:44.404 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:48:44.567 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:48:44.568 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:48:44.571 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:49:04.401 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:49:04.402 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:49:04.407 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:49:07.069 [scenePhase] scenePhase: active → inactive
+14:49:07.071 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:49:08.064 [scenePhase] scenePhase: inactive → background
+14:49:08.064 [engine] [bgsuspend] enter gate=false stopRunning
+14:49:08.471 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:49:08.472 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:49:08.472 [engine] [bgsuspend] stopRunning returned
+14:49:08.493 [scenePhase] scenePhase background: backgroundSuspend complete
+14:49:13.267 === CameraKit session started 2026-05-13 09:19:13 +0000 ===
+14:49:13.394 [scenePhase] scenePhase: active → inactive
+14:49:13.394 [engine] open: requesting camera permission
+14:49:13.402 [engine] open: photos auth status=3
+14:49:13.403 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:49:13.445 [engine] open: pipeline ready — 4032×3024 pool=0x118285200
+14:49:13.445 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:49:13.588 [scenePhase] scenePhase: inactive → active
+14:49:13.589 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:49:13.795 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:49:13.795 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:49:13.798 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:49:21.908 [engine] [still] capture start size=4032x3024
+14:49:22.134 [engine] [still] capture complete path=/var/mobile/Containers/Data/Application/E267FD6C-68F5-4DE1-902F-4DBC2F6C6ED2/Documents/2026-05-13T09-19-21Z.tif
+14:49:22.441 [engine] [still] published-to-photos path=/var/mobile/Containers/Data/Application/E267FD6C-68F5-4DE1-902F-4DBC2F6C6ED2/Documents/2026-05-13T09-19-21Z.tif destination=copy
+14:49:27.557 [scenePhase] scenePhase: active → inactive
+14:49:27.559 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:49:28.803 [scenePhase] scenePhase: inactive → background
+14:49:28.804 [engine] [bgsuspend] enter gate=false stopRunning
+14:49:29.059 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:49:29.060 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:49:29.061 [engine] [bgsuspend] stopRunning returned
+14:49:29.073 [scenePhase] scenePhase background: backgroundSuspend complete
+14:50:52.592 === CameraKit session started 2026-05-13 09:20:52 +0000 ===
+14:50:52.676 [engine] open: requesting camera permission
+14:50:52.676 [scenePhase] scenePhase: active → inactive
+14:50:52.684 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:50:52.689 [engine] open: photos auth status=3
+14:50:52.729 [engine] open: pipeline ready — 4032×3024 pool=0x109fd8400
+14:50:52.729 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:50:52.802 [scenePhase] scenePhase: inactive → active
+14:50:52.817 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:50:53.139 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:50:53.140 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:50:53.144 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:51:12.962 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+14:51:12.963 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+14:51:12.970 [consumers] yield: frame=300 stream=2 surface=true cppConsumers=1
+14:51:32.960 [consumers] yield: frame=600 stream=0 surface=true cppConsumers=0
+14:51:32.962 [consumers] yield: frame=600 stream=1 surface=true cppConsumers=0
+14:51:32.969 [consumers] yield: frame=600 stream=2 surface=true cppConsumers=1
+14:51:52.959 [consumers] yield: frame=900 stream=0 surface=true cppConsumers=0
+14:51:52.961 [consumers] yield: frame=900 stream=1 surface=true cppConsumers=0
+14:51:52.968 [consumers] yield: frame=900 stream=2 surface=true cppConsumers=1
+14:51:56.453 [engine] [still] capture start size=4032x3024
+14:51:56.654 [engine] [still] capture complete path=/var/mobile/Containers/Data/Application/A945A3BB-CFC8-4333-8544-FC98104B2627/Documents/2026-05-13T09-21-56Z.tif
+14:51:56.919 [engine] [still] published-to-photos path=/var/mobile/Containers/Data/Application/A945A3BB-CFC8-4333-8544-FC98104B2627/Documents/2026-05-13T09-21-56Z.tif destination=move
+14:51:58.417 [scenePhase] scenePhase: active → inactive
+14:51:58.419 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:51:59.263 [scenePhase] scenePhase: inactive → background
+14:51:59.263 [engine] [bgsuspend] enter gate=false stopRunning
+14:51:59.747 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:51:59.748 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:51:59.748 [engine] [bgsuspend] stopRunning returned
+14:51:59.762 [scenePhase] scenePhase background: backgroundSuspend complete
+14:52:30.511 === CameraKit session started 2026-05-13 09:22:30 +0000 ===
+14:52:30.589 [engine] open: requesting camera permission
+14:52:30.589 [scenePhase] scenePhase: active → inactive
+14:52:30.597 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:52:30.600 [engine] open: photos auth status=3
+14:52:30.640 [engine] open: pipeline ready — 4032×3024 pool=0x1063c9400
+14:52:30.641 [consumers] registerCallback: stream=2 token=1 cppCount=1
+14:52:30.979 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+14:52:30.979 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+14:52:30.981 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=1
+14:52:31.411 [scenePhase] scenePhase: inactive → active
+14:52:31.413 [scenePhase] scenePhase active: gate open (prevPhase=inactive)
+14:52:44.797 [engine] [still] capture start size=4032x3024
+14:52:44.996 [engine] [still] capture complete path=/var/mobile/Containers/Data/Application/46164921-E120-467A-BCC1-448D61147E06/Documents/2026-05-13T09-22-44Z.tif
+14:52:46.362 [scenePhase] scenePhase: active → inactive
+14:52:46.364 [scenePhase] scenePhase inactive: gate closed, drain complete
+14:52:47.221 [scenePhase] scenePhase: inactive → background
+14:52:47.222 [engine] [bgsuspend] enter gate=false stopRunning
+14:52:47.622 [engine] [interruption] ended=false rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+14:52:47.623 [engine] [interruption] ended=true rawReason=-1 keys=[]
+14:52:47.623 [engine] [bgsuspend] stopRunning returned
+14:52:47.636 [scenePhase] scenePhase background: backgroundSuspend complete

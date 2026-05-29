@@ -1,0 +1,41 @@
+{
+  "run_dir": "measurements/texture-bridge/2026-05-15/raw/run-2-producer30",
+  "n_seconds": 60,
+  "n_pulls": 1709,
+  "avg_produced_per_sec": 30.02,
+  "avg_signal_per_sec": 30.0,
+  "avg_pull_per_sec": 28.48,
+  "avg_widget_per_sec": 44.07,
+  "histogram": {
+    "same": 214,
+    "+1": 1189,
+    "skip_total": 305,
+    "skip_max_jump": 2,
+    "all_buckets": {
+      "+2": 305,
+      "+1": 1189,
+      "same": 214
+    }
+  },
+  "ratios": {
+    "produced:signal": 0.9994,
+    "signal:pull": 0.9494,
+    "pull:widget": 0.6464
+  },
+  "latency_ns": {
+    "p50": 14514333.0,
+    "p95": 31750258.199999996,
+    "p99": 33070428.000000004,
+    "max": 33480417
+  },
+  "latency_ms": {
+    "p50": 14.514,
+    "p95": 31.75,
+    "p99": 33.07,
+    "max": 33.48
+  },
+  "heuristic_notes": [
+    "skip rate 17.9% > 5% \u2014 staleness vector",
+    "signal:pull deficit 5.1% > 5% \u2014 Flutter dropped nudges"
+  ]
+}

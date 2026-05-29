@@ -1,0 +1,5 @@
+run,mode,description,n_pulls,produced_per_sec,signal_per_sec,pull_per_sec,widget_per_sec,same,plus1,skip_total,skip_max_jump,p50_ms,p95_ms,p99_ms,max_ms,produced_signal_ratio,signal_pull_ratio,pull_widget_ratio,heuristic
+1,producer30,baseline 30Hz no load,1799,30.02,30.0,29.98,0.82,0,1797,1,2,5.626,9.020,9.513,30.604,0.9994,0.9994,36.7143,clean
+2,producer30,loaded 30Hz + 5000-circle Ticker stressor,1709,30.02,30.0,28.48,44.07,214,1189,305,2,14.514,31.750,33.070,33.480,0.9994,0.9494,0.6464,"skip rate 17.9%; signal:pull deficit 5.1%"
+3,producer60,producer-stressed 60Hz no load,3600,60.02,60.0,60.0,0.77,0,3599,0,1,5.275,9.001,9.273,9.748,0.9997,1.0000,78.2609,clean
+4,producer15,producer-stressed 15Hz no load,900,15.02,15.0,15.0,0.80,0,899,0,1,5.711,8.991,9.402,9.503,0.9989,1.0000,18.7500,clean
