@@ -1,0 +1,32 @@
+name: cambrian_ios_camera
+description: Flutter plugin wrapping CameraKit for iOS-only camera access.
+version: 1.0.0
+homepage: https://github.com/Shreeyak/cambrian-ios-camera
+repository: https://github.com/Shreeyak/cambrian-ios-camera
+issue_tracker: https://github.com/Shreeyak/cambrian-ios-camera/issues
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  pigeon: ^22.6.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.13
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: CambrianIosCameraPlugin
+        sharedDarwinSource: false
+      android:
+        package: com.cambrian.cambrian_ios_camera
+        pluginClass: CambrianIosCameraPlugin
