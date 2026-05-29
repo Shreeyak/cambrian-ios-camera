@@ -133,8 +133,9 @@ void main() {
     final mp4Uri = await e.stopRecording();
     expect(mp4Uri, isNotEmpty);
 
-    // mp4Uri is a file:// URL; convert to filesystem path.
-    final path = Uri.parse(mp4Uri).toFilePath();
+    // stopRecording() returns a bare POSIX filesystem path (CameraKit's
+    // bare-path contract) — use it directly, no file:// URL parsing.
+    final path = mp4Uri;
     expect(File(path).existsSync(), isTrue);
     expect(File(path).lengthSync(), greaterThan(10000),
         reason: 'mp4 should have substantial bytes for a 2s recording');

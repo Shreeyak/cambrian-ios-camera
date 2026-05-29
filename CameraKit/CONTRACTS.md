@@ -6,12 +6,6 @@
 > here on purpose — it must be byte-deterministic so the pre-commit gate only
 > fires on real API-shape changes; git history records when it changed.)
 
-## Active scaffolds
-
-| Slug | File:line |
-|------|-----------|
-| _(no active scaffolds)_ | — |
-
 ## Compressed source snapshot
 
 # Files
@@ -131,7 +125,47 @@ private var osOwnsDevice: Bool {
 ⋮----
 private func shouldDeferCommandLabel(target: SessionState) -> Bool {
 ⋮----
-private func backgroundReconcileParkForTest() async {
+private func parkBackgroundReconcileIfArmed() async {
+```
+
+## File: CameraKit/Sources/CameraKit/CameraEngine+TestSupport.swift
+```swift
+func _emitErrorForTest(_ err: CameraError) {
+⋮----
+func _markOpenForTest() {
+⋮----
+var _currentStateForTest: SessionState { stateMachine.current }
+⋮----
+var _currentPhaseForTest: AppLifecyclePhase { currentPhase }
+⋮----
+func _setStateForTest(_ state: SessionState) { stateMachine._setCurrentForTest(state) }
+⋮----
+var _isSessionRunningForTest: Bool { reconciledSessionRunning }
+⋮----
+func _installLifecycleTestHookForTest() {
+⋮----
+func _setPermissionStatusForTest(_ status: CameraPermissionStatus) {
+⋮----
+var _backgroundActionsForTest: [String] { lifecycleTestHook?.actions ?? [] }
+⋮----
+func _armBackgroundReconcileParkForTest() {
+⋮----
+var _isBackgroundReconcileParkedForTest: Bool { lifecycleTestHook?.parked ?? false }
+⋮----
+func _releaseBackgroundReconcileParkForTest() {
+⋮----
+func _setAssetWriterFactoryForTest(_ f: @escaping AssetWriterFactory) {
+⋮----
+func _postSessionEventForTest(_ event: CameraSession.SessionEvent) async {
+⋮----
+var _captureWatchdogArmedTokenForTest: UInt64? { watchdogs?.capture.armedSessionToken }
+⋮----
+func _armWatchdogsForTest() {
+let gpu = Watchdog(kind: .gpu, clock: clock) { [weak self] fire in
+⋮----
+let cap = Watchdog(kind: .capture, clock: clock) { [weak self] fire in
+⋮----
+let pair = WatchdogPair(gpu: gpu, capture: cap)
 ```
 
 ## File: CameraKit/Sources/CameraKit/CameraEngine.swift
@@ -181,7 +215,8 @@ private var currentCropRegion: Rect?
 ⋮----
 var watchdogs: WatchdogPair?
 var recovery: RecoveryCoordinator?
-private let clock: any CameraKitClock
+⋮----
+let clock: any CameraKitClock
 private var aeMonitorTask: Task<Void, Never>?
 private var fpsWindowStartMs: UInt64 = 0
 private var fpsFrameCount: Int = 0
@@ -273,30 +308,6 @@ public func errorStream() -> AsyncStream<CameraError> {
 let stream = AsyncStream<CameraError>(
 ⋮----
 func publishError(_ err: CameraError) {
-⋮----
-func _emitErrorForTest(_ err: CameraError) {
-⋮----
-func _markOpenForTest() {
-⋮----
-var _currentStateForTest: SessionState { stateMachine.current }
-⋮----
-var _currentPhaseForTest: AppLifecyclePhase { currentPhase }
-⋮----
-func _setStateForTest(_ state: SessionState) { stateMachine._setCurrentForTest(state) }
-⋮----
-var _isSessionRunningForTest: Bool { reconciledSessionRunning }
-⋮----
-func _installLifecycleTestHookForTest() {
-⋮----
-func _setPermissionStatusForTest(_ status: CameraPermissionStatus) {
-⋮----
-var _backgroundActionsForTest: [String] { lifecycleTestHook?.actions ?? [] }
-⋮----
-func _armBackgroundReconcileParkForTest() {
-⋮----
-var _isBackgroundReconcileParkedForTest: Bool { lifecycleTestHook?.parked ?? false }
-⋮----
-func _releaseBackgroundReconcileParkForTest() {
 ⋮----
 nonisolated func tickFrame() {
 ⋮----
@@ -433,15 +444,14 @@ var recording: Recording?
 private nonisolated let recordingContinuationBox =
 ⋮----
 private let cachedRecordingStream = Mailbox<AsyncStream<RecordingState>>()
-private var assetWriterFactory: AssetWriterFactory = DefaultAssetWriterFactory.make
+⋮----
+var assetWriterFactory: AssetWriterFactory = DefaultAssetWriterFactory.make
 ⋮----
 public func recordingStateStream() -> AsyncStream<RecordingState> {
 ⋮----
 let stream = AsyncStream<RecordingState>(
 ⋮----
 private func publishRecordingState(_ s: RecordingState) {
-⋮----
-func _setAssetWriterFactoryForTest(_ f: @escaping AssetWriterFactory) {
 ⋮----
 public func startRecording(options: RecordingOptions) async throws -> RecordingStart {
 ⋮----
@@ -469,6 +479,8 @@ let destination = await rec.photosDestination
 // for `destination == .none` (the default); for `.copy`/`.move` this
 // adds the PHPhotoLibrary roundtrip latency, which is acceptable
 // because the caller opted into Photos.
+⋮----
+let url = URL(fileURLWithPath: uri)
 ⋮----
 // Non-fatal: file is safe at outputURL. Log richly + surface
 // to the public errorStream so the caller can react.
@@ -571,12 +583,6 @@ func resetFromTerminal() async {
 func onSessionEvent(_ event: CameraSession.SessionEvent) async {
 ⋮----
 let err = CameraError(code: .cameraAccessError, message: msg, isFatal: false)
-⋮----
-func _postSessionEventForTest(_ event: CameraSession.SessionEvent) async {
-⋮----
-var _captureWatchdogArmedTokenForTest: UInt64? { watchdogs?.capture.armedSessionToken }
-⋮----
-func _armWatchdogsForTest() {
 ```
 ## File: CameraKit/Sources/CameraKit/CameraEngineProtocol.swift
 ```swift
@@ -1339,8 +1345,6 @@ private let submissionGate: ManagedAtomic<Bool>
 ⋮----
 private let engineSessionToken: ManagedAtomic<UInt64>
 ⋮----
-nonisolated(unsafe) var logNextCommit: Bool = false
-⋮----
 var onMetalError: (@Sendable (MetalError) -> Void)?
 ⋮----
 private let encoderPool: CVPixelBufferPool
@@ -1526,7 +1530,7 @@ let lo = trim
 let hi = count - trim
 var sum: Float = 0
 ⋮----
-func setGate(_ open: Bool) {
+func setGateForTest(_ open: Bool) {
 ⋮----
 var latestNaturalBufferForTest: CVPixelBuffer? { latestNaturalBuffer }
 var latestProcessedBufferForTest: CVPixelBuffer? { latestProcessedBuffer }
@@ -1800,8 +1804,6 @@ var photosDestination: PhotosDestination = .none
 private var startPTS: CMTime?
 private var droppedNotReady: Int = 0
 ⋮----
-func observeCurrentStateForTest() {
-⋮----
 public func currentState() -> RecordingState { state }
 public func currentDroppedNotReady() -> Int { droppedNotReady }
 ⋮----
@@ -1840,12 +1842,14 @@ let resumeOnce: @Sendable () -> Void = {
 let stopGroupDoneMs = self.clock.nowMs()
 let stopWriterStatus = await writer.status.rawValue
 ⋮----
-let url = outputURL?.absoluteString ?? ""
+let url = outputURL?.path ?? ""
 ⋮----
 let truncErr = CameraError(
 ⋮----
 let writerErr = await writer.writerError
 let failErr = CameraError(
+⋮----
+func observeCurrentStateForTest() {
 ```
 
 ## File: CameraKit/Sources/CameraKit/RecoveryCoordinator.swift
@@ -2078,8 +2082,6 @@ let wrap = CVMetalTextureCacheCreateTextureFromImage(
 ⋮----
 func dequeuePoolTexture(
 ⋮----
-static func makeEncoderNV12PoolForTest(size: Size) throws -> CVPixelBufferPool {
-⋮----
 func makeEncoderNV12Pool(size: Size) throws -> CVPixelBufferPool {
 ⋮----
 func dequeueEncoderBuffer(
@@ -2095,6 +2097,8 @@ var cvTexture: CVMetalTexture?
 let status = CVMetalTextureCacheCreateTextureFromImage(
 ⋮----
 private func makeTexture(
+⋮----
+static func makeEncoderNV12PoolForTest(size: Size) throws -> CVPixelBufferPool {
 ```
 
 ## File: CameraKit/Sources/CameraKit/UniformStorage.swift

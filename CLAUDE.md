@@ -97,10 +97,10 @@ its stage. Per-stage workflow:
 **MIGRATION** stages retire ≥1 scaffold with a production primitive, preserve
 every prior test, and add no user-visible capability.
 
-**Stage kickoff rule:** the first action of any new stage is
-`scripts/stage-preflight.sh`. It validates state.md ↔ source slug coherence,
-freshness of `CameraKit/CONTRACTS.md`, and that the build passes. Don't start
-editing sources until it exits 0.
+**Stage kickoff rule (historical).** Each clean-room stage began with
+`scripts/stage-preflight.sh` (state.md ↔ source-slug coherence, `CameraKit/CONTRACTS.md`
+freshness, build green). That script was pruned in the 2026-05-28 tooling cleanup;
+the stage pipeline is complete (below), so nothing kicks off a new stage now.
 
 **Stage 12 was the last clean-room translation stage.** Subsequent work
 (Phase 1A/1B/2 in CameraKit's history, and the 2026-05-20 restructure
@@ -248,11 +248,11 @@ each brief's §12 names the exact file paths.
 Each development machine needs this once:
 
 ```bash
-brew install xcode-build-server fswatch swift-format ripgrep repomix xcsift jq lefthook
+brew install xcode-build-server swift-format ripgrep repomix xcsift jq lefthook
 cd "$(git rev-parse --show-toplevel)"
 xcode-build-server config -project ios_example_app/ios_example_app.xcodeproj \
                           -scheme ios_example_app
-lefthook install                # installs BOTH the pre-commit and pre-push hooks
+lefthook install                # installs the pre-commit hook (no pre-push — see below)
 ```
 
 **What `xcode-build-server` does and why we need it.** Sourcekit-lsp (Apple's
@@ -389,11 +389,9 @@ Pick the tool that fits the question. Match row by row, top-down:
 | Who calls function X? | `LSP prepareCallHierarchy` + `incomingCalls` | `LSP` MCP tool |
 | What's the type/doc of symbol at file:line? | `LSP hover` | `LSP` MCP tool |
 | Find literal pattern (scaffold slug, TODO, string occurrence) | `Grep` | Claude `Grep` tool or `rg` |
-| List active scaffolds as a table | `scripts/scaffold-inventory.sh` | — |
 | Build iOS target | `mcp__XcodeBuildMCP__build_run_device` (primary) or `scripts/build-summary.sh` (fallback) | Device-only on this machine (no sims). Wrapper pipes xcodebuild→xcsift→`.build-logs/*.json` + raw log. |
 | Run CameraKit or app tests | `mcp__XcodeBuildMCP__test_device` (primary) or `scripts/test-summary.sh` (fallback) | Device-only (no sims). Both default to scheme `ios_example_app` (app-hosted CameraKitTests via pbxproj wiring — see §8). Filter as `ios_example_appTests/<SuiteStructName>`. |
 | Re-wire CameraKitTests after adding a new test file | `scripts/sync-test-target.sh` | Idempotent. Adds new `.swift` files under `CameraKit/Tests/CameraKitTests/` to the Xcode test target. See §8. |
-| Stage kickoff coherence checks | `scripts/stage-preflight.sh` | Run as first action of a new stage. |
 | Refresh CONTRACTS.md explicitly | `scripts/regen-contracts.sh` | Auto-runs on pre-commit; rarely needed by hand. |
 | Log a subagent decision | Append one line to `CameraKit/DECISIONS.md` | Stigmergy; coordinator won't re-read. |
 

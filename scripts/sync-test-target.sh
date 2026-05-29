@@ -6,13 +6,13 @@
 # target (host-app-hosted, runnable on physical iPad). The SwiftPM
 # testTarget in CameraKit/Package.swift is left untouched — that's the
 # package's portability contract when CameraKit is extracted to its own
-# repo. See CLAUDE.md §8 ("Tests use a host app, not tool-hosted").
+# repo (tests use a host app, not tool-hosted, on device destinations).
 #
 # Idempotent. Run after adding a new test file in a future stage:
 #   touch CameraKit/Tests/CameraKitTests/Stage12FooTests.swift
 #   scripts/sync-test-target.sh
 #
-# Per CLAUDE.md §6, never hand-edit project.pbxproj — drive it through
+# Never hand-edit project.pbxproj — drive it through
 # the xcodeproj gem.
 
 set -euo pipefail
@@ -59,7 +59,7 @@ end
 
 # CameraKit package product: dual-presence — both as a
 # package_product_dependency and as a PBXBuildFile with product_ref in
-# the frameworks build phase. Per CLAUDE.md §8 invariant, SPM package
+# the frameworks build phase — SPM package
 # products use product_ref, NOT file_ref.
 unless test_target.package_product_dependencies.any? { |d| d.product_name == 'CameraKit' }
   camerakit_dep = app_target.package_product_dependencies

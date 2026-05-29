@@ -8,7 +8,7 @@
 # common to every linked worktree), which silently disabled the old .githooks
 # setup more than once. Installing into .git/hooks makes that reset a no-op. This
 # file at the repo root is also the recognized, declarative "hooks live here"
-# marker. See CLAUDE.md §6.0 and §10.
+# marker.
 #
 # One-time per clone:
 #   brew install lefthook
@@ -21,7 +21,7 @@
 [pre-commit]
 
 # Authoritative style gate: swift-format --strict on staged CameraKit sources.
-# SwiftLint is intentionally NOT a gate (CLAUDE.md §6.0) — it flags deliberate
+# SwiftLint is intentionally NOT a gate — it flags deliberate
 # patterns (test-seam identifiers, the large CameraEngine actor) and crashes
 # standalone on the beta toolchain.
 [pre-commit.commands.swift-format]

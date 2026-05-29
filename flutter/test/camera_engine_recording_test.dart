@@ -17,18 +17,18 @@ void main() {
 
   test('startRecording returns RecordingStart on success', () async {
     final start =
-        g.RecordingStart(uri: 'file:///tmp/x.mp4', displayName: 'x.mp4');
+        g.RecordingStart(uri: '/tmp/x.mp4', displayName: 'x.mp4');
     when(api.startRecording(any)).thenAnswer((_) async => start);
     final s = await engine.startRecording(g.RecordingOptions(
       photosDestination: g.PhotosDestination.none,
     ));
-    expect(s.uri, 'file:///tmp/x.mp4');
+    expect(s.uri, '/tmp/x.mp4');
     expect(s.displayName, 'x.mp4');
   });
 
   test('stopRecording returns the uri string', () async {
-    when(api.stopRecording()).thenAnswer((_) async => 'file:///tmp/x.mp4');
-    expect(await engine.stopRecording(), 'file:///tmp/x.mp4');
+    when(api.stopRecording()).thenAnswer((_) async => '/tmp/x.mp4');
+    expect(await engine.stopRecording(), '/tmp/x.mp4');
   });
 
   test('startRecording rewraps PlatformException', () async {

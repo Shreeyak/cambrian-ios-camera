@@ -1,0 +1,851 @@
+21:42:18.570 === CameraKit session started 2026-05-22 16:12:18 +0000 ===
+21:42:18.749 [engine] open: requesting camera permission
+21:42:18.749 [scenePhase] scenePhase: active → inactive
+21:42:18.766 [metal] [resume] updateUIView isPaused true→false lane=natural
+21:42:18.769 [scenePhase] scenePhase: active → active
+21:42:19.468 [metal] [resume] draw loop resumed lane=natural gap=682ms
+21:42:19.472 [metal] [resume] updateUIView isPaused false→true lane=natural
+21:42:19.474 [scenePhase] scenePhase: active → inactive
+21:42:19.501 [test] ▶ recordingStartRejectsSandboxEscape()
+21:42:19.501 [test] ▶ recordingDisplayNameMatchesResolvedFilename()
+21:42:19.501 [test] ▶ defaultFlowWritesToDocuments()
+21:42:19.501 [test] ▶ exifCamPluginV1ProcessedMarker()
+21:42:19.502 [test] ✓ recordingStartRejectsSandboxEscape() (0ms)
+21:42:19.502 [test] ▶ encodeNaturalJpegRoundTrip()
+21:42:19.502 [test] ▶ exifCamPluginV1NaturalMarker()
+21:42:19.502 [test] ▶ recordingDefaultsPhotosDestinationToNone()
+21:42:19.503 [test] ✓ defaultFlowWritesToDocuments() (1ms)
+21:42:19.503 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:42:19.503 [test] ▶ exifEnvelopeContainsCamPluginV1()
+21:42:19.503 [test] ▶ exifCamPluginV1NilOmitsLane()
+21:42:19.503 [test] ▶ recordingCapturesPhotosDestination()
+21:42:19.503 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:42:19.504 [test] ▶ tiffRoundTripMatchesProcessedPreview()
+21:42:19.504 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:42:19.504 [test] ▶ exifStandardDictionaryPresent()
+21:42:19.508 [test] ▶ missingExtensionThrows()
+21:42:19.508 [test] ✓ missingExtensionThrows() (0ms)
+21:42:19.508 [test] ▶ unsupportedExtensionThrows()
+21:42:19.508 [test] ✓ unsupportedExtensionThrows() (0ms)
+21:42:19.508 [test] ▶ nilDefaultsToPng()
+21:42:19.509 [test] ✓ nilDefaultsToPng() (0ms)
+21:42:19.509 [test] ▶ defaultFlowWritesToDocuments()
+21:42:19.510 [test] ✓ defaultFlowWritesToDocuments() (0ms)
+21:42:19.510 [test] ▶ filenameOnlyLandsInDocuments()
+21:42:19.510 [test] ✓ filenameOnlyLandsInDocuments() (0ms)
+21:42:19.511 [test] ▶ extensionSelectsFormat()
+21:42:19.511 [test] ✓ exifCamPluginV1NaturalMarker() (9ms)
+21:42:19.512 [test] ▶ sandboxTmpSymlinkAccepted()
+21:42:19.512 [test] ✓ sandboxTmpSymlinkAccepted() (0ms)
+21:42:19.512 [test] ▶ sandboxEscapeThrows()
+21:42:19.512 [test] ✓ sandboxEscapeThrows() (0ms)
+21:42:19.512 [test] ▶ absoluteSandboxURLUsedAsIs()
+21:42:19.513 [test] ✓ exifCamPluginV1NilOmitsLane() (9ms)
+21:42:19.513 [test] ✓ absoluteSandboxURLUsedAsIs() (0ms)
+21:42:19.513 [test] ▶ accessUserDeniedHinted()
+21:42:19.513 [test] ▶ networkAccessRequiredHinted()
+21:42:19.513 [test] ✓ extensionSelectsFormat() (2ms)
+21:42:19.513 [test] ✓ accessUserDeniedHinted() (0ms)
+21:42:19.514 [test] ▶ invalidResourceNamed()
+21:42:19.513 [test] ✓ networkAccessRequiredHinted() (0ms)
+21:42:19.514 [test] ▶ nonPhotosErrorFallsBack()
+21:42:19.514 [test] ✓ invalidResourceNamed() (0ms)
+21:42:19.514 [test] ✓ nonPhotosErrorFallsBack() (0ms)
+21:42:19.514 [test] ▶ lossyQuality()
+21:42:19.514 [test] ▶ parseUnsupportedExtensions()
+21:42:19.514 [test] ▶ utTypeMapping()
+21:42:19.514 [test] ✓ lossyQuality() (0ms)
+21:42:19.514 [test] ✓ utTypeMapping() (0ms)
+21:42:19.514 [test] ✓ parseUnsupportedExtensions() (0ms)
+21:42:19.514 [test] ▶ defaultIsPng()
+21:42:19.514 [test] ▶ parseSupportedExtensions()
+21:42:19.514 [test] ▶ accessRestrictedHinted()
+21:42:19.514 [test] ✓ defaultIsPng() (0ms)
+21:42:19.514 [test] ✓ parseSupportedExtensions() (0ms)
+21:42:19.514 [test] ✓ accessRestrictedHinted() (0ms)
+21:42:19.515 [test] ✓ exifCamPluginV1ProcessedMarker() (13ms)
+21:42:19.514 [test] ▶ unknownPHPhotosCodeFallsThrough()
+21:42:19.515 [test] ✓ exifEnvelopeContainsCamPluginV1() (11ms)
+21:42:19.515 [test] ✓ exifStandardDictionaryPresent() (10ms)
+21:42:19.515 [test] ✓ tiffRoundTripMatchesProcessedPreview() (11ms)
+21:42:19.516 [test] ▶ missingExtensionThrows()
+21:42:19.516 [test] ✓ unknownPHPhotosCodeFallsThrough() (1ms)
+21:42:19.516 [test] ✓ missingExtensionThrows() (0ms)
+21:42:19.516 [test] ▶ sandboxEscapeThrows()
+21:42:19.516 [test] ▶ subdirectoryAutoCreated()
+21:42:19.517 [test] ✓ sandboxEscapeThrows() (0ms)
+21:42:19.517 [test] ▶ filenameOnlyLandsInDocuments()
+21:42:19.517 [test] ▶ mp4CaseInsensitive()
+21:42:19.517 [test] ▶ nilDefaultsToMp4()
+21:42:19.518 [test] ✓ mp4CaseInsensitive() (0ms)
+21:42:19.518 [test] ✓ nilDefaultsToMp4() (0ms)
+21:42:19.517 [test] ▶ unsupportedExtensionThrows()
+21:42:19.518 [engine] [recording] Recording.stop group done: durationMs=15 writerStatus=2 didCancel=false
+21:42:19.518 [test] ✓ unsupportedExtensionThrows() (0ms)
+21:42:19.519 [test] ✓ recordingDisplayNameMatchesResolvedFilename() (17ms)
+21:42:19.518 [engine] [recording] Recording.stop group done: durationMs=15 writerStatus=2 didCancel=false
+21:42:19.519 [test] ✓ filenameOnlyLandsInDocuments() (1ms)
+21:42:19.519 [engine] [recording] Recording.stop group done: durationMs=16 writerStatus=2 didCancel=false
+21:42:19.519 [test] ✓ recordingCapturesPhotosDestination() (15ms)
+21:42:19.519 [test] ✓ recordingDefaultsPhotosDestinationToNone() (16ms)
+21:42:19.519 [test] ✓ subdirectoryAutoCreated() (2ms)
+21:42:19.523 [test] ✓ encodeNaturalJpegRoundTrip() (20ms)
+21:43:13.186 === CameraKit session started 2026-05-22 16:13:13 +0000 ===
+21:43:13.268 [scenePhase] scenePhase: active → inactive
+21:43:13.268 [engine] open: requesting camera permission
+21:43:31.140 === CameraKit session started 2026-05-22 16:13:31 +0000 ===
+21:43:31.228 [engine] open: requesting camera permission
+21:43:31.228 [scenePhase] scenePhase: active → inactive
+21:43:31.314 [test] ▶ exifCamPluginV1NaturalMarker()
+21:43:31.314 [test] ▶ defaultFlowWritesToDocuments()
+21:43:31.314 [test] ▶ encodeNaturalJpegRoundTrip()
+21:43:31.314 [test] ▶ exifCamPluginV1ProcessedMarker()
+21:43:31.314 [test] ▶ exifCamPluginV1NilOmitsLane()
+21:43:31.314 [test] ▶ pngCarriesCamPluginV1()
+21:43:31.315 [test] ✓ defaultFlowWritesToDocuments() (1ms)
+21:43:31.328 [test] ✓ exifCamPluginV1NilOmitsLane() (13ms)
+21:43:31.328 [test] ✓ exifCamPluginV1NaturalMarker() (13ms)
+21:43:31.328 [test] ✓ exifCamPluginV1ProcessedMarker() (13ms)
+21:43:31.329 [test] ✓ pngCarriesCamPluginV1() (14ms)
+21:43:31.332 [test] ✓ encodeNaturalJpegRoundTrip() (17ms)
+21:45:24.652 === CameraKit session started 2026-05-22 16:15:24 +0000 ===
+21:45:24.736 [scenePhase] scenePhase: active → inactive
+21:45:24.736 [engine] open: requesting camera permission
+21:45:25.217 [test] ▶ adaptorNotReadyDropsFrame()
+21:45:25.218 [test] ▶ aeFrameRateRangeInOptions()
+21:45:25.217 [test] ▶ expirationHandlerCancelsNotFinishes()
+21:45:25.218 [test] ▶ endBackgroundTaskCalledOnAllPaths()
+21:45:25.218 [test] ▶ wbCalibrationStatusReachesCompleted()
+21:45:25.219 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.219 [test] ✓ aeFrameRateRangeInOptions() (1ms)
+21:45:25.219 [test] ▶ watchdogCapturedTokenSurvivesRetry()
+21:45:25.219 [test] ▶ tokenCapturedAtArm()
+21:45:25.220 [test] ▶ bbCalibrateUpdatesProcessingParams()
+21:45:25.220 [test] ✓ tokenCapturedAtArm() (0ms)
+21:45:25.220 [test] ▶ backgroundTaskDrainProducesFinalizedMp4()
+21:45:25.221 [test] ▶ nonPhotosErrorFallsBack()
+21:45:25.221 [test] ✓ nonPhotosErrorFallsBack() (0ms)
+21:45:25.221 [test] ▶ unknownPHPhotosCodeFallsThrough()
+21:45:25.223 [test] ✓ unknownPHPhotosCodeFallsThrough() (1ms)
+21:45:25.223 [test] ▶ interruptionEndedRearmsWatchdog()
+21:45:25.223 [engine] [interruption] entering .interrupted (raw=1)
+21:45:25.223 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:25.225 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.226 [test] ▶ resetToAutoWBWritesAuto()
+21:45:25.226 [test] ▶ errorStreamDeliversEveryTransition()
+21:45:25.226 [test] ▶ appLifecyclePhaseIsPublicSendable()
+21:45:25.226 [test] ✓ appLifecyclePhaseIsPublicSendable() (0ms)
+21:45:25.228 [test] ✓ errorStreamDeliversEveryTransition() (0ms)
+21:45:25.228 [test] ▶ otherInterruptionTogglesInterruptedState()
+21:45:25.228 [test] ▶ networkAccessRequiredHinted()
+21:45:25.228 [test] ✓ networkAccessRequiredHinted() (0ms)
+21:45:25.228 [test] ▶ deferralParityOpeningToPaused()
+21:45:25.228 [test] ▶ invalidResourceNamed()
+21:45:25.229 [engine] [lifecycle] skipping command label from=opening to=paused caller=reconcile() (deferring to OS-owned state)
+21:45:25.229 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:45:25.229 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.229 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.229 [test] ✓ invalidResourceNamed() (0ms)
+21:45:25.229 [engine] close: tearing down pipeline
+21:45:25.230 [test] ✓ deferralParityOpeningToPaused() (1ms)
+21:45:25.231 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=3
+21:45:25.231 [test] ▶ accessRestrictedHinted()
+21:45:25.231 [test] ▶ lockCurrentWBWritesLocked()
+21:45:25.230 [test] ✓ interruptionEndedRearmsWatchdog() (7ms)
+21:45:25.240 [test] ▶ accessUserDeniedHinted()
+21:45:25.240 [test] ▶ gateClosesOnInactive()
+21:45:25.240 [test] ▶ resetBlackBalanceZeroesPedestal()
+21:45:25.241 [test] ✓ accessUserDeniedHinted() (0ms)
+21:45:25.240 [test] ✓ accessRestrictedHinted() (0ms)
+21:45:25.242 [test] ▶ wbCalibrateInvokesEngineAndWritesManualDelta()
+21:45:25.242 [test] ▶ activeResumeBlockedWhenPermissionRevoked()
+21:45:25.242 [test] ▶ backgroundSuspendViaAsyncTimeout()
+21:45:25.243 [test] ▶ cheapPauseDoesNotStopSession()
+21:45:25.243 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.244 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.244 [test] ▶ interruptionEndedWhileBackgroundStaysStopped()
+21:45:25.244 [engine] [interruption] entering .interrupted (raw=1)
+21:45:25.244 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:25.244 [engine] close: tearing down pipeline
+21:45:25.244 [engine] close: tearing down pipeline
+21:45:25.244 [test] ✓ cheapPauseDoesNotStopSession() (1ms)
+21:45:25.244 [engine] close: tearing down pipeline
+21:45:25.245 [test] ✓ activeResumeBlockedWhenPermissionRevoked() (2ms)
+21:45:25.244 [test] ✓ interruptionEndedWhileBackgroundStaysStopped() (0ms)
+21:45:25.245 [test] ▶ waitUntilScheduledOnInactive()
+21:45:25.245 [test] ▶ backgroundSupersededByActiveEndsActive()
+21:45:25.245 [test] ▶ activeReconcileDefersWhileOSOwnsDevice()
+21:45:25.245 [engine] [interruption] entering .interrupted (raw=4)
+21:45:25.245 [test] ▶ interruptedDisarmsWatchdog()
+21:45:25.246 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.249 [engine] close: tearing down pipeline
+21:45:25.249 [engine] [interruption] entering .interrupted (raw=1)
+21:45:25.250 [test] ▶ commandLabelDefersUnderOSOwnership()
+21:45:25.250 [test] ▶ openIntoBackgroundDoesNotStartSession()
+21:45:25.250 [engine] [interruption] entering .interrupted (raw=4)
+21:45:25.250 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.250 [engine] [lifecycle] skipping command label from=interrupted to=paused caller=reconcile() (deferring to OS-owned state)
+21:45:25.250 [engine] [interruption] entering .interrupted (raw=4)
+21:45:25.250 [engine] close: tearing down pipeline
+21:45:25.250 [engine] close: tearing down pipeline
+21:45:25.251 [test] ✓ openIntoBackgroundDoesNotStartSession() (0ms)
+21:45:25.251 [test] ▶ initialPhaseIsRecordedAtConstruction()
+21:45:25.251 [test] ✓ initialPhaseIsRecordedAtConstruction() (0ms)
+21:45:25.250 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.251 [test] ▶ resumeRestartsAtInactiveGateOpensAtActive()
+21:45:25.251 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.252 [engine] [watchdog] arm skipped — submission gate closed (HITL §1 #14)
+21:45:25.253 [engine] close: tearing down pipeline
+21:45:25.253 [test] ✓ activeReconcileDefersWhileOSOwnsDevice() (7ms)
+21:45:25.252 [engine] close: tearing down pipeline
+21:45:25.253 [test] ▶ stillCaptureUsesCppAtomic()
+21:45:25.253 [engine] [recovery] enter attempt=1/5 error=boom
+21:45:25.253 [test] ✓ stillCaptureUsesCppAtomic() (0ms)
+21:45:25.253 [test] ▶ interruptionEndedWhileInactiveRestartsGateClosed()
+21:45:25.253 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:45:25.254 [engine] [interruption] entering .interrupted (raw=1)
+21:45:25.254 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.254 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.255 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:25.256 [engine] close: tearing down pipeline
+21:45:25.256 [test] ✓ interruptionEndedWhileInactiveRestartsGateClosed() (2ms)
+21:45:25.256 [test] ▶ cppPixelSinkRegistrationRoundtrip()
+21:45:25.256 [consumers] registerCallback: stream=2 token=1 cppCount=1
+21:45:25.255 [engine] close: tearing down pipeline
+21:45:25.256 [engine] close: tearing down pipeline
+21:45:25.256 [test] ✓ resumeRestartsAtInactiveGateOpensAtActive() (4ms)
+21:45:25.256 [test] ▶ staleEndedDoesNotOverrideNewerBegin()
+21:45:25.257 [test] ▶ duplicateBackgroundIsNoOpAndConverges()
+21:45:25.257 [engine] [watchdog] arm skipped — submission gate closed (HITL §1 #14)
+21:45:25.257 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:45:25.257 [test] ✓ commandLabelDefersUnderOSOwnership() (6ms)
+21:45:25.257 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.257 [test] ▶ interruptionEndedWhileBackgroundedDoesNotRearm()
+21:45:25.258 [engine] [interruption] entering .interrupted (raw=1)
+21:45:25.258 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:25.258 [consumers] unregister: token=1 stream=2 lane=cpp
+21:45:25.258 [test] ▶ cabiUnregisterStopsDelivery()
+21:45:25.258 [engine] close: tearing down pipeline
+21:45:25.259 [test] ✓ cppPixelSinkRegistrationRoundtrip() (2ms)
+21:45:25.259 [test] ✓ duplicateBackgroundIsNoOpAndConverges() (1ms)
+21:45:25.259 [test] ▶ lockOrderPipelineStageConsumer()
+21:45:25.259 [test] ▶ swiftSubscribeIsFacadeOverCppPool()
+21:45:25.259 [consumers] registerCallback: stream=0 token=1 cppCount=1
+21:45:25.259 [consumers] registerCallback: stream=0 token=1 cppCount=1
+21:45:25.259 [consumers] registerCallback: stream=0 token=2 cppCount=2
+21:45:25.259 [test] ▶ backgroundSuspendFinalizesAndStops()
+21:45:25.259 [engine] close: tearing down pipeline
+21:45:25.259 [test] ✓ backgroundSuspendFinalizesAndStops() (0ms)
+21:45:25.259 [test] ▶ trueCropOutputResolution()
+21:45:25.260 [consumers] unregister: token=1 stream=0 lane=swift
+21:45:25.261 [test] ✓ swiftSubscribeIsFacadeOverCppPool() (1ms)
+21:45:25.261 [test] ▶ cABICallbacksWithoutOnFrameRejected()
+21:45:25.261 [test] ✓ cABICallbacksWithoutOnFrameRejected() (0ms)
+21:45:25.261 [test] ▶ swiftConsumerDropOnBusy()
+21:45:25.261 [test] ▶ trackerDownsampleHeightMatchesConstant()
+21:45:25.263 [test] ✓ cabiUnregisterStopsDelivery() (4ms)
+21:45:25.263 [test] ▶ seedPreviewMailboxesPopulatesLanesBeforeFirstFrame()
+21:45:25.277 [test] ▶ subscribeThenCancelReleasesSubscriber()
+21:45:25.278 [test] ▶ registerCallbackThrowsNotWired()
+21:45:25.278 [test] ✓ registerCallbackThrowsNotWired() (0ms)
+21:45:25.278 [test] ▶ naturalStreamIsSubscribable()
+21:45:25.319 [test] ▶ cabiParityWithSwiftAPI()
+21:45:25.320 [consumers] registerCallback: stream=2 token=2 cppCount=2
+21:45:25.321 [test] ✓ trackerDownsampleHeightMatchesConstant() (60ms)
+21:45:25.322 [test] ▶ poolTrioAllocationOnOpen()
+21:45:25.323 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.323 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.324 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.324 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.324 [test] ✓ seedPreviewMailboxesPopulatesLanesBeforeFirstFrame() (61ms)
+21:45:25.324 [test] ▶ seedPreviewMailboxesIsIdempotent()
+21:45:25.325 [test] ✓ poolTrioAllocationOnOpen() (3ms)
+21:45:25.325 [consumers] unregister: token=2 stream=2 lane=cpp
+21:45:25.326 [test] ✓ cabiParityWithSwiftAPI() (5ms)
+21:45:25.326 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.326 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.326 [test] ▶ getNativePipelineHandleHoldsActor()
+21:45:25.326 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.326 [engine] getNativePipelineHandle: engine not open — returning nil
+21:45:25.327 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.327 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=0
+21:45:25.327 [test] ✓ getNativePipelineHandleHoldsActor() (0ms)
+21:45:25.327 [test] ✓ trueCropOutputResolution() (67ms)
+21:45:25.327 [test] ✓ gateClosesOnInactive() (85ms)
+21:45:25.327 [test] ✓ waitUntilScheduledOnInactive() (80ms)
+21:45:25.328 [test] ✓ seedPreviewMailboxesIsIdempotent() (3ms)
+21:45:25.328 [test] ▶ defaultCropOutputEqualsCapture()
+21:45:25.329 [test] ▶ recordingDefaultsPhotosDestinationToNone()
+21:45:25.329 [test] ▶ recordingCapturesPhotosDestination()
+21:45:25.329 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.329 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.330 [test] ▶ recordingDisablesCaptureResolution()
+21:45:25.330 [test] ✓ recordingDisablesCaptureResolution() (0ms)
+21:45:25.330 [test] ▶ pausedDisablesAll()
+21:45:25.330 [test] ✓ pausedDisablesAll() (0ms)
+21:45:25.331 [test] ▶ recordingDisplayNameMatchesResolvedFilename()
+21:45:25.331 [test] ▶ streamingEnablesAll()
+21:45:25.331 [test] ✓ streamingEnablesAll() (0ms)
+21:45:25.331 [test] ▶ bbScratchZeroesPedestal()
+21:45:25.331 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.332 [test] ▶ scanningAnimationBindsToSessionState()
+21:45:25.332 [test] ✓ scanningAnimationBindsToSessionState() (0ms)
+21:45:25.332 [test] ▶ recoveringShowsScanning()
+21:45:25.332 [test] ✓ recoveringShowsScanning() (0ms)
+21:45:25.332 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.332 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.332 [test] ▶ recordingStartRejectsSandboxEscape()
+21:45:25.332 [test] ▶ openingShowsScanning()
+21:45:25.332 [test] ✓ openingShowsScanning() (0ms)
+21:45:25.332 [test] ▶ stateDrivenControlEnableDisable()
+21:45:25.332 [test] ✓ recordingStartRejectsSandboxEscape() (0ms)
+21:45:25.333 [test] ✓ defaultCropOutputEqualsCapture() (4ms)
+21:45:25.333 [test] ✓ stateDrivenControlEnableDisable() (0ms)
+21:45:25.333 [test] ▶ bbCalibrationSampleThrowsBeforeFirstFrame()
+21:45:25.333 [test] ▶ centerPatchOnNaturalThrowsBeforeFirstFrame()
+21:45:25.333 [test] ▶ closedDisablesAll()
+21:45:25.333 [test] ✓ closedDisablesAll() (0ms)
+21:45:25.334 [test] ▶ centerPatchOnNaturalSamplesInstalledTexture()
+21:45:25.334 [test] ▶ newMetalErrorCasesDistinguishable()
+21:45:25.334 [test] ▶ exponentialBackoffScheduleMatchesConstants()
+21:45:25.334 [test] ✓ bbCalibrationSampleThrowsBeforeFirstFrame() (1ms)
+21:45:25.335 [test] ✓ centerPatchOnNaturalThrowsBeforeFirstFrame() (1ms)
+21:45:25.334 [test] ▶ scaledCenterPatchSize()
+21:45:25.335 [test] ▶ grayWorldClampsZeroChannel()
+21:45:25.335 [test] ▶ grayWorldBluishSampleAnchorsBlue()
+21:45:25.334 [engine] [recovery] hw-failure consecutive=1/5 msg=hw
+21:45:25.335 [test] ✓ grayWorldBluishSampleAnchorsBlue() (0ms)
+21:45:25.335 [test] ▶ blackBalanceOffsetsOverscan()
+21:45:25.335 [test] ✓ blackBalanceOffsetsOverscan() (0ms)
+21:45:25.335 [test] ✓ grayWorldClampsZeroChannel() (0ms)
+21:45:25.335 [test] ✓ newMetalErrorCasesDistinguishable() (0ms)
+21:45:25.335 [engine] [recovery] hw-failure consecutive=2/5 msg=hw
+21:45:25.336 [engine] [recovery] hw-failure consecutive=3/5 msg=hw
+21:45:25.336 [engine] [recovery] hw-failure consecutive=4/5 msg=hw
+21:45:25.336 [engine] [recovery] hw-failure consecutive=5/5 msg=hw
+21:45:25.336 [engine] [recovery] enter attempt=1/5 error=hw
+21:45:25.336 [test] ▶ grayWorldNeutralLinearSampleIsNoOp()
+21:45:25.335 [test] ✓ scaledCenterPatchSize() (0ms)
+21:45:25.337 [test] ▶ grayWorldClampsToMaxGain()
+21:45:25.337 [test] ✓ grayWorldClampsToMaxGain() (0ms)
+21:45:25.337 [test] ▶ sliderCoalescing60Hz()
+21:45:25.337 [test] ▶ grayWorldStacksOntoCurrentGains()
+21:45:25.336 [test] ▶ initialState()
+21:45:25.338 [test] ✓ initialState() (0ms)
+21:45:25.337 [test] ✓ grayWorldNeutralLinearSampleIsNoOp() (0ms)
+21:45:25.338 [test] ▶ recordStartStopHappyPath()
+21:45:25.338 [test] ▶ recordingTruncatedOnDeadline()
+21:45:25.337 [test] ✓ grayWorldStacksOntoCurrentGains() (0ms)
+21:45:25.339 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.338 [test] ▶ processingParamsPersistenceRoundtrip()
+21:45:25.340 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.340 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.340 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=0
+21:45:25.341 [test] ▶ defaultCropIsFullFrame()
+21:45:25.341 [test] ▶ setCropRegionRejectsOddCoords()
+21:45:25.341 [test] ▶ frameDeliveryStatsMergesSwiftAndCppCounters()
+21:45:25.343 [test] ▶ pixelSinkRegistrationWithoutOnOverwriteRejected()
+21:45:25.343 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.343 [consumers] [metrics] window emit (cppOverwrite/swiftDrop): natural=2/3 processed=0/1 tracker=1/0
+21:45:25.343 [test] ▶ contrastConventionIdentityAtZero()
+21:45:25.343 [test] ✓ defaultCropIsFullFrame() (2ms)
+21:45:25.343 [test] ✓ setCropRegionRejectsOddCoords() (1ms)
+21:45:25.344 [test] ▶ setCropRegionTrueCrop()
+21:45:25.344 [test] ✓ frameDeliveryStatsMergesSwiftAndCppCounters() (2ms)
+21:45:25.344 [test] ▶ defaultFlowWritesToDocuments()
+21:45:25.345 [test] ▶ cannyStubConsumerReceivesTrackerFrames()
+21:45:25.344 [consumers] registerCallback: stream=2 token=1 cppCount=1
+21:45:25.345 [consumers] unregister: token=1 stream=2 lane=cpp
+21:45:25.346 [test] ✓ pixelSinkRegistrationWithoutOnOverwriteRejected() (2ms)
+21:45:25.346 [test] ✓ setCropRegionTrueCrop() (1ms)
+21:45:25.346 [test] ▶ exifCamPluginV1NilOmitsLane()
+21:45:25.346 [test] ✓ defaultFlowWritesToDocuments() (0ms)
+21:45:25.346 [test] ▶ pngCarriesCamPluginV1()
+21:45:25.346 [test] ▶ resolutionRebuildDropsPriorCrop()
+21:45:25.347 [test] ▶ colorPipelineGoldenFrame()
+21:45:25.347 [test] ▶ encodeNaturalJpegRoundTrip()
+21:45:25.346 [consumers] registerCallback: stream=2 token=1 cppCount=1
+21:45:25.349 [test] ▶ exifCamPluginV1ProcessedMarker()
+21:45:25.350 [test] ▶ cameraInUseSelfHealToClosed()
+21:45:25.350 [engine] close: tearing down pipeline
+21:45:25.350 [test] ✓ cameraInUseSelfHealToClosed() (0ms)
+21:45:25.352 [test] ▶ fatalErrorShowsBlockingDialog()
+21:45:25.352 [test] ✓ processingParamsPersistenceRoundtrip() (11ms)
+21:45:25.352 [test] ▶ subdirectoryAutoCreated()
+21:45:25.352 [test] ✓ resolutionRebuildDropsPriorCrop() (5ms)
+21:45:25.352 [test] ▶ nonFatalErrorShowsToast()
+21:45:25.352 [test] ▶ exifCamPluginV1NaturalMarker()
+21:45:25.354 [test] ✓ exifCamPluginV1NilOmitsLane() (7ms)
+21:45:25.354 [consumers] unregister: token=1 stream=2 lane=cpp
+21:45:25.354 [test] ✓ pngCarriesCamPluginV1() (7ms)
+21:45:25.354 [test] ✓ subdirectoryAutoCreated() (1ms)
+21:45:25.354 [test] ✓ cannyStubConsumerReceivesTrackerFrames() (9ms)
+21:45:25.354 [test] ✓ exifCamPluginV1ProcessedMarker() (4ms)
+21:45:25.354 [test] ▶ centerPatchTrimmedMean()
+21:45:25.354 [test] ▶ stopReturnsPromptlyAfterFinishWriting()
+21:45:25.354 [test] ▶ sandboxEscapeThrows()
+21:45:25.354 [test] ▶ aeConvergenceTimeoutEmits()
+21:45:25.355 [test] ✓ aeConvergenceTimeoutEmits() (0ms)
+21:45:25.355 [test] ▶ filenameOnlyLandsInDocuments()
+21:45:25.356 [test] ▶ nilDefaultsToMp4()
+21:45:25.356 [test] ✓ filenameOnlyLandsInDocuments() (0ms)
+21:45:25.356 [test] ✓ nilDefaultsToMp4() (0ms)
+21:45:25.355 [test] ✓ sandboxEscapeThrows() (0ms)
+21:45:25.356 [test] ▶ unsupportedExtensionThrows()
+21:45:25.356 [test] ✓ exifCamPluginV1NaturalMarker() (3ms)
+21:45:25.357 [test] ✓ unsupportedExtensionThrows() (0ms)
+21:45:25.355 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.357 [test] ▶ missingExtensionThrows()
+21:45:25.357 [test] ✓ missingExtensionThrows() (0ms)
+21:45:25.356 [test] ▶ twoConsecutiveCyclesEachComplete()
+21:45:25.358 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.359 [test] ▶ lossyQuality()
+21:45:25.360 [test] ✓ lossyQuality() (0ms)
+21:45:25.360 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.360 [test] ▶ parseSupportedExtensions()
+21:45:25.360 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.360 [test] ✓ parseSupportedExtensions() (0ms)
+21:45:25.360 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=0
+21:45:25.360 [test] ▶ mp4CaseInsensitive()
+21:45:25.361 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.361 [test] ▶ recordStartStopHappyPath()
+21:45:25.361 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.361 [test] ✓ mp4CaseInsensitive() (0ms)
+21:45:25.361 [test] ▶ defaultIsPng()
+21:45:25.361 [test] ▶ utTypeMapping()
+21:45:25.361 [test] ✓ encodeNaturalJpegRoundTrip() (13ms)
+21:45:25.362 [test] ▶ processingMetadataSnapshotMatchesLock()
+21:45:25.362 [test] ✓ utTypeMapping() (0ms)
+21:45:25.362 [test] ✓ defaultIsPng() (0ms)
+21:45:25.362 [test] ▶ isoShutterAutoSwitch()
+21:45:25.362 [test] ▶ userDefaultsPersistenceRoundtrip()
+21:45:25.362 [test] ▶ nv12EncoderPoolIsIOSurfaceBacked()
+21:45:25.363 [test] ✓ isoShutterAutoSwitch() (0ms)
+21:45:25.363 [test] ▶ rule3ManualWithoutLatchThrows()
+21:45:25.363 [test] ✓ nv12EncoderPoolIsIOSurfaceBacked() (0ms)
+21:45:25.363 [test] ▶ uniformLockNoTornWritesUnderStress()
+21:45:25.364 [test] ▶ settingsMergeNonNilFields()
+21:45:25.364 [test] ✓ settingsMergeNonNilFields() (0ms)
+21:45:25.364 [test] ▶ focusDistanceIdentity()
+21:45:25.365 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.365 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.366 [test] ✓ rule3ManualWithoutLatchThrows() (1ms)
+21:45:25.366 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.366 [test] ✓ processingMetadataSnapshotMatchesLock() (3ms)
+21:45:25.366 [test] ▶ singleFieldManualLeavesExplicitAutoAndBothManualUntouched()
+21:45:25.366 [test] ▶ parseUnsupportedExtensions()
+21:45:25.367 [test] ▶ settingsConflictThrows()
+21:45:25.367 [test] ✓ singleFieldManualLeavesExplicitAutoAndBothManualUntouched() (0ms)
+21:45:25.367 [test] ✓ parseUnsupportedExtensions() (0ms)
+21:45:25.368 [test] ✓ userDefaultsPersistenceRoundtrip() (4ms)
+21:45:25.368 [test] ✓ settingsConflictThrows() (0ms)
+21:45:25.368 [test] ▶ fatalFinalizeEmitsRecordingFailed()
+21:45:25.368 [test] ▶ kvoAsyncStreamAdapterEmitsOnChange()
+21:45:25.368 [test] ▶ defaultFlowWritesToDocuments()
+21:45:25.368 [test] ▶ singleFieldManualPinsBothOverAutoPrior()
+21:45:25.369 [test] ✓ singleFieldManualPinsBothOverAutoPrior() (0ms)
+21:45:25.369 [test] ▶ exifStandardDictionaryPresent()
+21:45:25.369 [test] ▶ backoffMatchesConstants()
+21:45:25.369 [test] ✓ backoffMatchesConstants() (0ms)
+21:45:25.369 [test] ✓ defaultFlowWritesToDocuments() (0ms)
+21:45:25.369 [test] ▶ fpsDegradedRequiresStreak()
+21:45:25.369 [test] ▶ mutexScopeIsTight()
+21:45:25.371 [test] ▶ tiffRoundTripMatchesProcessedPreview()
+21:45:25.371 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.371 [test] ✓ mutexScopeIsTight() (0ms)
+21:45:25.371 [test] ✓ fpsDegradedRequiresStreak() (0ms)
+21:45:25.372 [test] ▶ startFailureRoutesToPresenter()
+21:45:25.372 [test] ▶ exifEnvelopeContainsCamPluginV1()
+21:45:25.372 [engine] [recording] toggle invoked, state=idle(lastUri: nil)
+21:45:25.372 [test] ✓ exifStandardDictionaryPresent() (3ms)
+21:45:25.373 [test] ▶ captureFailureRoutesToPresenter()
+21:45:25.373 [test] ▶ stopFailureRoutesToPresenter()
+21:45:25.374 [engine] [recording] toggle invoked, state=recording
+21:45:25.374 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.374 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.374 [test] ▶ disarmBeforeStateTransition()
+21:45:25.374 [engine] [recovery] enter attempt=1/5 error=x
+21:45:25.374 [test] ✓ disarmBeforeStateTransition() (0ms)
+21:45:25.375 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.375 [engine] [watchdog] capture: stall thresholdMs=5000 token=1
+21:45:25.375 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.375 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.375 [test] ✓ exifEnvelopeContainsCamPluginV1() (3ms)
+21:45:25.376 [test] ✓ tiffRoundTripMatchesProcessedPreview() (5ms)
+21:45:25.376 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:25.377 [test] ✓ uniformLockNoTornWritesUnderStress() (12ms)
+21:45:25.378 [test] ▶ frameSetPublication()
+21:45:25.379 [test] ▶ manualWBStrippedOnLoad()
+21:45:25.379 [test] ▶ autoWBRoundTrips()
+21:45:25.380 [test] ▶ recordingTruncatedOnDeadline()
+21:45:25.380 [test] ▶ lockedWBRoundTrips()
+21:45:25.381 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.382 [engine] [recovery] enter attempt=2/5 error=retry 1 failed: Error Domain=test Code=1 "(null)"
+21:45:25.383 [test] ▶ captureDeviceProviderSeam()
+21:45:25.383 [test] ✓ captureDeviceProviderSeam() (0ms)
+21:45:25.383 [test] ▶ captureDeviceProviderSeamFamilyBSurface()
+21:45:25.383 [test] ✓ captureDeviceProviderSeamFamilyBSurface() (0ms)
+21:45:25.384 [test] ▶ consumerRegistrySubscribeUnregister()
+21:45:25.384 [test] ▶ landscapeRightRotationApplied()
+21:45:25.384 [test] ✓ consumerRegistrySubscribeUnregister() (0ms)
+21:45:25.384 [test] ✓ manualWBStrippedOnLoad() (4ms)
+21:45:25.384 [test] ▶ largest4x3FormatSelected()
+21:45:25.384 [test] ▶ engineOpenCloseTransitions()
+21:45:25.384 [test] ✓ landscapeRightRotationApplied() (0ms)
+21:45:25.384 [test] ✓ largest4x3FormatSelected() (0ms)
+21:45:25.384 [test] ✓ engineOpenCloseTransitions() (0ms)
+21:45:25.384 [test] ✓ autoWBRoundTrips() (5ms)
+21:45:25.384 [test] ▶ engineDumpDeviceFormatsReturnsEmptyWhenClosed()
+21:45:25.385 [test] ✓ engineDumpDeviceFormatsReturnsEmptyWhenClosed() (0ms)
+21:45:25.386 [test] ✓ lockedWBRoundTrips() (5ms)
+21:45:25.387 [test] ✓ centerPatchOnNaturalSamplesInstalledTexture() (53ms)
+21:45:25.387 [engine] [recording] startRecording threw: notOpen
+21:45:25.388 [test] ▶ absoluteSandboxURLUsedAsIs()
+21:45:25.388 [test] ▶ extensionSelectsFormat()
+21:45:25.388 [engine] [recording] stopRecording threw: notOpen
+21:45:25.388 [test] ▶ sandboxEscapeThrows()
+21:45:25.388 [test] ▶ filenameOnlyLandsInDocuments()
+21:45:25.388 [test] ▶ missingExtensionThrows()
+21:45:25.388 [test] ✓ missingExtensionThrows() (0ms)
+21:45:25.388 [test] ▶ nilDefaultsToPng()
+21:45:25.388 [test] ✓ sandboxEscapeThrows() (0ms)
+21:45:25.388 [test] ✓ absoluteSandboxURLUsedAsIs() (0ms)
+21:45:25.388 [test] ▶ unsupportedExtensionThrows()
+21:45:25.388 [test] ✓ unsupportedExtensionThrows() (0ms)
+21:45:25.388 [test] ▶ sandboxTmpSymlinkAccepted()
+21:45:25.388 [engine] [recording] Recording.stop group done: durationMs=170 writerStatus=2 didCancel=false
+21:45:25.388 [test] ✓ filenameOnlyLandsInDocuments() (0ms)
+21:45:25.389 [engine] [recording] Recording.stop group done: durationMs=163 writerStatus=2 didCancel=false
+21:45:25.389 [test] ✓ nilDefaultsToPng() (0ms)
+21:45:25.389 [test] ✓ backgroundTaskDrainProducesFinalizedMp4() (168ms)
+21:45:25.389 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.389 [test] ✓ sandboxTmpSymlinkAccepted() (0ms)
+21:45:25.389 [engine] [interruption] entering .interrupted (raw=1)
+21:45:25.389 [consumers] unregister: token=1 stream=0 lane=cpp
+21:45:25.390 [engine] [recovery] enter attempt=3/5 error=retry 2 failed: Error Domain=test Code=1 "(null)"
+21:45:25.390 [engine] [recording] Recording.stop group done: durationMs=0 writerStatus=4 didCancel=true
+21:45:25.390 [test] ✓ recordingTruncatedOnDeadline() (51ms)
+21:45:25.390 [engine] [recording] Recording.stop group done: durationMs=47 writerStatus=2 didCancel=false
+21:45:25.390 [consumers] unregister: token=2 stream=0 lane=cpp
+21:45:25.390 [test] ✓ lockOrderPipelineStageConsumer() (131ms)
+21:45:25.391 [test] ✓ extensionSelectsFormat() (3ms)
+21:45:25.391 [test] ✓ recordStartStopHappyPath() (52ms)
+21:45:25.391 [test] ✓ colorPipelineGoldenFrame() (44ms)
+21:45:25.392 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.393 [engine] [recovery] enter attempt=4/5 error=retry 3 failed: Error Domain=test Code=1 "(null)"
+21:45:25.393 [test] ✓ bbScratchZeroesPedestal() (61ms)
+21:45:25.393 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.393 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.394 [test] ✓ contrastConventionIdentityAtZero() (51ms)
+21:45:25.394 [engine] close: tearing down pipeline
+21:45:25.395 [engine] [recording] Recording.stop group done: durationMs=66 writerStatus=2 didCancel=false
+21:45:25.395 [test] ✓ staleEndedDoesNotOverrideNewerBegin() (138ms)
+21:45:25.395 [test] ✓ recordingDefaultsPhotosDestinationToNone() (65ms)
+21:45:25.394 [engine] [recording] Recording.stop group done: durationMs=0 writerStatus=4 didCancel=true
+21:45:25.395 [engine] [recording] Recording.stop group done: durationMs=65 writerStatus=2 didCancel=false
+21:45:25.395 [engine] [recording] Recording.stop group done: durationMs=63 writerStatus=2 didCancel=false
+21:45:25.395 [test] ✓ recordingCapturesPhotosDestination() (65ms)
+21:45:25.395 [engine] close: tearing down pipeline
+21:45:25.395 [test] ✓ recordingDisplayNameMatchesResolvedFilename() (63ms)
+21:45:25.395 [engine] [recovery] enter attempt=5/5 error=retry 4 failed: Error Domain=test Code=1 "(null)"
+21:45:25.395 [engine] [recording] Recording.stop group done: durationMs=38 writerStatus=2 didCancel=false
+21:45:25.395 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+21:45:25.395 [test] ✓ backgroundSupersededByActiveEndsActive() (150ms)
+21:45:25.396 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+21:45:25.396 [engine] [recording] Recording.stop group done: durationMs=0 writerStatus=3 didCancel=true
+21:45:25.396 [consumers] yield: frame=0 stream=2 surface=true cppConsumers=0
+21:45:25.395 [engine] [recording] Recording.stop group done: durationMs=31 writerStatus=2 didCancel=false
+21:45:25.396 [test] ✓ fatalFinalizeEmitsRecordingFailed() (27ms)
+21:45:25.396 [engine] [recording] Recording.stop group done: durationMs=0 writerStatus=4 didCancel=true
+21:45:25.396 [test] ✓ recordingTruncatedOnDeadline() (15ms)
+21:45:25.396 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.396 [test] ✓ bbCalibrateUpdatesProcessingParams() (176ms)
+21:45:25.396 [engine] [recovery] enter attempt=6/5 error=retry 5 failed: Error Domain=test Code=1 "(null)"
+21:45:25.396 [test] ✓ recordStartStopHappyPath() (34ms)
+21:45:25.396 [engine] [recovery] max-retries exceeded, emitting fatal
+21:45:25.397 [test] ✓ adaptorNotReadyDropsFrame() (179ms)
+21:45:25.397 [engine] close: tearing down pipeline
+21:45:25.397 [test] ✓ exponentialBackoffScheduleMatchesConstants() (62ms)
+21:45:25.397 [test] ✓ interruptedDisarmsWatchdog() (150ms)
+21:45:25.397 [engine] close: tearing down pipeline
+21:45:25.397 [test] ✓ frameSetPublication() (18ms)
+21:45:25.398 [test] ✓ interruptionEndedWhileBackgroundedDoesNotRearm() (139ms)
+21:45:25.399 [test] ✓ wbCalibrationStatusReachesCompleted() (180ms)
+21:45:25.400 [test] ✓ resetToAutoWBWritesAuto() (174ms)
+21:45:25.400 [test] ✓ lockCurrentWBWritesLocked() (169ms)
+21:45:25.400 [test] ✓ wbCalibrateInvokesEngineAndWritesManualDelta() (158ms)
+21:45:25.406 [test] ✓ resetBlackBalanceZeroesPedestal() (164ms)
+21:45:25.409 [test] ✓ startFailureRoutesToPresenter() (37ms)
+21:45:25.409 [test] ✓ captureFailureRoutesToPresenter() (36ms)
+21:45:25.409 [test] ✓ stopFailureRoutesToPresenter() (35ms)
+21:45:25.409 [engine] [recording] Recording.stop group done: durationMs=33 writerStatus=4 didCancel=true
+21:45:25.409 [test] ✓ expirationHandlerCancelsNotFinishes() (191ms)
+21:45:25.413 [engine] [recording] Recording.stop group done: durationMs=58 writerStatus=2 didCancel=false
+21:45:25.413 [test] ✓ centerPatchTrimmedMean() (58ms)
+21:45:25.413 [test] ✓ stopReturnsPromptlyAfterFinishWriting() (58ms)
+21:45:25.417 [engine] [recording] Recording.stop group done: durationMs=21 writerStatus=2 didCancel=false
+21:45:25.417 [test] ✓ twoConsecutiveCyclesEachComplete() (60ms)
+21:45:25.420 [test] ✓ watchdogCapturedTokenSurvivesRetry() (200ms)
+21:45:25.420 [test] ✓ kvoAsyncStreamAdapterEmitsOnChange() (51ms)
+21:45:25.425 [test] ✓ focusDistanceIdentity() (60ms)
+21:45:25.427 [engine] [interruption] entering .interrupted (raw=4)
+21:45:25.427 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:25.427 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:25.427 [test] ✓ otherInterruptionTogglesInterruptedState() (199ms)
+21:45:25.437 [test] ✓ fatalErrorShowsBlockingDialog() (85ms)
+21:45:25.491 [test] ✓ subscribeThenCancelReleasesSubscriber() (213ms)
+21:45:25.500 [engine] [recording] Recording.stop group done: durationMs=108 writerStatus=4 didCancel=true
+21:45:25.500 [engine] [recording] Recording.stop entry: state=recording droppedNotReady=0
+21:45:25.500 [engine] [recording] Recording.stop group done: durationMs=0 writerStatus=3 didCancel=true
+21:45:25.501 [test] ✓ endBackgroundTaskCalledOnAllPaths() (282ms)
+21:45:25.527 [test] ✓ backgroundSuspendViaAsyncTimeout() (284ms)
+21:45:25.595 [test] ✓ naturalStreamIsSubscribable() (316ms)
+21:45:25.724 [test] ✓ swiftConsumerDropOnBusy() (462ms)
+21:45:26.392 [test] ✓ sliderCoalescing60Hz() (1055ms)
+21:45:28.924 [test] ✓ nonFatalErrorShowsToast() (3571ms)
+21:45:55.772 === CameraKit session started 2026-05-22 16:15:55 +0000 ===
+21:45:55.858 [scenePhase] scenePhase: active → inactive
+21:45:55.858 [engine] open: requesting camera permission
+21:45:55.956 [test] ▶ activeReconcileDefersWhileOSOwnsDevice()
+21:45:55.956 [test] ▶ backgroundSuspendFinalizesAndStops()
+21:45:55.956 [test] ▶ duplicateBackgroundIsNoOpAndConverges()
+21:45:55.956 [test] ▶ interruptionEndedWhileBackgroundedDoesNotRearm()
+21:45:55.957 [test] ▶ openIntoBackgroundDoesNotStartSession()
+21:45:55.957 [engine] [interruption] entering .interrupted (raw=1)
+21:45:55.957 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:55.957 [test] ▶ interruptionEndedWhileInactiveRestartsGateClosed()
+21:45:55.957 [test] ▶ interruptionEndedWhileBackgroundStaysStopped()
+21:45:55.957 [engine] [interruption] entering .interrupted (raw=1)
+21:45:55.957 [engine] [interruption] entering .interrupted (raw=4)
+21:45:55.957 [engine] close: tearing down pipeline
+21:45:55.956 [test] ▶ deferralParityOpeningToPaused()
+21:45:55.957 [engine] close: tearing down pipeline
+21:45:55.957 [engine] [watchdog] arm skipped — submission gate closed (HITL §1 #14)
+21:45:55.958 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:45:55.957 [test] ✓ openIntoBackgroundDoesNotStartSession() (0ms)
+21:45:55.958 [test] ✓ backgroundSuspendFinalizesAndStops() (1ms)
+21:45:55.958 [test] ▶ staleEndedDoesNotOverrideNewerBegin()
+21:45:55.957 [engine] [interruption] entering .interrupted (raw=1)
+21:45:55.958 [engine] [lifecycle] skipping command label from=opening to=paused caller=reconcile() (deferring to OS-owned state)
+21:45:55.958 [test] ▶ commandLabelDefersUnderOSOwnership()
+21:45:55.958 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:45:55.958 [test] ▶ initialPhaseIsRecordedAtConstruction()
+21:45:55.958 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:55.958 [engine] [interruption] entering .interrupted (raw=4)
+21:45:55.958 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:55.958 [engine] close: tearing down pipeline
+21:45:55.958 [test] ✓ interruptionEndedWhileBackgroundStaysStopped() (1ms)
+21:45:55.958 [engine] close: tearing down pipeline
+21:45:55.959 [test] ✓ interruptionEndedWhileInactiveRestartsGateClosed() (1ms)
+21:45:55.959 [test] ▶ backgroundSupersededByActiveEndsActive()
+21:45:55.959 [test] ▶ interruptionEndedRearmsWatchdog()
+21:45:55.959 [engine] [interruption] entering .interrupted (raw=1)
+21:45:55.959 [test] ✓ initialPhaseIsRecordedAtConstruction() (0ms)
+21:45:55.959 [test] ▶ appLifecyclePhaseIsPublicSendable()
+21:45:55.959 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:55.959 [test] ▶ otherInterruptionTogglesInterruptedState()
+21:45:55.959 [test] ✓ appLifecyclePhaseIsPublicSendable() (0ms)
+21:45:55.959 [test] ▶ resumeRestartsAtInactiveGateOpensAtActive()
+21:45:55.959 [test] ▶ activeResumeBlockedWhenPermissionRevoked()
+21:45:55.959 [test] ▶ interruptedDisarmsWatchdog()
+21:45:55.960 [engine] [watchdog] arm skipped — submission gate closed (HITL §1 #14)
+21:45:55.960 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.960 [engine] [interruption] entering .interrupted (raw=1)
+21:45:55.960 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:45:55.960 [engine] close: tearing down pipeline
+21:45:55.960 [test] ▶ cheapPauseDoesNotStopSession()
+21:45:55.960 [test] ✓ activeResumeBlockedWhenPermissionRevoked() (0ms)
+21:45:55.960 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:55.961 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.961 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.961 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.961 [engine] close: tearing down pipeline
+21:45:55.961 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.961 [engine] [interruption] entering .interrupted (raw=4)
+21:45:55.961 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.961 [engine] close: tearing down pipeline
+21:45:55.961 [engine] close: tearing down pipeline
+21:45:55.961 [test] ✓ resumeRestartsAtInactiveGateOpensAtActive() (1ms)
+21:45:55.961 [test] ✓ activeReconcileDefersWhileOSOwnsDevice() (5ms)
+21:45:55.962 [engine] [interruption] entering .interrupted (raw=1)
+21:45:55.962 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.962 [engine] close: tearing down pipeline
+21:45:55.962 [engine] close: tearing down pipeline
+21:45:55.962 [test] ✓ duplicateBackgroundIsNoOpAndConverges() (5ms)
+21:45:55.962 [test] ✓ staleEndedDoesNotOverrideNewerBegin() (4ms)
+21:45:55.962 [engine] close: tearing down pipeline
+21:45:55.962 [engine] close: tearing down pipeline
+21:45:55.962 [test] ✓ cheapPauseDoesNotStopSession() (2ms)
+21:45:55.962 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.963 [engine] close: tearing down pipeline
+21:45:55.963 [engine] [lifecycle] skipping command label from=interrupted to=paused caller=reconcile() (deferring to OS-owned state)
+21:45:55.963 [test] ✓ interruptedDisarmsWatchdog() (3ms)
+21:45:55.963 [test] ✓ backgroundSupersededByActiveEndsActive() (3ms)
+21:45:55.963 [engine] close: tearing down pipeline
+21:45:55.963 [test] ✓ interruptionEndedWhileBackgroundedDoesNotRearm() (6ms)
+21:45:55.963 [engine] close: tearing down pipeline
+21:45:55.963 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.963 [engine] close: tearing down pipeline
+21:45:55.963 [engine] [recovery] enter attempt=1/5 error=boom
+21:45:55.963 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.963 [engine] [recovery] retry succeeded attempt=1, resetting
+21:45:55.964 [engine] close: tearing down pipeline
+21:45:55.964 [test] ✓ commandLabelDefersUnderOSOwnership() (5ms)
+21:45:55.964 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.964 [test] ✓ deferralParityOpeningToPaused() (6ms)
+21:45:55.965 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:55.965 [engine] close: tearing down pipeline
+21:45:55.966 [test] ✓ interruptionEndedRearmsWatchdog() (6ms)
+21:45:56.012 [engine] [interruption] entering .interrupted (raw=4)
+21:45:56.013 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:45:56.013 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:45:56.013 [test] ✓ otherInterruptionTogglesInterruptedState() (53ms)
+21:47:12.235 === CameraKit session started 2026-05-22 16:17:12 +0000 ===
+21:47:12.323 [scenePhase] scenePhase: active → inactive
+21:47:12.323 [engine] open: requesting camera permission
+21:47:12.409 [test] ▶ interruptionEndedWhileBackgroundStaysStopped()
+21:47:12.409 [test] ▶ resumeRestartsAtInactiveGateOpensAtActive()
+21:47:12.409 [engine] [watchdog] arm skipped — submission gate closed (HITL §1 #14)
+21:47:12.409 [engine] [interruption] entering .interrupted (raw=1)
+21:47:12.409 [test] ▶ interruptionEndedWhileInactiveRestartsGateClosed()
+21:47:12.409 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:47:12.409 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:47:12.409 [engine] [interruption] entering .interrupted (raw=1)
+21:47:12.409 [engine] close: tearing down pipeline
+21:47:12.409 [test] ▶ staleEndedDoesNotOverrideNewerBegin()
+21:47:12.409 [test] ▶ commandLabelDefersUnderOSOwnership()
+21:47:12.410 [engine] [interruption] entering .interrupted (raw=4)
+21:47:12.409 [test] ▶ backgroundSuspendFinalizesAndStops()
+21:47:12.409 [test] ▶ interruptedDisarmsWatchdog()
+21:47:12.409 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:47:12.410 [test] ✓ interruptionEndedWhileBackgroundStaysStopped() (0ms)
+21:47:12.410 [test] ▶ deferralParityOpeningToPaused()
+21:47:12.410 [engine] [lifecycle] skipping command label from=opening to=paused caller=reconcile() (deferring to OS-owned state)
+21:47:12.410 [test] ▶ duplicateBackgroundIsNoOpAndConverges()
+21:47:12.410 [engine] close: tearing down pipeline
+21:47:12.410 [engine] [interruption] entering .interrupted (raw=1)
+21:47:12.410 [engine] [watchdog] arm skipped — submission gate closed (HITL §1 #14)
+21:47:12.410 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:47:12.410 [engine] [resume] startSessionIfNeeded — issuing startRunning
+21:47:12.410 [engine] close: tearing down pipeline
+21:47:12.410 [test] ✓ backgroundSuspendFinalizesAndStops() (0ms)
+21:47:12.410 [test] ✓ interruptionEndedWhileInactiveRestartsGateClosed() (0ms)
+21:47:12.410 [test] ▶ openIntoBackgroundDoesNotStartSession()
+21:47:12.411 [engine] close: tearing down pipeline
+21:47:12.411 [test] ✓ openIntoBackgroundDoesNotStartSession() (0ms)
+21:47:12.411 [test] ▶ backgroundSupersededByActiveEndsActive()
+21:47:12.411 [test] ▶ appLifecyclePhaseIsPublicSendable()
+21:47:12.411 [test] ▶ activeResumeBlockedWhenPermissionRevoked()
+21:47:12.411 [test] ✓ appLifecyclePhaseIsPublicSendable() (0ms)
+21:47:12.412 [test] ▶ interruptionEndedWhileBackgroundedDoesNotRearm()
+21:47:12.412 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.411 [test] ▶ initialPhaseIsRecordedAtConstruction()
+21:47:12.412 [engine] [interruption] entering .interrupted (raw=1)
+21:47:12.412 [engine] close: tearing down pipeline
+21:47:12.412 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:47:12.412 [test] ✓ activeResumeBlockedWhenPermissionRevoked() (0ms)
+21:47:12.412 [test] ▶ otherInterruptionTogglesInterruptedState()
+21:47:12.413 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:47:12.413 [test] ▶ cheapPauseDoesNotStopSession()
+21:47:12.413 [test] ✓ initialPhaseIsRecordedAtConstruction() (0ms)
+21:47:12.412 [test] ▶ activeReconcileDefersWhileOSOwnsDevice()
+21:47:12.413 [test] ▶ interruptionEndedRearmsWatchdog()
+21:47:12.413 [engine] [interruption] entering .interrupted (raw=1)
+21:47:12.413 [engine] [interruption] entering .interrupted (raw=4)
+21:47:12.413 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:47:12.414 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.414 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.414 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.414 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.414 [engine] [lifecycle] skipping command label from=interrupted to=paused caller=reconcile() (deferring to OS-owned state)
+21:47:12.414 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.414 [engine] close: tearing down pipeline
+21:47:12.415 [engine] close: tearing down pipeline
+21:47:12.415 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.415 [engine] [interruption] entering .interrupted (raw=4)
+21:47:12.415 [engine] close: tearing down pipeline
+21:47:12.415 [engine] close: tearing down pipeline
+21:47:12.415 [engine] close: tearing down pipeline
+21:47:12.415 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.415 [engine] close: tearing down pipeline
+21:47:12.415 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.415 [engine] [recovery] enter attempt=1/5 error=boom
+21:47:12.415 [test] ✓ cheapPauseDoesNotStopSession() (2ms)
+21:47:12.415 [engine] close: tearing down pipeline
+21:47:12.415 [test] ✓ interruptionEndedRearmsWatchdog() (2ms)
+21:47:12.416 [test] ✓ activeReconcileDefersWhileOSOwnsDevice() (2ms)
+21:47:12.416 [engine] close: tearing down pipeline
+21:47:12.416 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.416 [test] ✓ resumeRestartsAtInactiveGateOpensAtActive() (7ms)
+21:47:12.416 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.416 [engine] [interruption] entering .interrupted (raw=1)
+21:47:12.417 [engine] close: tearing down pipeline
+21:47:12.417 [engine] [recovery] retry succeeded attempt=1, resetting
+21:47:12.417 [test] ✓ duplicateBackgroundIsNoOpAndConverges() (6ms)
+21:47:12.418 [engine] close: tearing down pipeline
+21:47:12.418 [test] ✓ backgroundSupersededByActiveEndsActive() (5ms)
+21:47:12.418 [engine] close: tearing down pipeline
+21:47:12.418 [test] ✓ interruptedDisarmsWatchdog() (7ms)
+21:47:12.418 [engine] close: tearing down pipeline
+21:47:12.418 [engine] close: tearing down pipeline
+21:47:12.418 [test] ✓ staleEndedDoesNotOverrideNewerBegin() (8ms)
+21:47:12.418 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.418 [test] ✓ interruptionEndedWhileBackgroundedDoesNotRearm() (6ms)
+21:47:12.418 [test] ✓ commandLabelDefersUnderOSOwnership() (8ms)
+21:47:12.418 [test] ✓ deferralParityOpeningToPaused() (8ms)
+21:47:12.465 [engine] [interruption] entering .interrupted (raw=4)
+21:47:12.465 [engine] [resume] interruption ended (t0) — reconciling against currentPhase
+21:47:12.466 [engine] [lifecycle] .active reconcile blocked — camera permission not authorized (mid-session revocation); emitting .permissionDenied
+21:47:12.466 [test] ✓ otherInterruptionTogglesInterruptedState() (53ms)
+18:37:54.221 === CameraKit session started 2026-05-28 13:07:54 +0000 ===
+18:37:54.799 [engine] open: requesting camera permission
+18:37:54.802 [scenePhase] scenePhase: active → inactive
+18:37:54.858 [metal] [resume] updateUIView isPaused true→false lane=natural
+18:37:54.861 [scenePhase] scenePhase: inactive → active
+18:37:55.154 [metal] [resume] updateUIView isPaused false→true lane=natural
+18:37:55.156 [scenePhase] scenePhase: active → inactive
+18:37:58.116 [engine] open: photos auth status=3
+18:37:58.352 [engine] [resume] startSessionIfNeeded — issuing startRunning
+18:37:58.352 [engine] open: pipeline ready — 4032×3024 pool=0x107ed8180
+18:37:58.543 [metal] [resume] updateUIView isPaused true→false lane=natural
+18:37:58.545 [scenePhase] scenePhase: inactive → active
+18:37:58.545 [engine] [resume] gate opened (t0b)
+18:37:58.566 [metal] [resume] draw loop resumed lane=natural gap=3435ms
+18:37:58.567 [metal] [resume] on-screen new frame lane=natural
+18:37:58.801 [engine] [resume] delivery frame (t1) pts=3196.871s actual=4032x3024 pf='420f'
+18:37:58.823 [metal] [resume] first commit after gate (t1b)
+18:37:58.852 [consumers] yield: frame=0 stream=0 surface=true cppConsumers=0
+18:37:58.852 [consumers] yield: frame=0 stream=1 surface=true cppConsumers=0
+18:37:58.852 [metal] [resume] first texture stored (t1c) — preview texture live
+18:37:59.092 [metal] [resume] draw loop resumed lane=natural gap=526ms
+18:37:59.093 [metal] [resume] on-screen new frame lane=natural
+18:37:59.094 [engine] [ae] converged (t2) after 12ms searching
+18:38:02.812 [metal] [resume] draw loop resumed lane=natural gap=1844ms
+18:38:02.885 [metal] [resume] on-screen new frame lane=natural
+18:38:03.662 [engine] [ae] converged (t2) after 854ms searching
+18:38:04.720 [engine] [ae] converged (t2) after 1018ms searching
+18:38:05.204 [metal] [resume] draw loop resumed lane=natural gap=268ms
+18:38:05.402 [metal] [resume] on-screen new frame lane=natural
+18:38:05.468 [engine] [ae] converged (t2) after 264ms searching
+18:38:06.033 [engine] [ae] converged (t2) after 529ms searching
+18:38:07.490 [engine] [ae] converged (t2) after 1340ms searching
+18:38:08.177 [metal] [resume] draw loop resumed lane=natural gap=307ms
+18:38:08.178 [metal] [resume] on-screen new frame lane=natural
+18:38:08.538 [metal] [resume] draw loop resumed lane=natural gap=360ms
+18:38:08.570 [metal] [resume] on-screen new frame lane=natural
+18:38:09.558 [engine] [ae] converged (t2) after 1938ms searching
+18:38:10.290 [engine] [ae] converged (t2) after 497ms searching
+18:38:10.850 [engine] [ae] converged (t2) after 335ms searching
+18:38:12.257 [engine] [ae] converged (t2) after 679ms searching
+18:38:12.958 [engine] [ae] converged (t2) after 321ms searching
+18:38:14.883 [consumers] yield: frame=300 stream=0 surface=true cppConsumers=0
+18:38:14.884 [consumers] yield: frame=300 stream=1 surface=true cppConsumers=0
+18:38:24.895 [consumers] yield: frame=600 stream=0 surface=true cppConsumers=0
+18:38:24.896 [consumers] yield: frame=600 stream=1 surface=true cppConsumers=0
+18:38:25.403 [metal] [resume] updateUIView isPaused false→true lane=natural
+18:38:25.415 [scenePhase] scenePhase: active → inactive
+18:38:26.754 [scenePhase] scenePhase: inactive → background
+18:38:26.987 [engine] [interruption] ended=false reason=videoDeviceNotAvailableInBackground rawReason=1 keys=["AVCaptureSessionInterruptionReasonKey"]
+18:38:26.987 [engine] [interruption] entering .interrupted (raw=1)
+18:38:26.987 [engine] [interruption] ended=true reason=unknown(-1) rawReason=-1 keys=[]
+18:38:26.988 [engine] [resume] interruption ended (t0) — reconciling against currentPhase

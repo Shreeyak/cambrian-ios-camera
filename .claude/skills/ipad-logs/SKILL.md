@@ -5,9 +5,10 @@ description: Use this skill whenever the user asks to read, tail, grep, stream, 
 
 # iPad Logs Skill
 
-The physical iPad (`DAD37FD5-685B-50E0-911E-F9BC40BBDBE5`, iOS 26) writes app logs
-to `<Documents>/camerakit.log` via `CameraKitLog.enableFileLogging()`. The
-`scripts/device-log-live.sh` script is the only supported way to retrieve them.
+The physical iPad (iOS 26) writes app logs to `<Documents>/camerakit.log` via
+`CameraKitLog.enableFileLogging()`. The `scripts/device-log-live.sh` script is the
+only supported way to retrieve them. It auto-detects the connected paired iPad
+(first reachable one wins), so it works with either project iPad — no UDID to set.
 
 ## Why this is the only path
 
@@ -47,11 +48,17 @@ When the user asks for device logs, decide based on what they want:
 
 ### One-shot snapshot ("show me the last few minutes of logs")
 
-Either start the polling and read the mirror, or pull once directly:
+Either start the polling and read the mirror, or pull once directly (resolve the
+connected iPad's devicectl id first, the same way the script does):
 
 ```bash
+DEVICE_ID=$(xcrun devicectl list devices --json-output /tmp/d.json >/dev/null 2>&1; \
+  jq -r '.result.devices[] | select(.hardwareProperties.deviceType=="iPad")
+         | select(.connectionProperties.pairingState=="paired")
+         | select(.connectionProperties.tunnelState!="unavailable")
+         | .identifier' /tmp/d.json | head -1)
 xcrun devicectl device copy from \
-  --device "DAD37FD5-685B-50E0-911E-F9BC40BBDBE5" \
+  --device "$DEVICE_ID" \
   --domain-type appDataContainer \
   --domain-identifier com.cambrian.ios-example-app \
   --source /Documents/camerakit.log \
@@ -124,7 +131,7 @@ missing from `ios_example_appApp.init()` — re-verify with
 
 - **Never** suggest `log collect`, `pymobiledevice3`, `idevicesyslog`, `start_device_log_cap`,
   or any other log retrieval tool. They are all broken on iOS 26.4.
-- **Never** edit the script's UDID/bundle constants — they're tied to the project's specific iPad.
+- **The device is auto-detected** — the script picks the connected paired iPad, so no UDID needs editing when iPads rotate. If detection fails, check `xcrun devicectl list devices`.
 - **The 4-second polling interval is intentional.** Don't reduce it; `xcrun devicectl` rate-limits.
 - **`Logger` calls must use `.notice` or higher** for Console.app visibility.
   Add `privacy: .public` to interpolated strings or they show as `<private>`.
@@ -134,9 +141,9 @@ missing from `ios_example_appApp.init()` — re-verify with
 
 ## Configuration constants
 
-Hardcoded in `scripts/device-log-live.sh`:
+In `scripts/device-log-live.sh`:
 
-- UDID: `DAD37FD5-685B-50E0-911E-F9BC40BBDBE5` (Shreeyak's iPad)
+- Device: auto-detected (connected paired iPad; first reachable wins)
 - Bundle: `com.cambrian.ios-example-app`
 - Source path: `/Documents/camerakit.log`
 - Mirror: `${TMPDIR}/camerakit-live.log`
