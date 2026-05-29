@@ -2043,12 +2043,12 @@ git commit -m "test(stage-04): golden-frame + persistence + center-patch + crop-
 
 ---
 
-### Task 14 — HITL evidence: `measurements/stage-04/color.md`
+### Task 14 — HITL evidence: `docs/measurements/stage-04/color.md`
 
 **Model:** haiku — write the HITL template doc with DEFERRED placeholders; observations require physical device interaction (executor will mark DEFERRED if no iPad attached).
 
 **Files:**
-- Create: `measurements/stage-04/color.md`
+- Create: `docs/measurements/stage-04/color.md`
 
 Brief §8 HITL: `04:color-slider-visual-correctness`, `04:rapid-slider-stress-sees-occasional-torn-frame`. Brief §11 also calls for an Instruments Metal System Trace pass.
 
@@ -2083,7 +2083,7 @@ If time permits and Instruments is set up, capture a 10-second Metal System Trac
 
 - [ ] **Step 4: Write the evidence file**
 
-Create `measurements/stage-04/color.md`:
+Create `docs/measurements/stage-04/color.md`:
 
 ```markdown
 # Stage 04 HITL evidence
@@ -2122,7 +2122,7 @@ If the executor cannot run device smoke in-session, mark every entry **DEFERRED*
 - [ ] **Step 5: Commit**
 
 ```bash
-git add measurements/stage-04/color.md
+git add docs/measurements/stage-04/color.md
 git commit -m "docs(stage-04): HITL evidence — color-slider-visual + slider-stress"
 ```
 
@@ -2193,8 +2193,8 @@ public nonisolated func currentProcessedTexture() -> (any MTLTexture)?
 | `04:processing-params-persistence-roundtrip` | PASS | Stage04Tests/processingParamsPersistenceRoundtrip — per-test UUID suite. |
 | `04:center-patch-trimmed-mean` | PASS | Stage04Tests/centerPatchTrimmedMean — uniform fill + 10% outliers. |
 | `04:set-crop-region-updates-uniform` | PASS | Stage04Tests/setCropRegionUpdatesUniform — happy + out-of-bounds throw. |
-| `04:color-slider-visual-correctness` | <PASS / DEFERRED> | `measurements/stage-04/color.md`. |
-| `04:rapid-slider-stress-sees-occasional-torn-frame` | <PASS / DEFERRED> | `measurements/stage-04/color.md`. |
+| `04:color-slider-visual-correctness` | <PASS / DEFERRED> | `docs/measurements/stage-04/color.md`. |
+| `04:rapid-slider-stress-sees-occasional-torn-frame` | <PASS / DEFERRED> | `docs/measurements/stage-04/color.md`. |
 
 ## Decisions taken that weren't in briefs
 
