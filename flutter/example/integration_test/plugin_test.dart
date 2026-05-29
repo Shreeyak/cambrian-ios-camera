@@ -93,7 +93,7 @@ void main() {
     final returned = DateTime.now().add(const Duration(seconds: 30));
     var streamingAfter = false;
     while (DateTime.now().isBefore(returned)) {
-      if (stateLog.last == SessionState.streaming) {
+      if (stateLog.isNotEmpty && stateLog.last == SessionState.streaming) {
         streamingAfter = true;
         break;
       }

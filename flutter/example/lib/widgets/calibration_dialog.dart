@@ -22,25 +22,33 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
 
   Future<void> _doWB() async {
     setState(() => _busy = true);
-    final r = await widget.engine.calibrateWhiteBalance();
-    if (mounted) {
-      setState(() {
-        _last = r;
-        _lastKind = 'White balance';
-        _busy = false;
-      });
+    try {
+      final r = await widget.engine.calibrateWhiteBalance();
+      if (mounted) {
+        setState(() {
+          _last = r;
+          _lastKind = 'White balance';
+        });
+      }
+    } finally {
+      // Always clear _busy, even if calibration threw — otherwise the spinner
+      // hangs and both buttons stay disabled forever.
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _doBlack() async {
     setState(() => _busy = true);
-    final r = await widget.engine.calibrateBlackBalance();
-    if (mounted) {
-      setState(() {
-        _last = r;
-        _lastKind = 'Black balance';
-        _busy = false;
-      });
+    try {
+      final r = await widget.engine.calibrateBlackBalance();
+      if (mounted) {
+        setState(() {
+          _last = r;
+          _lastKind = 'Black balance';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

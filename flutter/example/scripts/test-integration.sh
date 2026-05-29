@@ -16,10 +16,14 @@ cd "$(git rev-parse --show-toplevel)/flutter/example"
 
 UDID="${IPAD_UDID:-}"
 if [[ -z "$UDID" ]]; then
+  # `|| true`: under `set -euo pipefail`, a no-match grep makes the pipeline
+  # exit non-zero, which would abort the script here — before the friendly
+  # empty-check below ever runs. Swallow it so UDID becomes "" and we fall
+  # through to the helpful error message.
   UDID=$(xcrun xctrace list devices 2>&1 \
     | grep -iE 'iPad' \
     | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}' \
-    | head -1)
+    | head -1) || true
 fi
 if [[ -z "$UDID" ]]; then
   echo "No connected iPad found; export IPAD_UDID=<xctrace UDID> and retry." >&2
