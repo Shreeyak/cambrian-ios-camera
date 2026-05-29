@@ -1,7 +1,7 @@
 // Integration tests for cambrian_ios_camera — run on a physical iPad.
 //
 // See README.md for prerequisites (pre-granted camera permission, auto-lock
-// off, and the manual home-button press for Test 2). Tests 1 and 3 run
+// off, and the manual home-button press for Test 2). Tests 1, 3, and 4 run
 // unattended; Test 2 needs a human at the device.
 import 'dart:io';
 
@@ -141,5 +141,33 @@ void main() {
         reason: 'mp4 should have substantial bytes for a 2s recording');
 
     await stateSub.cancel();
+  });
+
+  test('Test 4 — Reuse: reopen the same instance keeps event streams alive',
+      () async {
+    final e = engine = CameraEngine();
+
+    // First session.
+    await e.open();
+    final log1 = <SessionState>[];
+    final sub1 = e.stateStream().listen(log1.add);
+    await waitForStreaming(e, log1);
+    await sub1.cancel();
+
+    // Release the camera, then reopen the SAME instance.
+    await e.close();
+    expect(await e.currentState(), SessionState.closed);
+    await e.open();
+
+    // Regression guard: the EventChannel bridges were wired only in the
+    // constructor, so a reopened engine's streams were silently dead. A frame
+    // arriving here proves open() re-established the frameResult bridge — a
+    // direct currentState() read would NOT catch the bug (it bypasses streams).
+    final frame = await e.frameResultStream().first.timeout(
+          const Duration(seconds: 6),
+          onTimeout: () => throw StateError(
+              'no frame after reopen — EventChannel bridges not re-established'),
+        );
+    expect(frame, isNotNull);
   });
 }
