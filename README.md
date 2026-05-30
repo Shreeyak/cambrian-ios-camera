@@ -40,7 +40,7 @@ import CameraKit
 let engine = try await CameraEngine(...)
 ```
 
-> The package's internal name is `CameraKit` for historical reasons. It will be renamed to `CambrianCamera` in a future pass to avoid collision with [Snap's CameraKit SDK](https://docs.snap.com/camera-kit/) — see `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md` §"Future cleanup".
+> The package's internal name is `CameraKit` for historical reasons. It will be renamed to `CambrianCamera` in a future pass to avoid collision with [Snap's CameraKit SDK](https://docs.snap.com/camera-kit/) — see `docs/archived/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md` §"Future cleanup".
 
 ## For Flutter apps — consume via pub `git: + path: flutter`
 
@@ -53,7 +53,10 @@ dependencies:
     git:
       url: https://github.com/Shreeyak/cambrian-ios-camera.git
       path: flutter        # ← important: plugin is at flutter/, not the repo root
-      ref: v1.0.0          # ← pin to a tag; main is for development
+      ref: main            # ← the plugin lives on main, so this always resolves
+      # ref: v1.2.0        # ← or pin a fixed version instead. The tag must be cut
+      #                       from main (the old v1.0.0/v1.0.1 tags predate the
+      #                       Flutter plugin and won't resolve it).
 ```
 
 Then run `flutter pub get` and import in Dart:
@@ -64,7 +67,7 @@ import 'package:cambrian_ios_camera/cambrian_ios_camera.dart';
 final engine = await CameraEngine.open(...);
 ```
 
-**For Android camera in the same app:** add `cambrian_camera` (cam2fd's Android-only plugin) as a separate dependency. Both plugins maintain similar API surfaces by convention, so platform-conditional code in Dart is straightforward. Phase B (the plugin implementation itself) is being built now — see `docs/superpowers/specs/`.
+**For Android camera in the same app:** add `cambrian_camera` (cam2fd's Android-only plugin) as a separate dependency. Both plugins maintain similar API surfaces by convention, so platform-conditional code in Dart is straightforward. Phase B (the plugin implementation itself) is complete and shipped — design docs are archived under `docs/archived/superpowers/specs/`.
 
 ## Versioning
 

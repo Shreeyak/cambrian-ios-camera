@@ -53,15 +53,12 @@ cambrian-ios-camera/  (repo root; GitHub: github.com/Shreeyak/cambrian-ios-camer
 │                                             consumed only by ios_example_app
 │
 ├── docs/
-│   ├── measurements/                       # per-stage HITL + spike notes (moved from
-│   │                                         repo root 2026-05-20)
-│   └── superpowers/{specs,plans}/          # design docs; archive/ for superseded Phase 3
-│
-├── implementation/                         # READ-ONLY upstream symlinks
-│   ├── briefs/             → …/ios-translation/implementation/briefs
-│   ├── architecture/       → …/ios-translation/implementation/architecture
-│   ├── domain-revised/     → …/ios-translation/domain-revised
-│   └── ios-platform-guide/ → …/ios-translation/ios-platform-guide
+│   ├── reference/                          # in-repo, version-controlled reference docs
+│   │   └── ios-platform-guide/             # ADR/G registry + 9 chapters; what the
+│   │                                         ADR-## / G-## citations in the Swift sources resolve to
+│   └── archived/                           # historical, not relevant to current code:
+│       ├── superpowers/{specs,plans}/      #   stage/phase plans + design specs (incl. nested archive/)
+│       └── measurements/                   #   per-stage HITL + spike evidence
 │
 ├── scripts/                                # build wrappers, contract regen, etc.
 ├── .swiftlint.yml
@@ -75,17 +72,25 @@ structure and rules.
 
 ## 3. Pipeline role and stage discipline
 
-Each brief at `implementation/briefs/stage-NN.md` is the authoritative spec for
-its stage. Per-stage workflow:
+> **Historical — the clean-room stage pipeline is complete (Stage 12 was the
+> last; see below).** The `briefs`, `architecture`, and `domain-revised` corpora
+> were removed from this repo on 2026-05-30; they remain read-only in the
+> upstream `ios-translation` repo at
+> `/Users/shrek/work/cambrian/ios-translation/implementation/` (and
+> `…/ios-translation/domain-revised/`). No new stage runs here. The workflow
+> below is kept as a record of how stages were executed.
+
+Each brief at `…/ios-translation/implementation/briefs/stage-NN.md` was the
+authoritative spec for its stage. Per-stage workflow:
 
 1. Read `CameraKit/state.md` from the prior stage.
 2. **Pre-flight inventory**: for every entry under "Scaffolding still live",
    `grep -rn <slug> CameraKit/Sources/` must return ≥1 hit. Mismatch halts the
    session and requires escalation — source drift is not quietly patched.
-3. Read `implementation/briefs/stage-NN.md`.
+3. Read the stage brief (upstream, path above).
 4. Read cited architecture refs (§5), domain refs (§6), and the
-   `implementation/architecture/api-skeletons/Sources/CameraKit/` stubs for
-   every file named in §4.
+   `…/ios-translation/implementation/architecture/api-skeletons/Sources/CameraKit/`
+   stubs for every file named in §4.
 5. Implement per §4 in dependency order.
 6. Run §11 verification using the method prescribed in §6 (XcodeBuildMCP or
    wrapper scripts — never raw `swift build` / `swift test`): build, test filter,
@@ -104,7 +109,7 @@ the stage pipeline is complete (below), so nothing kicks off a new stage now.
 
 **Stage 12 was the last clean-room translation stage.** Subsequent work
 (Phase 1A/1B/2 in CameraKit's history, and the 2026-05-20 restructure
-documented in `docs/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`)
+documented in `docs/archived/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md`)
 does not follow the stage briefs-and-pre-flight pattern. Phase B (Flutter
 plugin implementation) is fresh design, not a continuation of the
 clean-room stages.
@@ -240,8 +245,8 @@ when xcode is offline. `context7` covers third-party libraries; xcode
 Run targets, preferred order: **physical iPad** (required for R-21 camera-indicator
 and R-22 off-main `startRunning`); **Mac "Designed for iPad"** (day-to-day —
 exercises real capture). **Simulators are not an option on this machine** (see
-top of §6). Per-stage HITL / DEFERRED evidence lands under `docs/measurements/stage-NN/`;
-each brief's §12 names the exact file paths.
+top of §6). Per-stage HITL / DEFERRED evidence for the completed stages lives under
+`docs/archived/measurements/stage-NN/` (the pipeline is complete; no new evidence lands).
 
 ### 6.0 One-time host setup
 
@@ -489,9 +494,12 @@ underlying issue and ask again — do not `--amend` around it.
   or `ios-platform-guide/` appears to contradict the brief, the brief wins; log
   the conflict in `CameraKit/state.md` under "Decisions taken that weren't in
   briefs" so upstream can patch it.
-- **Never edit anything under `implementation/`.** `briefs/`, `architecture/`,
-  `domain-revised/`, and `ios-platform-guide/` are upstream artifacts. Gaps go in
-  `state.md` under "Open questions for next stage" and get patched upstream.
+- **`ADR-##` / `G-##` citations resolve to `docs/reference/ios-platform-guide/`.**
+  That in-repo guide is the canonical reference — its `README.md` is the registry.
+  The broader clean-room corpus (`briefs`, `architecture`, `domain-revised`) is
+  read-only in the upstream `ios-translation` repo and is no longer mirrored here;
+  if one of those appears to contradict the code, log it in `state.md` under "Open
+  questions" for upstream to patch.
 - **Never install a future-stage primitive early.** No completion-handler D-10
   guard before Stage 09; no C++ `PixelSink` pool before Stage 08; no
   `OSAllocatedUnfairLock` uniform guard before Stage 05. Each stage is deliberate
@@ -619,16 +627,20 @@ underlying issue and ask again — do not `--amend` around it.
 - `CameraKit/DECISIONS.md` — append-only stigmergy log for subagent decisions.
 - `CameraKit/state.md` — per-stage history, what's built permanently,
   deferred HITL evidence.
+- `docs/reference/ios-platform-guide/` — the iOS platform guide; `README.md` is
+  the `ADR-##` / `G-##` registry that every `ADR-##` / `G-##` citation in the
+  Swift sources resolves against, plus the 9 chapters
+  (`01-architecture.md` … `09-opencv.md`).
 
-**Upstream (symlinked, read-only):**
+**Upstream (read-only, in the `ios-translation` repo — not mirrored here):**
 
 - `/Users/shrek/work/cambrian/ios-translation/CLAUDE.md` — upstream producer
   pipeline and clean-room discipline.
-- `implementation/briefs/README.md` — read-path, kickoff template, glossary
-  (scaffold / TESTABLE / FLAGGED / HITL / DEFERRED).
-- `implementation/architecture/README.md` — concern-file map + cross-file matrix.
-- `implementation/ios-platform-guide/README.md` — `ADR-##` / `G-##` registry.
-- `implementation/briefs/stage-NN.md` — spec for the current stage.
+- `/Users/shrek/work/cambrian/ios-translation/implementation/briefs/` —
+  `README.md` (read-path, kickoff template, glossary: scaffold / TESTABLE /
+  FLAGGED / HITL / DEFERRED) and `stage-NN.md` (each stage's spec).
+- `/Users/shrek/work/cambrian/ios-translation/implementation/architecture/README.md`
+  — concern-file map + cross-file matrix.
 
 ## 10. Flutter plugin layout — `cambrian_ios_camera` under `flutter/`
 
@@ -649,9 +661,9 @@ flutter/
 **Status:** Phase B populated `flutter/` (v1.0.0 — singleton `CameraEngine` over
 Pigeon HostApi + five EventChannel streams, native UIScene lifecycle, zero-copy
 `FlutterTexture` preview, Android no-op stub, example app). Spec and plan:
-`docs/superpowers/specs/2026-05-22-flutter-plugin-phase-b-design.md` and
-`docs/superpowers/plans/2026-05-22-flutter-plugin-phase-b.md`; the superseded
-Phase 3 plans live in `docs/superpowers/plans/archive/`. See `CameraKit/state.md`
+`docs/archived/superpowers/specs/2026-05-22-flutter-plugin-phase-b-design.md` and
+`docs/archived/superpowers/plans/2026-05-22-flutter-plugin-phase-b.md`; the superseded
+Phase 3 plans live in `docs/archived/superpowers/plans/archive/`. See `CameraKit/state.md`
 for the full Phase B entry.
 
 **Downstream Flutter consumption:**
