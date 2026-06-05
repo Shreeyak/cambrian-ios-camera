@@ -1,0 +1,28 @@
+{
+  "_comment": "Consumer API reference grouping. Keys are output cluster filenames (without .md), in reading order. Each value lists the top-level type names assigned to that cluster. `exclude` lists public-but-internal types that are deliberately omitted (rendered under api-index 'NOT IN THIS REFERENCE'). Every top-level type in the symbol graph must appear in exactly one of these two places; the orchestrator's drift guard fails on any unclassified type.",
+  "clusters": {
+    "camera-engine": ["CameraEngine", "CameraEngineProtocol"],
+    "lifecycle": ["AppLifecyclePhase"],
+    "configuration": ["OpenConfiguration", "SessionCapabilities", "StreamConfiguration", "Size", "Rect"],
+    "camera-settings": ["CameraSettings", "CameraMode", "WhiteBalanceMode", "WhiteBalancePreset", "CameraPosition"],
+    "image-processing": ["ProcessingParameters"],
+    "calibration": ["CalibrationResult", "RgbSample", "WhiteBalanceGains"],
+    "recording": ["RecordingOptions", "RecordingStart", "RecordingState", "PhotosDestination"],
+    "stills": ["StillCaptureOutput"],
+    "session-state": ["SessionState", "StreamId"],
+    "frames": ["FrameResult", "FrameSet", "CaptureMetadata", "ProcessingMetadata", "FrameDeliveryStats", "TrackerQuality"],
+    "errors": ["CameraError", "ErrorCode", "EngineError", "MetalError", "RecordingError", "StillCaptureError"],
+    "permissions": ["CameraPermissionStatus"],
+    "consumers": ["ConsumerRegistry", "ConsumerToken", "PixelSinkCallbacks"],
+    "logging": ["CameraKitLog"]
+  },
+  "exclude": [
+    "Watchdog", "WatchdogFire", "WatchdogKind", "WatchdogPair",
+    "RecoveryCoordinator", "Mailbox", "Recording",
+    "CameraKitClock", "SystemClock", "CalibrationCompute",
+    "AssetWriting", "AssetWriterFactory", "AssetWriterPixelBufferAdapting", "DefaultAssetWriterFactory",
+    "BackgroundTaskProviding", "UIApplicationBackgroundTaskProvider",
+    "CaptureDeviceProviding", "DeviceStateSnapshot", "SystemPressureLevel",
+    "InteropError"
+  ]
+}
