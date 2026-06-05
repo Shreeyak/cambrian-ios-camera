@@ -42,6 +42,16 @@ let engine = try await CameraEngine(...)
 
 > The package's internal name is `CameraKit` for historical reasons. It will be renamed to `CambrianCamera` in a future pass to avoid collision with [Snap's CameraKit SDK](https://docs.snap.com/camera-kit/) — see `docs/archived/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md` §"Future cleanup".
 
+## Documentation (Swift / CameraKit)
+
+The consumer documentation lives in **[`Documentation/`](Documentation/index.md)** — guides
+(getting started, lifecycle, preview, capture, controlling the camera, processing, calibration,
+state/errors, advanced consumers) plus a generated per-symbol API reference. Start at
+[`Documentation/index.md`](Documentation/index.md).
+
+> `Documentation/` is for consumers of the package. The lowercase `docs/` tree is
+> development-internal (design notes, ADRs) and is not consumer documentation.
+
 ## For Flutter apps — consume via pub `git: + path: flutter`
 
 The Flutter plugin lives under the `flutter/` subdirectory, not at the repo root. Pub supports this via the `path:` parameter inside a `git:` dependency:

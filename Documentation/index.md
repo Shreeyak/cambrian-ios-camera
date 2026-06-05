@@ -25,7 +25,7 @@ Read [Overview](guides/01-overview.md) then [Getting started](guides/02-getting-
 - [Preview](guides/04-preview.md) — The three preview lanes and how to render them in any UI framework.
 - [Capturing stills and video](guides/05-capturing-stills-and-video.md) — Processed vs natural stills, recording, output paths, and saving to Photos.
 - [Controlling the camera](guides/06-controlling-the-camera.md) — Exposure, focus, white balance, zoom, resolution, and region-of-interest crop, bounded by capabilities.
-- [Image processing](guides/07-image-processing.md) — GPU colour adjustments on the processed lane.
+- [Image processing](guides/07-image-processing.md) — GPU color adjustments on the processed lane.
 - [Calibration](guides/08-calibration.md) — White- and black-balance calibration and reading the result.
 - [Observing state and errors](guides/09-observing-state-and-errors.md) — The event streams, session state, errors, and automatic recovery.
 - [Advanced: zero-copy consumers](guides/10-advanced-zero-copy-consumers.md) — Opt-in zero-copy frame consumption from Swift or native code.

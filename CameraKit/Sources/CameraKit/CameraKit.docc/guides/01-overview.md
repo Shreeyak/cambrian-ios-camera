@@ -27,8 +27,8 @@ see <doc:03-lifecycle>.
 
 Every frame is produced in two lanes, plus a low-resolution tracker lane:
 
-- **Natural lane** — the camera image with no colour processing applied.
-- **Processed lane** — the same frame after CameraKit's GPU colour pipeline
+- **Natural lane** — the camera image with no color processing applied.
+- **Processed lane** — the same frame after CameraKit's GPU color pipeline
   (brightness, contrast, saturation, black level, gamma).
 - **Tracker lane** — a downscaled processed image for lightweight analysis.
 

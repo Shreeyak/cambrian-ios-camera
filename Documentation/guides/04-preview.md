@@ -1,5 +1,69 @@
 # Preview
 
-> Status: stub — to be authored in Phase B.
+Displaying the live camera feed, and choosing which lane to show.
 
-The three preview lanes and how to render them in any UI framework.
+Assumes you have read [01-overview](01-overview.md).
+
+## The three preview lanes
+
+CameraKit exposes the current frame in three lanes (see the dual-lane model in
+[01-overview](01-overview.md)):
+
+- **Natural** — the unprocessed camera image.
+- **Processed** — after the GPU color pipeline ([07-image-processing](07-image-processing.md)).
+- **Tracker** — a downscaled processed image for lightweight analysis.
+
+Choose the lane that matches what the user should see. A camera UI that applies
+live color adjustments shows the processed lane.
+
+## Choosing an output type
+
+The accessors are `nonisolated`, so you may call them directly from a render
+loop without `await`:
+
+| You render with | Use | Returns |
+| --- | --- | --- |
+| Metal | `CameraEngine.currentTexture()` / `CameraEngine.currentProcessedTexture()` / `CameraEngine.currentTrackerTexture()` | `MTLTexture?` |
+| Core Video | `CameraEngine.currentPixelBuffer(stream:)` | `CVPixelBuffer?` |
+| Native / Flutter | `CameraEngine.getNativePipelineHandle()` | `UInt64?` |
+
+`StreamId` selects the lane for the pixel-buffer path: `StreamId.natural`,
+`StreamId.processed`, or `StreamId.tracker`.
+
+## Rendering with Metal
+
+Read the lane's texture each frame and blit it into your drawable:
+
+```swift
+// In your MTKView draw loop (nonisolated — no await needed):
+guard let tex = engine.currentProcessedTexture() else { return }
+// blit `tex` into view.currentDrawable, then present.
+```
+
+Acquire the drawable, clear it, do the blit conditionally, and always present —
+never return between acquiring a drawable and presenting it.
+
+## Rendering elsewhere
+
+For a non-Metal host, read the pixel buffer for the chosen lane:
+
+```swift
+guard let pb = engine.currentPixelBuffer(stream: .processed) else { return }
+// draw `pb` (e.g. via Core Image or a CVMetalTextureCache).
+```
+
+A native or Flutter host instead obtains the pipeline handle from
+`CameraEngine.getNativePipelineHandle()` and binds it to its own texture
+bridge.
+
+## Frame freshness
+
+Each accessor returns the latest available frame; reads are non-blocking and the
+newest frame wins. There is no queue to drain — call the accessor every frame
+and render whatever it returns.
+
+## Reference integration
+
+`ios_example_app/ios_example_app/UI/DisplayViewModel.swift` exposes
+`engine.currentTexture()` and `engine.currentProcessedTexture()` as `nonisolated`
+properties; `UI/CameraView.swift` blits them in a Metal view.

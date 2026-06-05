@@ -7,7 +7,7 @@
     {"file": "04-preview.md", "title": "Preview", "summary": "The three preview lanes and how to render them in any UI framework."},
     {"file": "05-capturing-stills-and-video.md", "title": "Capturing stills and video", "summary": "Processed vs natural stills, recording, output paths, and saving to Photos."},
     {"file": "06-controlling-the-camera.md", "title": "Controlling the camera", "summary": "Exposure, focus, white balance, zoom, resolution, and region-of-interest crop, bounded by capabilities."},
-    {"file": "07-image-processing.md", "title": "Image processing", "summary": "GPU colour adjustments on the processed lane."},
+    {"file": "07-image-processing.md", "title": "Image processing", "summary": "GPU color adjustments on the processed lane."},
     {"file": "08-calibration.md", "title": "Calibration", "summary": "White- and black-balance calibration and reading the result."},
     {"file": "09-observing-state-and-errors.md", "title": "Observing state and errors", "summary": "The event streams, session state, errors, and automatic recovery."},
     {"file": "10-advanced-zero-copy-consumers.md", "title": "Advanced: zero-copy consumers", "summary": "Opt-in zero-copy frame consumption from Swift or native code."}
