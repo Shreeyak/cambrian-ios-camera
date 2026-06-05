@@ -351,11 +351,11 @@ public func setProcessingParams(_ params: ProcessingParameters) async {
 ⋮----
 let toSave = params
 ⋮----
-private func validateCropRegion(_ rect: Rect, sensor: Size) throws {
+private func validateCropRegion(_ rect: Rect, captureSize: Size) throws {
 ⋮----
 public func setCropRegion(_ rect: Rect) async throws {
 ⋮----
-let sensor = pipeline.captureSize
+let captureSize = pipeline.captureSize
 ⋮----
 let newPipeline = try MetalPipeline(
 ⋮----

@@ -293,13 +293,14 @@ public actor CameraEngine {
             throw EngineError.metal(MetalError.unsupportedFormat)
         }
         // P2a — honor OpenConfiguration.cropRegion as a TRUE crop: validate it
-        // against the sensor (same constraints as setCropRegion — in-bounds,
-        // even coords for 4:2:0), then size the output textures to the crop.
+        // against the active capture resolution (same constraints as
+        // setCropRegion — in-bounds, even coords for 4:2:0), then size the
+        // output textures to the crop.
         // nil → full-frame output (captureSize), the default.
         let openOutputSize: Size?
         let openCropOrigin: (x: Int, y: Int)
         if let crop = configuration.cropRegion {
-            try validateCropRegion(crop, sensor: captureSize)
+            try validateCropRegion(crop, captureSize: captureSize)
             openOutputSize = Size(width: crop.width, height: crop.height)
             openCropOrigin = (crop.x, crop.y)
         } else {
@@ -449,7 +450,7 @@ public actor CameraEngine {
         // 11. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
         // P2a — the REAL crop rect, derived from the pipeline's outputSize +
-        // cropOrigin: full-frame Rect(0,0,sensorW,sensorH) when uncropped.
+        // cropOrigin: full-frame Rect(0,0,captureW,captureH) when uncropped.
         let activeCropRegion = Self.activeCropRect(for: pipeline)
         let isoRange = await device.isoRange
         let exposureDurationRangeNs = await device.exposureDurationRangeNs
@@ -571,7 +572,7 @@ public actor CameraEngine {
     /// textures cover.
     ///
     /// `Rect(cropOrigin.x, cropOrigin.y, outputSize.width, outputSize.height)`,
-    /// which collapses to full-frame `Rect(0, 0, sensorW, sensorH)` when
+    /// which collapses to full-frame `Rect(0, 0, captureW, captureH)` when
     /// uncropped. Single source of truth for `activeCropRegion` in both
     /// `open()`'s `SessionCapabilities` and `publishStreamConfiguration()` —
     /// derived from pipeline state, not the `currentCropRegion` mirror.
@@ -874,22 +875,28 @@ public actor CameraEngine {
         Task.detached { SettingsPersistence.saveProcessing(toSave) }
     }
 
-    /// Validates a P2a true-crop rect against the sensor bounds and the 4:2:0
-    /// chroma-alignment constraint.
+    /// Validates a P2a true-crop rect against the active capture-resolution
+    /// bounds and the 4:2:0 chroma-alignment constraint.
+    ///
+    /// The crop is expressed in the pixel space of the active capture
+    /// resolution (`activeCaptureResolution`), not the physical sensor; that
+    /// bound moves whenever `setResolution(size:)` selects a different format.
     ///
     /// - Throws: `EngineError.settingsConflict` if the rect is degenerate (zero
-    ///   width/height), extends past the sensor bounds, or has any odd
-    ///   coordinate. Odd luma offsets/extents skew the half-resolution chroma
-    ///   plane sampling and cause color fringing, so all four fields must be
-    ///   even (4:2:0). Shared by `open()` and `setCropRegion(_:)`.
-    private func validateCropRegion(_ rect: Rect, sensor: Size) throws {
+    ///   width/height), extends past the capture-resolution bounds, or has any
+    ///   odd coordinate. Odd luma offsets/extents skew the half-resolution
+    ///   chroma plane sampling and cause color fringing, so all four fields must
+    ///   be even (4:2:0). Shared by `open()` and `setCropRegion(_:)`.
+    private func validateCropRegion(_ rect: Rect, captureSize: Size) throws {
         guard rect.width > 0, rect.height > 0,
             rect.x >= 0, rect.y >= 0,
-            rect.x + rect.width <= sensor.width,
-            rect.y + rect.height <= sensor.height
+            rect.x + rect.width <= captureSize.width,
+            rect.y + rect.height <= captureSize.height
         else {
             throw EngineError.settingsConflict(
-                reason: "crop rect \(rect) outside sensor bounds \(sensor.width)x\(sensor.height)")
+                reason:
+                    "crop rect \(rect) outside capture-resolution bounds \(captureSize.width)x\(captureSize.height)"
+            )
         }
         guard rect.x % 2 == 0, rect.y % 2 == 0,
             rect.width % 2 == 0, rect.height % 2 == 0
@@ -902,26 +909,26 @@ public actor CameraEngine {
     /// P2a: applies a TRUE crop — the natural/processed output resolution becomes
     /// the crop-region size.
     ///
-    /// The AVCaptureSession keeps producing full sensor-size buffers; Pass-1
-    /// reads the `rect`-offset sub-region at 1:1 into `rect.width × rect.height`
-    /// output textures (no zoom, no masking). Implemented by recreating the
-    /// `MetalPipeline` with the new `outputSize`/`cropOrigin` — the sensor
-    /// resolution is unchanged, so (unlike `setResolution`) the AVF session is
-    /// NOT reconfigured. Overrides state.md #67 (which recommended dropping this
-    /// API); see DECISIONS.md.
+    /// The AVCaptureSession keeps producing full capture-resolution buffers;
+    /// Pass-1 reads the `rect`-offset sub-region at 1:1 into `rect.width ×
+    /// rect.height` output textures (no zoom, no masking). Implemented by
+    /// recreating the `MetalPipeline` with the new `outputSize`/`cropOrigin` —
+    /// the capture resolution is unchanged, so (unlike `setResolution`) the AVF
+    /// session is NOT reconfigured. Overrides state.md #67 (which recommended
+    /// dropping this API); see DECISIONS.md.
     ///
     /// - Throws: `EngineError.notOpen` if the session is not open.
     /// - Throws: `EngineError.calibrationInProgress` if a calibration is in
     ///   flight (the rebuild would invalidate its pipeline reference).
     /// - Throws: `EngineError.settingsConflict` if the rect is degenerate,
-    ///   out of sensor bounds, or has odd coordinates (4:2:0 chroma).
+    ///   out of capture-resolution bounds, or has odd coordinates (4:2:0 chroma).
     public func setCropRegion(_ rect: Rect) async throws {
         guard let pipeline = metalPipeline else { throw EngineError.notOpen }
         // A pipeline rebuild would strand an in-flight calibration's reference.
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
 
-        let sensor = pipeline.captureSize
-        try validateCropRegion(rect, sensor: sensor)
+        let captureSize = pipeline.captureSize
+        try validateCropRegion(rect, captureSize: captureSize)
 
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         await drainSubmittedFrame()
@@ -934,7 +941,7 @@ public actor CameraEngine {
         }
         let newPipeline = try MetalPipeline(
             device: mtlDevice,
-            captureSize: sensor,
+            captureSize: captureSize,
             outputSize: Size(width: rect.width, height: rect.height),
             cropOrigin: (rect.x, rect.y),
             gate: submissionGate,

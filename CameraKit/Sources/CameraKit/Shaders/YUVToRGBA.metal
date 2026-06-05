@@ -4,10 +4,11 @@ using namespace metal;
 // BT.601 full-range YCbCr 4:2:0 → RGBA16F conversion, with true sub-region crop.
 //
 // P2a true crop: the output texture IS the crop-region size. The host sets a
-// CropUniform once at pipeline construction carrying the crop origin (in sensor
-// pixels). Each output pixel `gid` reads the source at `gid + cropOrigin`, so
-// the kernel copies a 1:1 sub-region of the sensor (no zoom, no masking). When
-// uncropped, origin is (0,0) and outTex dims equal the sensor dims — identical
+// CropUniform once at pipeline construction carrying the crop origin (in
+// capture-resolution pixels). Each output pixel `gid` reads the source at
+// `gid + cropOrigin`, so the kernel copies a 1:1 sub-region of the capture
+// buffer (no zoom, no masking). When uncropped, origin is (0,0) and outTex
+// dims equal the capture-resolution dims — identical
 // to the Stage-01 baseline. `width`/`height` in CropUniform are now unused by
 // the shader (the output texture's own dims bound the dispatch); the struct
 // layout is preserved to match the Swift `CropUniform` host side.
@@ -31,7 +32,7 @@ kernel void yuvToRgba(texture2d<float, access::read>  yTex    [[texture(0)]],
         return;
     }
 
-    // Map the output pixel to its source pixel in the full sensor frame.
+    // Map the output pixel to its source pixel in the full capture-resolution frame.
     uint2 src = uint2(gid.x + crop.originX, gid.y + crop.originY);
 
     // Sample luma — full-range: Y already in [0, 1].

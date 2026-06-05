@@ -97,14 +97,14 @@ final class MetalPipeline: @unchecked Sendable {
     ///
     /// Equals `captureSize` when uncropped. When a crop is active, this is the
     /// crop-region size: the AVCaptureSession keeps producing `captureSize`
-    /// sensor buffers, and Pass-1 reads the `cropOrigin`-offset sub-region into
-    /// these `outputSize` output textures (a sub-region resolution change, not a
-    /// zoom). The SOURCE Y/CbCr textures still derive their size from the
-    /// incoming sample buffer (= sensor).
+    /// capture-resolution buffers, and Pass-1 reads the `cropOrigin`-offset
+    /// sub-region into these `outputSize` output textures (a sub-region
+    /// resolution change, not a zoom). The SOURCE Y/CbCr textures still derive
+    /// their size from the incoming sample buffer (= `captureSize`).
     private(set) var outputSize: Size
 
-    /// P2a true crop — top-left of the sub-region read from the sensor, in
-    /// sensor pixels.
+    /// P2a true crop — top-left of the sub-region read from the capture buffer,
+    /// in capture-resolution pixels.
     ///
     /// `(0, 0)` when uncropped. Carried into Pass-1's `CropUniform.origin*` so
     /// the shader offsets every source read by it.
@@ -272,11 +272,12 @@ final class MetalPipeline: @unchecked Sendable {
 
     /// - Parameters:
     ///   - device: From `MTLCreateSystemDefaultDevice()`.
-    ///   - captureSize: Sensor/source dimensions reported by `CameraSession.configure()`.
+    ///   - captureSize: Capture-resolution (selected-format) dimensions reported
+    ///     by `CameraSession.configure()`.
     ///   - outputSize: P2a true-crop output texture size. `nil` (default) means
     ///     no crop — output equals `captureSize`. When a crop is active, this is
     ///     the crop-region size.
-    ///   - cropOrigin: P2a true-crop top-left in sensor pixels. `(0, 0)` (default)
+    ///   - cropOrigin: P2a true-crop top-left in capture-resolution pixels. `(0, 0)` (default)
     ///     when uncropped.
     ///   - gate: Shared `ManagedAtomic<Bool>` owned by `CameraEngine` (ADR-09).
     ///   - consumers: `ConsumerRegistry` owned by `CameraEngine`; used to publish
@@ -302,7 +303,7 @@ final class MetalPipeline: @unchecked Sendable {
 
         // Tracker dimensions: preserve OUTPUT aspect ratio, scale to trackerHeightPx.
         // P2a — the tracker downsamples the rendered processed image (which is now
-        // outputSize), so its aspect must follow outputSize, not the sensor.
+        // outputSize), so its aspect must follow outputSize, not the capture resolution.
         let trackerH = Constants.trackerHeightPx
         let aspect = Double(resolvedOutputSize.width) / Double(resolvedOutputSize.height)
         let rawW = Int((Double(trackerH) * aspect).rounded())
@@ -368,7 +369,7 @@ final class MetalPipeline: @unchecked Sendable {
 
         // 4d. Host-side uniforms — Stage 05 mutex-protected storage (ADR-34, D-17).
         //     P2a — the crop uniform is now set ONCE at construction and carries
-        //     the sensor-pixel origin of the sub-region Pass-1 reads. It is no
+        //     the capture-resolution-pixel origin of the sub-region Pass-1 reads. It is no
         //     longer mutated per-frame (the Stage-04 black-out masking retired).
         //     `width`/`height` mirror the output (crop-region) size; the shader
         //     ignores them and uses the output texture's own dims.
@@ -388,8 +389,8 @@ final class MetalPipeline: @unchecked Sendable {
 
         // 6. Per-stream CVPixelBufferPools (Stage 06 pool-backed lineage).
         //    P2a — natural/processed pools size to `outputSize` (the crop region),
-        //    NOT the sensor. Tracker derives from `trackerSize` (already scaled
-        //    to the output aspect above).
+        //    NOT the capture resolution. Tracker derives from `trackerSize` (already
+        //    scaled to the output aspect above).
         naturalPool = try texturePool.makeWorkingFormatPool(size: resolvedOutputSize)
         processedPool = try texturePool.makeWorkingFormatPool(size: resolvedOutputSize)
         // Tracker pool is BGRA8 — Pass-4's kernel writes `float4` via
@@ -399,7 +400,7 @@ final class MetalPipeline: @unchecked Sendable {
         trackerPool = try texturePool.makeBgra8LanePool(size: trackerSize)
 
         // 6b. RGBA8 lane conversion — unconditional for natural + processed.
-        //     P2a — sized to outputSize (the crop region), not the sensor.
+        //     P2a — sized to outputSize (the crop region), not the capture resolution.
         self.eightBitNaturalPool = try texturePool.makeBgra8LanePool(size: resolvedOutputSize)
         self.eightBitProcessedPool = try texturePool.makeBgra8LanePool(size: resolvedOutputSize)
         guard let fnConvert = library.makeFunction(name: "rgba16fToBgra8") else {
