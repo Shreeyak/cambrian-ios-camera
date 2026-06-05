@@ -12,51 +12,55 @@ import os
 import re
 
 
+_DIRECTIVE = re.compile(r"^\s*@[A-Za-z]\w*")
+
+
 def _strip_directive_blocks(text):
-    """Remove DocC `@Directive { ... }` blocks (brace-balanced) and bare `@Directive` lines."""
+    """Remove DocC `@Directive { ... }` blocks and bare `@Directive` lines.
+
+    Operates line-by-line and never touches content inside fenced code blocks,
+    so Swift attributes (`@Environment`, `@unknown`, `@MainActor`, …) inside
+    ```swift fences are preserved.
+    """
+    lines = text.split("\n")
     out = []
     i = 0
-    n = len(text)
-    while i < n:
-        m = re.match(r"[ \t]*@[A-Za-z]+", text[i:])
-        if m and (i == 0 or text[i - 1] == "\n"):
-            j = i + m.end()
-            # Skip whitespace to see if a brace block follows.
-            k = j
-            while k < n and text[k] in " \t":
-                k += 1
-            if k < n and text[k] == "{":
-                depth = 0
-                while k < n:
-                    if text[k] == "{":
-                        depth += 1
-                    elif text[k] == "}":
-                        depth -= 1
-                        if depth == 0:
-                            k += 1
-                            break
-                    k += 1
-                while k < n and text[k] in " \t":
-                    k += 1
-                if k < n and text[k] == "\n":
-                    k += 1
-                i = k
-                continue
+    in_fence = False
+    while i < len(lines):
+        line = lines[i]
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            i += 1
+            continue
+        if not in_fence and _DIRECTIVE.match(line):
+            # Find where the directive's brace block opens, if any (this line or
+            # the next non-empty line). If it opens, consume until balanced.
+            j = i
+            while j < len(lines) and "{" not in lines[j] and lines[j].strip() != "":
+                # A bare directive header with no following brace block.
+                if j == i:
+                    break
+                j += 1
+            if i < len(lines) and "{" in lines[i]:
+                start = i
+            elif j < len(lines) and "{" in lines[j] and lines[j].strip().startswith("{"):
+                start = i
             else:
-                # Bare directive line — drop to end of line.
-                while k < n and text[k] != "\n":
-                    k += 1
-                if k < n:
-                    k += 1
-                i = k
+                i += 1  # bare `@Directive` line — drop it
                 continue
-        nl = text.find("\n", i)
-        if nl == -1:
-            out.append(text[i:])
-            break
-        out.append(text[i : nl + 1])
-        i = nl + 1
-    return "".join(out)
+            depth = 0
+            k = start
+            while k < len(lines):
+                depth += lines[k].count("{") - lines[k].count("}")
+                k += 1
+                if depth <= 0:
+                    break
+            i = k
+            continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
 
 
 def _rewrite_doc_links(text):
@@ -71,6 +75,25 @@ def _rewrite_doc_links(text):
     return re.sub(r"<doc:([^>]+)>", repl, text)
 
 
+def _rewrite_symbol_links(text):
+    """Degrade DocC double-backtick symbol links to plain code spans.
+
+    ``Type/member(_:)`` → `Type.member(_:)`; ``Type`` → `Type`. Lines inside
+    fenced code blocks are left untouched.
+    """
+    out, in_fence = [], False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        out.append(re.sub(r"``([^`]+)``", lambda m: f"`{m.group(1).replace('/', '.')}`", line))
+    return "\n".join(out)
+
+
 def _collapse_blank_lines(text):
     return re.sub(r"\n{3,}", "\n\n", text).strip("\n") + "\n"
 
@@ -78,6 +101,7 @@ def _collapse_blank_lines(text):
 def flatten(text):
     text = _strip_directive_blocks(text)
     text = _rewrite_doc_links(text)
+    text = _rewrite_symbol_links(text)
     return _collapse_blank_lines(text)
 
 
