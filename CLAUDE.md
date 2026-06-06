@@ -52,7 +52,13 @@ cambrian-ios-camera/  (repo root; GitHub: github.com/Shreeyak/cambrian-ios-camer
 ├── Frameworks/opencv2.xcframework          # symlink to ~/software/opencv2.xcframework;
 │                                             consumed only by ios_example_app
 │
-├── docs/
+├── Documentation/                          # CONSUMER docs (Swift/CameraKit) — the only docs a
+│                                             package consumer reads: index.md + guides/ + a
+│                                             generated reference/ (symbol-graph.json + clusters).
+│                                             Authored in CameraKit/Sources/CameraKit/CameraKit.docc;
+│                                             regenerate via scripts/regen-docs.sh. NOT docs/ below.
+│
+├── docs/                                   # DEV-internal working docs (NOT consumer-facing):
 │   ├── reference/                          # in-repo, version-controlled reference docs
 │   │   └── ios-platform-guide/             # ADR/G registry + 9 chapters; what the
 │   │                                         ADR-## / G-## citations in the Swift sources resolve to
