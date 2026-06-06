@@ -9,6 +9,8 @@ iOS camera library, shipped as **both a Swift package and a Flutter plugin** fro
 > They share underlying code; you don't pick one. If you write Swift, use SPM. If you write Flutter, use the plugin.
 > **No Android support** in this repo — for Android camera in Flutter, use [cam2fd's `cambrian_camera`](https://github.com/.../camera2_flutter_demo) as a separate dependency.
 
+📖 **Swift / CameraKit API documentation:** [`Documentation/index.md`](Documentation/index.md) — guides plus a generated per-symbol API reference.
+
 ## For Swift apps — consume via SPM
 
 Add to your `Package.swift`:
@@ -18,7 +20,7 @@ let package = Package(
     name: "MyApp",
     platforms: [.iOS(.v26)],
     dependencies: [
-        .package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "1.0.0"),
+        .package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "1.3.0"),
     ],
     targets: [
         .target(
@@ -37,8 +39,12 @@ Then in your Swift code:
 
 ```swift
 import CameraKit
-let engine = try await CameraEngine(...)
+
+let engine = CameraEngine(initialPhase: .background)
+let caps = try await engine.open()
 ```
+
+See [`Documentation/index.md`](Documentation/index.md) for the full API, the lifecycle contract, and end-to-end guides.
 
 > The package's internal name is `CameraKit` for historical reasons. It will be renamed to `CambrianCamera` in a future pass to avoid collision with [Snap's CameraKit SDK](https://docs.snap.com/camera-kit/) — see `docs/archived/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md` §"Future cleanup".
 
@@ -64,7 +70,7 @@ dependencies:
       url: https://github.com/Shreeyak/cambrian-ios-camera.git
       path: flutter        # ← important: plugin is at flutter/, not the repo root
       ref: main            # ← the plugin lives on main, so this always resolves
-      # ref: v1.2.0        # ← or pin a fixed version instead. The tag must be cut
+      # ref: v1.3.0        # ← or pin a fixed version instead. The tag must be cut
       #                       from main (the old v1.0.0/v1.0.1 tags predate the
       #                       Flutter plugin and won't resolve it).
 ```
@@ -74,7 +80,8 @@ Then run `flutter pub get` and import in Dart:
 ```dart
 import 'package:cambrian_ios_camera/cambrian_ios_camera.dart';
 
-final engine = await CameraEngine.open(...);
+final engine = CameraEngine();
+await engine.open();
 ```
 
 **For Android camera in the same app:** add `cambrian_camera` (cam2fd's Android-only plugin) as a separate dependency. Both plugins maintain similar API surfaces by convention, so platform-conditional code in Dart is straightforward. Phase B (the plugin implementation itself) is complete and shipped — design docs are archived under `docs/archived/superpowers/specs/`.
