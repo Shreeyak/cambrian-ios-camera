@@ -72,6 +72,154 @@ So both per-lane frames must carry `frameNumber` + `captureTime`. EvaScan's
 `NextFrame` already has `frameIndex` + `timestamp`; map `frameIndex = frameNumber`,
 `timestamp = captureTime` (ns) on **both** sources.
 
+## Push vs pull — and what it actually costs
+
+A live camera is **inherently push**: frames arrive at 30 fps on the delivery
+queue whether or not anyone wants them, and the hardware **cannot be
+back-pressured** (it's real-time). The stitcher's `FrameSource.next()` is
+**pull**. These do not actually clash — `AsyncStream(bufferingNewest(1))` *is* the
+canonical push→pull bridge: a push producer (`continuation.yield`) feeding a
+pull consumer (`iterator.next()`), with intermediate frames dropped. So `next()`
+is literally "sample the newest of an always-running push stream." That's the
+right model for a live source, not a hack.
+
+What the push/pull bridge *does* cost, and where the current types fall short:
+
+1. **Drops are invisible to the puller.** The consumer that pulls frame N+9 (8
+   dropped) sees only a `frameNumber` jump, no drop signal. Fine for the
+   processed lane (latest-wins is desired); **wrong for the tracker lane**, where
+   MotionEstimator integrates motion and needs *every* frame (Decision 2). So the
+   two lanes want **different buffering policies** — processed: `latestWins(1)`;
+   tracker: bounded-lossless (drop only on overflow, with a surfaced drop count).
+   CameraKit's `subscribe` is hardwired to `bufferingNewest(1)` for *all* lanes —
+   it cannot express a lossless tracker lane. This is a real gap.
+2. **No back-pressure means the only knob is the drop policy.** You can't block
+   the camera, so per-lane policy (sample-newest vs bounded-lossless-then-drop)
+   is the *entire* design space. It deserves to be explicit, per lane, not a
+   fixed global.
+
+## FrameSet ↔ FrameSource: the concrete code-level frictions
+
+Grounded in the real source. Tier 1 changes behavior; Tier 2 makes the adapter
+mechanical; Tier 3 is a smell.
+
+**Tier 1 (behavior):**
+- **A. Lifetime model conflict.** `FrameSet.swift:22-33` forbids holding a buffer
+  "across an await or beyond the next stream yield" (pool-backed; holding →
+  starvation → `frameStall` three hops away). But the stitcher *holds* the
+  processed buffer across ECC (~300 ms) via `FramePrefetchQueue`'s
+  `Unmanaged.passRetained`, and `NarwhalFrameSource` (the proven live source)
+  deliberately holds the IOSurface "for the whole pipeline hold." This is a
+  **fork, not a fix**:
+  - *Hold* (consistent with the whole `FrameSource` arch; zero-copy): size the
+    processed pool for the bound (pool 5 absorbs the ~300 ms hold under
+    latest-wins → ~3 live) and **relax CameraKit's contract** for this
+    co-designed sole consumer (the contract is a defensive default).
+  - *Copy-out* (one ~8 MB memcpy per ECC cycle, ~3/s — negligible): the stitcher
+    copies on pickup; CameraKit's pool churns freely. Sole merit — **decouples
+    CameraKit's pool from ECC-latency variance**: a hold that ever exceeds pool
+    headroom stalls delivery (the exact failure the contract warns of); copy-out
+    can't. Discriminator: trust the 300 ms bound → hold; don't → copy. Tracker
+    stays zero-copy either way (held briefly).
+- **B. Per-lane subscription ships the whole `FrameSet`.** `subscribe(.tracker)`
+  delivers a `FrameSet` carrying all lanes, so the tracker subscriber pins the
+  *processed* pool buffer it never reads while buffered. **B is a prerequisite
+  for A's pool math** — you can't reason about per-lane depth if every lane pins
+  every pool. Fix: a per-lane payload (one buffer + shared fields), not the
+  all-lanes struct.
+- **D. Error channel is split → camera death looks like clean EOF.** `next()`
+  unifies frames+errors (throws / nil-EOF); CameraKit's frame `AsyncStream` just
+  *finishes* on failure while the error goes to a separate `errorStream()`. A
+  camera failure currently reaches the stitcher as a clean `nil` and the mosaic
+  stops with **no error surfaced**. Fix: terminate the frame stream *with* the
+  error (throwing stream), or the adapter must race `errorStream` and map
+  `CameraError → FrameSourceError`.
+
+**Tier 2 (congruence):**
+- **C. No format/stride/dims in the consumer contract.** `FrameSet` lanes are
+  self-describing `CVPixelBuffer`s; EvaScan's `FrameBuffer` drops that and assumes
+  BGRA8 + `width*4` (`FramePrefetchQueue.swift:80`). Carry
+  width/height/bytesPerRow/pixelFormat — mandatory if the tracker ever goes
+  single-channel grayscale.
+- **E. Timestamp units.** `FrameSet.captureTime: CMTime` vs
+  `NextFrame.timestamp: Duration` → a `CMTimeConvertScale` per frame. Pick one
+  unit (ns) on both.
+- **F. `frameNumber` semantics.** `NextFrame.frameIndex` says "monotonic, starts
+  at 0"; CameraKit's resets per session and the consumer sees **gaps**
+  (latest-wins). Align: capture index, gaps expected, session-scoped, *and* the
+  correlation key (Decision 2).
+- **H. A lease-returning borrow helper.** Every consumer reinvents
+  `CVPixelBufferGetIOSurface → IOSurfaceLock(.readOnly) → IOSurfaceGetBaseAddress
+  → matching unlock+release` (where both landmines lived). CameraKit should offer
+  `lockedPixels() -> (ptr, bytesPerRow, lease)` on the lane buffer — **lease-
+  returning, not scoped `withLockedBytes {}`** (Narwhal documents the scoped
+  unlock is far too short for a pipeline hold).
+
+**Tier 3 (smell):**
+- **G. `FrameSet: Hashable`.** A transient, pool-backed GPU delivery envelope
+  being `Equatable`/`Hashable` by `(frameNumber, captureTime)` is misleading
+  (frames "equal" across sessions; nothing consumes the hash). Drop it.
+
+**Reality behind `settled` and `blurScore`:** `CaptureMetadata` is *entirely
+stubbed* — `MetalPipeline.swift:618` builds `.placeholder()` (all zeros), and
+`:678-679` hardcode `blurScore: 0.0` / `trackerQuality: .good`. The real sensor
+state lives in `device.lastSnapshot` but was never plumbed into the completion
+handler. So `settled` (AE+WB+focus) is not a 1-line Bool — it's "thread
+`DeviceStateSnapshot` into `FrameSet` construction," and the seed gate cannot
+lean on any existing `FrameSet` metadata today.
+
+## If redesigning both interfaces from scratch
+
+Collapse `FrameSet` + `FrameSource` + `NextFrame` + `FrameBuffer` into **one
+shared vocabulary**: a per-lane `AsyncSequence` of self-describing, leased frame
+handles. The push/pull "mismatch" dissolves — `AsyncSequence` is push-fed,
+pull-consumed by construction; with the right shape there is almost no adapter.
+
+```swift
+struct Frame {                 // one lane, one capture
+    let lane: Lane             // .processed | .tracker
+    let index: UInt64          // capture index — shared across lanes, gaps allowed; the correlation key
+    let timestampNs: Int64     // one unit, no CMTime/Duration split
+    let settled: Bool          // AE+WB+focus converged
+    let pixels: PixelHandle    // self-describing + lifetime
+}
+
+struct PixelHandle {           // the single currency on BOTH sides
+    let baseAddress: UnsafeRawPointer
+    let width, height, bytesPerRow: Int
+    let format: PixelFormat
+    // holds the IOSurface locked; releases on deinit. A bounded hold is allowed.
+}
+```
+
+- **One element type end to end.** CameraKit builds `Frame`; the stitcher's C++
+  slot reads `frame.pixels` directly (ptr/stride/dims/format all present). No
+  `FrameSet → FrameBuffer` translation, no `width*4`, no reinvented lock dance.
+- **Per-lane `AsyncSequence` with an explicit buffering policy** chosen at
+  subscribe: `.latestWins(1)` (processed) vs `.lossless(bounded: N)` (tracker).
+  This is the thing the current fixed `bufferingNewest(1)` cannot do, and it's
+  what the different-rate + every-frame-motion requirement demands.
+- **Throwing termination** (`AsyncThrowingStream` / yields `Result`): camera
+  failure ends the lane sequence with an error → unifies with the consumer's
+  `next() throws`; no separate error channel to race (fixes D).
+- **Bounded hold permitted** via the lease, so no copy is forced (resolves A
+  toward hold — the stitcher's natural model — without violating a "don't hold"
+  rule, because the rule is replaced by an explicit lease contract).
+- **Heavyweight sensor metadata stays off the hot path** — a separate low-rate
+  stream (the existing 3 Hz `frameResultStream`), not bundled into every frame.
+- **Layering:** the `Frame`/`PixelHandle` type lives in **CameraKit** (the
+  producer's natural output; Flutter consumes it too). EvaScan keeps a thin
+  `FrameSource` *protocol* (so video-file and replay sources still plug in) whose
+  element is `Frame`; the camera lane conforms near-identically. CameraKit still
+  must not depend on `StitchProtocols`.
+- **Dual rate = two sequences from one camera** (`camera.lane(.tracker)`,
+  `camera.lane(.processed)`), correlated by `index`.
+
+Net: the from-scratch interface is *"a live camera exposes one
+`AsyncSequence<Frame>` per lane, each with a chosen drop policy, over a shared
+self-describing leased pixel handle, terminating with a throwing error."* The
+adapter shrinks to nearly nothing because both sides already speak it.
+
 ## The per-lane frame shape
 
 ### CameraKit side
