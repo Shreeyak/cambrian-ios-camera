@@ -6,20 +6,25 @@ Build/test via XcodeBuildMCP `*_device` (fallback `scripts/build-summary.sh` /
 
 ## 1. Remove the streaming natural lane
 
-- [ ] 1.1 In `MetalPipeline`, remove Pass-7n and the natural BGRA8 pools (`eightBitNaturalPool`; `naturalPool` only if it solely fed the streaming lane — keep whatever Pass-1/16F needs), and the `latestNaturalBuffer` streaming mailbox + its `.natural` yield.
-- [ ] 1.2 Remove `StreamId.natural` and `SessionCapabilities.naturalTextureId`.
-- [ ] 1.3 Prune dead references in `Errors.swift` (natural-lane error cases that no longer apply) and `OutputPathResolution`.
+- [x] 1.1 In `MetalPipeline`, remove Pass-7n and the natural BGRA8 streaming mailboxes (`_latestNaturalBuffer` / `_latestNaturalBgra8Tex`) + the `.natural` yield. (`StreamId.natural` + the `.natural` yield were already gone from frame-delivery-rework.) **Kept `naturalPool` (Pass-1/16F) AND `eightBitNaturalPool`** — the latter is the one-shot output pool for `gradeOneShot`/`captureNaturalPicture` (Decision 1: keep the ISP path), so it no longer runs per-frame.
+- [x] 1.2 Remove `SessionCapabilities.naturalTextureId` and the natural BGRA8 preview accessor `currentTexture()` + `currentNaturalPixelBuffer()`. (`StreamId.natural` already absent.)
+- [x] 1.3 Prune dead references in `Errors.swift` (updated `bufferUnavailable` doc; `noFrameAvailable` kept for calibration). `OutputPathResolution` had no natural-lane references.
 
 ## 2. Preserve calibration inputs
 
-- [ ] 2.1 Keep Pass-1 and `latestNaturalTex16F` (processed derives from it; calibration samples it). Verify no calibration path read the removed streaming buffer.
+- [x] 2.1 Kept Pass-1 and `latestNaturalTex16F` (processed derives from it; calibration samples it). Verified: calibration suites (Stage11 WB/BB) pass — they sample the preserved 16F texture via `setLatestNaturalForTest`.
 
-## 3. Repoint captureNaturalPicture
+## 3. captureNaturalPicture
 
-- [ ] 3.1 Re-implement `captureNaturalPicture` to convert the current 16F natural texture to BGRA8 on demand (one-shot encode at capture time), preserving the public signature and the existing "no natural frame yet" error gating.
+- [x] 3.1 **Decision 1 (user): keep the existing ISP one-shot path** (`session.capturePhoto()` → `gradeOneShot`), which is full-sensor resolution and already on-demand, rather than the 16F-readback the spec originally prescribed. The public signature and the running-session error gating are unchanged; `eightBitNaturalPool`/`gradeOneShot` are retained for this one-shot. Tradeoff: the still is GRADED (matches preview) and the per-frame Pass-7n cost is still genuinely removed. (The 16F-readback alternative — ungraded, preview-res — was rejected.) Artifacts (design §D2, spec) updated to match.
 
 ## 4. Tests + docs + verify
 
-- [ ] 4.1 Tests: no `StreamId.natural` exists; `captureNaturalPicture` returns a valid image with only `processed`/`tracker` streaming; calibration (WB/BB) still produces a non-default result.
-- [ ] 4.2 Update DocC guides referencing the natural lane; regenerate `Documentation/`.
-- [ ] 4.3 Build green on device; tests pass; `swift-format lint --strict` passes.
+- [x] 4.1 Added `RemoveNaturalLaneTests` (StreamId == {primary, tracker}; SessionCapabilities has no `naturalTextureId`). Calibration (WB/BB) covered by passing Stage11 suites; natural still-capture encode by CaptureNaturalPictureTests + `IspGradeOneShotTests` + HITL.
+- [x] 4.2 Updated DocC guides (01-overview, 04-preview, 07-image-processing) for the removed natural preview lane; regenerated `Documentation/`.
+- [x] 4.3 Build green on device; affected suites pass; `swift-format lint --strict` passes on `CameraKit/Sources`.
+
+## Deviations from artifacts
+
+- **Capture mechanism (3.1):** spec/design prescribed a 16F→BGRA8 readback; user chose to keep the full-res ISP one-shot (`gradeOneShot`). Spec + design §D2 updated to match.
+- **Flutter (Decision 2, user):** accept-broken. `naturalTextureId` removed from CameraKit `SessionCapabilities`; the Flutter adapter (`ValueTypeMappers`) and Pigeon side are NOT updated here — that lands in `flutter-single-preview`. `flutter build ios` is red in the interim (per the proposal's "Flutter side deferred").

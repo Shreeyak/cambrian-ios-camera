@@ -37,17 +37,15 @@ Every frame is produced in two lanes, plus a low-resolution tracker lane:
 The lane you choose determines what you get, and this distinction recurs across
 the API:
 
-- Preview: ``CameraEngine/currentTexture()`` is natural;
-  ``CameraEngine/currentProcessedTexture()`` is processed;
-  ``CameraEngine/currentTrackerTexture()`` is the tracker lane.
+- Preview: ``CameraEngine/currentProcessedTexture()`` is the processed lane;
+  ``CameraEngine/currentTrackerTexture()`` is the tracker lane. (The streaming
+  natural preview lane was removed; only the processed and tracker lanes stream.)
 - Still capture: ``CameraEngine/captureNaturalPicture(outputURL:photosDestination:)``
-  returns the natural lane; ``CameraEngine/captureImage(outputURL:photosDestination:)``
-  returns the processed lane.
+  returns a natural-lane still (produced on demand via a one-shot ISP capture);
+  ``CameraEngine/captureImage(outputURL:photosDestination:)`` returns the
+  processed lane.
 - Processing: ``CameraEngine/setProcessingParams(_:)`` affects **only** the
-  processed lane. The natural lane is never altered.
-
-If a brightness change does not appear in a captured image, you captured the
-natural lane. This is by design, not a bug.
+  processed lane.
 
 ## The lifecycle model
 

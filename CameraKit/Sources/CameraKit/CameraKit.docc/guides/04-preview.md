@@ -23,12 +23,13 @@ loop without `await`:
 
 | You render with | Use | Returns |
 | --- | --- | --- |
-| Metal | ``CameraEngine/currentTexture()`` / ``CameraEngine/currentProcessedTexture()`` / ``CameraEngine/currentTrackerTexture()`` | `MTLTexture?` |
+| Metal | ``CameraEngine/currentProcessedTexture()`` / ``CameraEngine/currentTrackerTexture()`` | `MTLTexture?` |
 | Core Video | ``CameraEngine/currentPixelBuffer(stream:)`` | `CVPixelBuffer?` |
-| Native / Flutter | ``CameraEngine/getNativePipelineHandle()`` | `UInt64?` |
 
-``StreamId`` selects the lane for the pixel-buffer path: ``StreamId/natural``,
-``StreamId/processed``, or ``StreamId/tracker``.
+``StreamId`` selects the lane for the pixel-buffer path: ``StreamId/primary``
+(the processed lane) or ``StreamId/tracker``. (remove-natural-lane: the streaming
+natural lane was removed; ``CameraEngine/captureNaturalPicture(outputURL:photosDestination:)``
+still produces a natural still on demand.)
 
 ## Rendering with Metal
 
@@ -48,7 +49,7 @@ never return between acquiring a drawable and presenting it.
 For a non-Metal host, read the pixel buffer for the chosen lane:
 
 ```swift
-guard let pb = engine.currentPixelBuffer(stream: .processed) else { return }
+guard let pb = engine.currentPixelBuffer(stream: .primary) else { return }
 // draw `pb` (e.g. via Core Image or a CVMetalTextureCache).
 ```
 
@@ -65,5 +66,5 @@ and render whatever it returns.
 ## Reference integration
 
 `ios_example_app/ios_example_app/UI/DisplayViewModel.swift` exposes
-`engine.currentTexture()` and `engine.currentProcessedTexture()` as `nonisolated`
-properties; `UI/CameraView.swift` blits them in a Metal view.
+`engine.currentProcessedTexture()` as a `nonisolated` property; `UI/CameraView.swift`
+blits it in a Metal view.

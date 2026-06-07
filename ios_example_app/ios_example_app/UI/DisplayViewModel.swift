@@ -24,7 +24,9 @@ final class DisplayViewModel {
 
     // MARK: - Texture mailboxes (read on Metal rendering thread)
 
-    nonisolated var naturalTex: MTLTexture? { engine.currentTexture() }
+    // remove-natural-lane: the streaming natural preview texture was removed from
+    // CameraKit. This dev-harness pane now has no natural source (nil → cleared).
+    nonisolated var naturalTex: MTLTexture? { nil }
     nonisolated var processedTex: MTLTexture? { engine.currentProcessedTexture() }
 
     @ObservationIgnored

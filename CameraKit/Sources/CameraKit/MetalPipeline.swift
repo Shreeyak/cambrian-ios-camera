@@ -139,30 +139,28 @@ final class MetalPipeline: @unchecked Sendable {
     /// separate 16F texture exists for this lane).
     var latestTrackerTex: MTLTexture? { _latestTrackerTex.latest }
 
-    /// Preview/bridge-facing BGRA8 lane textures (natural + processed).
+    /// Preview/bridge-facing BGRA8 processed lane texture.
     ///
-    /// Each is the `.bgra8Unorm` view of the Pass-7 convert output, sharing its
-    /// IOSurface with the matching `_latest*Buffer` mailbox — so a lane exposes
-    /// one surface as both a `CVPixelBuffer` and an `MTLTexture`. The public
-    /// `CameraEngine.currentTexture()` / `currentProcessedTexture()` accessors
-    /// read these; the MTKView preview and the Phase-3 bridge get identical
-    /// 8-bit pixels. Single writer on the delivery queue (`Mailbox<T>`).
-    private let _latestNaturalBgra8Tex = Mailbox<MTLTexture>()
+    /// The `.bgra8Unorm` view of the Pass-7p convert output, sharing its IOSurface
+    /// with `_latestProcessedBuffer` — so the processed lane exposes one surface as
+    /// both a `CVPixelBuffer` and an `MTLTexture`. The public
+    /// `CameraEngine.currentProcessedTexture()` accessor reads this; the MTKView
+    /// preview and the Phase-3 bridge get identical 8-bit pixels. Single writer on
+    /// the delivery queue (`Mailbox<T>`). (remove-natural-lane: the natural BGRA8
+    /// texture mailbox was removed with the streaming natural lane.)
     private let _latestProcessedBgra8Tex = Mailbox<MTLTexture>()
 
-    var latestNaturalBgra8Tex: MTLTexture? { _latestNaturalBgra8Tex.latest }
     var latestProcessedBgra8Tex: MTLTexture? { _latestProcessedBgra8Tex.latest }
 
     // Phase-2 §2c: lane CVPixelBuffer mailboxes — paired with the texture
     // mailboxes above. Single writer on the AVF delivery queue; readers
     // wherever the raw `CVPixelBuffer` is needed
     // (`CameraEngine.currentPixelBuffer(stream:)` for the Phase-3 zero-copy
-    // FlutterTexture bridge). See `Mailbox<T>`.
-    private let _latestNaturalBuffer = Mailbox<CVPixelBuffer>()
+    // FlutterTexture bridge). See `Mailbox<T>`. (remove-natural-lane: no natural
+    // buffer mailbox — the streaming natural lane is gone.)
     private let _latestProcessedBuffer = Mailbox<CVPixelBuffer>()
     private let _latestTrackerBuffer = Mailbox<CVPixelBuffer>()
 
-    var latestNaturalBuffer: CVPixelBuffer? { _latestNaturalBuffer.latest }
     var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
     var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 
@@ -592,25 +590,17 @@ final class MetalPipeline: @unchecked Sendable {
             }
         }
 
-        // Pass 7: RGBA16F → BGRA8 conversion for the natural + processed lane-buffer
-        // mailboxes (unconditional). Tracker is NOT converted here — its pool is already
-        // BGRA8; Pass-4 writes BGRA8 directly (fused). Not subscriber-gated in v1.
-        // Pass-7 reads the RGBA16F lane texture and writes into a fresh BGRA8 pool
-        // buffer's .bgra8Unorm view; the buffer mailbox below points at the new buffer.
-        var naturalEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
+        // Pass 7p: RGBA16F → BGRA8 conversion for the processed lane-buffer mailbox
+        // (unconditional). Tracker is NOT converted here — its pool is already BGRA8;
+        // Pass-4 writes BGRA8 directly (fused). Pass-7 reads the RGBA16F lane texture
+        // and writes into a fresh BGRA8 pool buffer's .bgra8Unorm view; the buffer
+        // mailbox below points at the new buffer.
+        //
+        // remove-natural-lane: the per-frame natural Pass-7n conversion was cut — the
+        // streaming natural lane is gone. The internal 16F natural texture (Pass-1
+        // output, `_latestNaturalTex16F`) is preserved for calibration; the natural
+        // *still* (`captureNaturalPicture`) converts on demand via `gradeOneShot`.
         var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-        if let pair = try? texturePool.dequeueEightBitPoolTexture(
-            pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height
-        ) {
-            let pass7n = commandBuffer.makeComputeCommandEncoder()!
-            pass7n.setComputePipelineState(rgba16fToBgra8PSO)
-            pass7n.setTexture(naturalTexI, index: 0)
-            pass7n.setTexture(pair.texture, index: 1)
-            pass7n.dispatchThreadgroups(
-                threadGroups, threadsPerThreadgroup: threadGroupSize)
-            pass7n.endEncoding()
-            naturalEightBitPair = pair
-        }
         if let pair = try? texturePool.dequeueEightBitPoolTexture(
             pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height
         ) {
@@ -637,18 +627,16 @@ final class MetalPipeline: @unchecked Sendable {
         // is not Sendable; capture derived values (CMTime, metadata snapshot) instead.
         let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let fn = frameNumber
-        let naturalBuf = naturalPair.buffer
         let processedBuf = processedPair.buffer
         let trackerBuf = trackerPair?.buffer
         let trackerTex = trackerPair?.texture
         let consumers = self.consumers
         // Stage 10: extract NV12 buffer for delivery in completion handler.
         let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
-        // Capture the BGRA8-converted buffers + textures for the mailbox store in
-        // the completion handler. Each pair's buffer and texture share one
-        // IOSurface. Tracker buffer is already BGRA8 (pool fused in Pass-4).
-        let naturalEightBitBuf: CVPixelBuffer? = naturalEightBitPair?.buffer
-        let naturalEightBitTex: MTLTexture? = naturalEightBitPair?.texture
+        // Capture the BGRA8-converted processed buffer + texture for the mailbox store
+        // in the completion handler. The buffer and texture share one IOSurface.
+        // Tracker buffer is already BGRA8 (pool fused in Pass-4). (remove-natural-lane:
+        // no natural BGRA8 capture — the streaming natural lane is gone.)
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
         let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 
@@ -708,17 +696,14 @@ final class MetalPipeline: @unchecked Sendable {
                         pixels: trackerPixels, metadata: frameMeta),
                     stream: .tracker)
             }
-            // Update lane mailboxes. Delivery is BGRA8 for every lane and every
-            // surface type: the buffer mailboxes (natural/processed via Pass-7,
-            // tracker via the fused Pass-4 pool) AND the natural/processed
-            // texture mailboxes (`_latest*Bgra8Tex`, sharing the buffer's
-            // IOSurface). The 16F texture mailboxes are kept only as internal
-            // compute intermediates for calibration/diagnostic sampling — never
-            // delivered. Still capture (`captureImage` / `captureNaturalPicture`)
-            // reads the BGRA8 buffer mailboxes directly.
-            self._latestNaturalBuffer.store(naturalEightBitBuf ?? naturalBuf)
+            // Update lane mailboxes. The processed lane delivers BGRA8: the buffer
+            // mailbox (via Pass-7p) and the BGRA8 texture mailbox (sharing the
+            // buffer's IOSurface); tracker via the fused Pass-4 pool. The natural
+            // 16F texture mailbox is kept as an internal compute intermediate for
+            // calibration/diagnostic sampling — never delivered (remove-natural-lane).
+            // `captureImage` reads the processed BGRA8 buffer mailbox;
+            // `captureNaturalPicture` converts on demand via `gradeOneShot`.
             self._latestNaturalTex16F.store(naturalTexI)
-            if let nTex = naturalEightBitTex { self._latestNaturalBgra8Tex.store(nTex) }
             if logFirstAfterGate {
                 CameraKitLog.notice(
                     .metal, "[resume] first texture stored (t1c) — preview texture live")
@@ -858,31 +843,30 @@ final class MetalPipeline: @unchecked Sendable {
         fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
     }
 
-    /// Pre-seed the natural + processed preview mailboxes with blank pool
-    /// buffers so both lanes are non-nil immediately after `open()`.
+    /// Pre-seed the processed preview mailboxes (and the internal 16F natural
+    /// texture) with blank pool buffers so the processed lane is non-nil
+    /// immediately after `open()`.
     ///
-    /// Without this, `CameraEngine.currentTexture()` / `currentPixelBuffer(stream:)`
-    /// are nil on the first `open()` until a frame is encoded, so the Flutter
-    /// texture bridge registers id 0 and the natural lane stays black until a
-    /// close→open cycle (measurements 2026-05-20 §1, P2b). Mirrors the mailboxes
-    /// `encode()` writes: the RGBA16F texture (calibration sampling), the BGRA8
-    /// texture (bridge accessors), and the BGRA8 buffer (FlutterTexture). Sizes to
+    /// Without this, `CameraEngine.currentProcessedTexture()` /
+    /// `currentPixelBuffer(stream:)` are nil on the first `open()` until a frame is
+    /// encoded, so the Flutter texture bridge registers id 0 and the lane stays
+    /// black until a close→open cycle (measurements 2026-05-20 §1, P2b). Mirrors
+    /// the mailboxes `encode()` writes: the processed RGBA16F texture (diagnostic
+    /// sampling), the processed BGRA8 texture (bridge accessor) + buffer
+    /// (FlutterTexture), and the natural 16F texture (calibration sampling;
+    /// remove-natural-lane keeps only this natural surface). Sizes to
     /// `outputSize` so a seeded crop matches its frames. Idempotent and
     /// best-effort — a no-op once a frame has populated the mailboxes, and a pool
     /// miss simply leaves the mailbox nil (today's behavior). Fresh pool buffers
     /// are zero-filled, so the seeded frame is black, never uninitialized garbage.
     func seedPreviewMailboxes() {
         guard latestNaturalTex16F == nil else { return }
+        // Keep seeding the internal 16F natural texture — calibration samples it
+        // (remove-natural-lane). The natural BGRA8 streaming seed was removed.
         if let nat = try? texturePool.dequeuePoolTexture(
             pool: naturalPool, width: outputSize.width, height: outputSize.height)
         {
             _latestNaturalTex16F.store(nat.texture)
-        }
-        if let nat8 = try? texturePool.dequeueEightBitPoolTexture(
-            pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height)
-        {
-            _latestNaturalBgra8Tex.store(nat8.texture)
-            _latestNaturalBuffer.store(nat8.buffer)
         }
         if let proc = try? texturePool.dequeuePoolTexture(
             pool: processedPool, width: outputSize.width, height: outputSize.height)
@@ -1167,7 +1151,7 @@ extension MetalPipeline {
     }
 
     // Stage 06: pool-backed buffer accessors replace the removed single-buffer properties.
-    var latestNaturalBufferForTest: CVPixelBuffer? { latestNaturalBuffer }
+    // (remove-natural-lane: no natural streaming buffer seam.)
     var latestProcessedBufferForTest: CVPixelBuffer? { latestProcessedBuffer }
     var latestTrackerBufferForTest: CVPixelBuffer? { latestTrackerBuffer }
 
@@ -1183,8 +1167,9 @@ extension MetalPipeline {
     // Note: there is no separate eightBitTrackerPool — the tracker pool itself is
     // BGRA8 (fused into Pass-4). Use `trackerPoolForTest` to inspect tracker format.
 
-    func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
-        _latestNaturalBuffer.store(buffer)
+    func setLatestNaturalForTest(texture: MTLTexture) {
+        // remove-natural-lane: only the internal 16F natural texture survives (the
+        // calibration sampler input); there is no streaming natural buffer mailbox.
         _latestNaturalTex16F.store(texture)
     }
 

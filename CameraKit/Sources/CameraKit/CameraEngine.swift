@@ -127,8 +127,9 @@ public actor CameraEngine {
     nonisolated let sessionToken: ManagedAtomic<UInt64> = ManagedAtomic(0)
 
     // Bug 4 fix: previewTex accessors forward live to MetalPipeline mailboxes
-    // (`latestNaturalBgra8Tex` / `latestProcessedBgra8Tex`) — which the pipeline
-    // rewrites every frame. The previous capture-once snapshot pattern sat on whichever
+    // (`latestProcessedBgra8Tex`) — which the pipeline rewrites every frame.
+    // (remove-natural-lane: the natural BGRA8 preview texture was removed.)
+    // The previous capture-once snapshot pattern sat on whichever
     // pool buffer was dequeued at open() time and froze whenever pool rotation
     // moved past it (typical after any transient back-pressure). Tracker tex
     // already followed this live-forward pattern (line ~565).
@@ -485,7 +486,6 @@ public actor CameraEngine {
         return SessionCapabilities(
             supportedSizes: supportedSizes,
             previewTextureId: 0,  // stub: texture IDs arrive Stage 05
-            naturalTextureId: 0,  // stub: texture IDs arrive Stage 05
             activeCaptureResolution: captureSize,
             activeCropRegion: activeCropRegion,
             // Lane-buffer format (what `currentPixelBuffer(stream:)` returns),
@@ -825,20 +825,6 @@ public actor CameraEngine {
         return await device.dumpAllFormats()
     }
 
-    /// Exposes the live natural-lane texture for the MTKView draw pass.
-    ///
-    /// `.bgra8Unorm` — the same IOSurface delivered by
-    /// `currentPixelBuffer(stream: .natural)`, exposed as an `MTLTexture` for
-    /// the preview. One 8-bit surface per lane; the camera is 8-bit-locked, so
-    /// there is no precision to preserve at the delivery boundary (RGBA16F
-    /// survives only as an internal compute intermediate for the Metal math /
-    /// calibration sampling). Forwards to `MetalPipeline.latestNaturalBgra8Tex`
-    /// (single writer: delivery queue). MUST be re-evaluated each draw; do not
-    /// cache (Bug 4: pool rotation strands cached pointers).
-    public nonisolated func currentTexture() -> (any MTLTexture)? {
-        _metalPipeline.latest?.latestNaturalBgra8Tex
-    }
-
     /// Exposes the live processed-lane texture for the right-half MTKView draw.
     ///
     /// `.bgra8Unorm` — see `currentTexture()`. Same live-mailbox contract;
@@ -874,15 +860,6 @@ public actor CameraEngine {
         case .primary: return _metalPipeline.latest?.latestProcessedBuffer
         case .tracker: return _metalPipeline.latest?.latestTrackerBuffer
         }
-    }
-
-    /// The latest natural (un-graded) BGRA8 buffer.
-    ///
-    /// `.natural` is no longer a subscribable ``StreamId`` lane, but the natural
-    /// rendering internals remain (preview, calibration). This accessor exposes
-    /// that buffer until `remove-natural-lane` cuts the natural pipeline.
-    public nonisolated func currentNaturalPixelBuffer() -> CVPixelBuffer? {
-        _metalPipeline.latest?.latestNaturalBuffer
     }
 
     /// Returns a lease-holding ``FrameTransport/PixelHandle`` for the lane's

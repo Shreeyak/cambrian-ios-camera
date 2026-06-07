@@ -342,15 +342,11 @@ public func setResolution(size: Size) async throws {
 ⋮----
 public func dumpDeviceFormats() async -> [String] {
 ⋮----
-public nonisolated func currentTexture() -> (any MTLTexture)? {
-⋮----
 public nonisolated func currentProcessedTexture() -> (any MTLTexture)? {
 ⋮----
 public nonisolated func currentTrackerTexture() -> (any MTLTexture)? {
 ⋮----
 public nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? {
-⋮----
-public nonisolated func currentNaturalPixelBuffer() -> CVPixelBuffer? {
 ⋮----
 public nonisolated func lockedPixels(stream: StreamId) -> PixelHandle? {
 ⋮----
@@ -807,7 +803,7 @@ public init(x: Int, y: Int, width: Int, height: Int) {
 public struct SessionCapabilities: Sendable, Hashable {
 public let supportedSizes: [Size]
 public let previewTextureId: Int
-public let naturalTextureId: Int
+⋮----
 public let activeCaptureResolution: Size
 public let activeCropRegion: Rect
 ⋮----
@@ -1346,17 +1342,13 @@ var latestProcessedTex16F: MTLTexture? { _latestProcessedTex16F.latest }
 ⋮----
 var latestTrackerTex: MTLTexture? { _latestTrackerTex.latest }
 ⋮----
-private let _latestNaturalBgra8Tex = Mailbox<MTLTexture>()
 private let _latestProcessedBgra8Tex = Mailbox<MTLTexture>()
 ⋮----
-var latestNaturalBgra8Tex: MTLTexture? { _latestNaturalBgra8Tex.latest }
 var latestProcessedBgra8Tex: MTLTexture? { _latestProcessedBgra8Tex.latest }
 ⋮----
-private let _latestNaturalBuffer = Mailbox<CVPixelBuffer>()
 private let _latestProcessedBuffer = Mailbox<CVPixelBuffer>()
 private let _latestTrackerBuffer = Mailbox<CVPixelBuffer>()
 ⋮----
-var latestNaturalBuffer: CVPixelBuffer? { _latestNaturalBuffer.latest }
 var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
 var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 ⋮----
@@ -1460,10 +1452,7 @@ let cbcrH = enc.cbcrTex.height
 let tg5 = MTLSize(width: 16, height: 16, depth: 1)
 let groups5 = MTLSize(
 ⋮----
-var naturalEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
 var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-⋮----
-let pass7n = commandBuffer.makeComputeCommandEncoder()!
 ⋮----
 let pass7p = commandBuffer.makeComputeCommandEncoder()!
 ⋮----
@@ -1471,7 +1460,6 @@ let logFirstAfterGate = logNextCommit
 ⋮----
 let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 let fn = frameNumber
-let naturalBuf = naturalPair.buffer
 let processedBuf = processedPair.buffer
 let trackerBuf = trackerPair?.buffer
 let trackerTex = trackerPair?.texture
@@ -1479,8 +1467,6 @@ let consumers = self.consumers
 ⋮----
 let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
 ⋮----
-let naturalEightBitBuf: CVPixelBuffer? = naturalEightBitPair?.buffer
-let naturalEightBitTex: MTLTexture? = naturalEightBitPair?.texture
 let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
 let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 ⋮----
@@ -1573,7 +1559,6 @@ var sum: Float = 0
 ⋮----
 func setGateForTest(_ open: Bool) {
 ⋮----
-var latestNaturalBufferForTest: CVPixelBuffer? { latestNaturalBuffer }
 var latestProcessedBufferForTest: CVPixelBuffer? { latestProcessedBuffer }
 var latestTrackerBufferForTest: CVPixelBuffer? { latestTrackerBuffer }
 ⋮----
@@ -1586,7 +1571,7 @@ var trackerSizeForTest: Size { trackerSize }
 var eightBitNaturalPoolForTest: CVPixelBufferPool { eightBitNaturalPool }
 var eightBitProcessedPoolForTest: CVPixelBufferPool { eightBitProcessedPool }
 ⋮----
-func setLatestNaturalForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
+func setLatestNaturalForTest(texture: MTLTexture) {
 ⋮----
 func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
 ⋮----

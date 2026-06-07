@@ -29,13 +29,24 @@ Remove Pass-7n, `naturalPool`/`eightBitNaturalPool` (the natural BGRA8 path),
 `SessionCapabilities.naturalTextureId`. Keep Pass-1 and `latestNaturalTex16F`
 (processed derives from it; calibration samples it).
 
-### D2. `captureNaturalPicture` → on-demand 16F→BGRA8 readback
-Re-point still capture to convert the current 16F natural texture to BGRA8 at
-capture time (a one-shot encode, not per-frame), preserving the public API and the
-existing "no natural frame yet" error gating. This is what makes the cut a genuine
-saving: the BGRA8 conversion happens ~once per still, not 30×/s.
-- *Alternative considered:* keep a low-rate natural BGRA8 mailbox — rejected; it
-  reintroduces a per-frame (or near) pass and defeats the efficiency goal.
+### D2. `captureNaturalPicture` → on-demand still (IMPLEMENTED: ISP one-shot)
+The natural still is produced on demand, not from a per-frame streaming buffer —
+so cutting the streaming lane saves the per-frame Pass-7n cost regardless.
+
+**Implemented (user Decision, 2026-06-08): keep the existing ISP one-shot path.**
+`captureNaturalPicture` shoots `session.capturePhoto()` (full-sensor) and runs
+`MetalPipeline.gradeOneShot` (Pass-1 crop + Pass-2 grade + BGRA8 convert) at
+capture time — full resolution, public API + running-session gating unchanged.
+This retains `eightBitNaturalPool` + `gradeOneShot` (one-shot only, no per-frame
+cost). Note the still is GRADED (matches the preview), tagged `laneTag:"natural"`.
+
+- *Alternative considered & rejected:* convert the preserved internal 16F natural
+  texture (`latestNaturalTex16F`, Pass-1 output, UNGRADED) to BGRA8 on demand.
+  This matches the literal "natural" (ungraded) semantics and would let us delete
+  `gradeOneShot`/`eightBitNaturalPool`, but it caps the still at output/preview
+  resolution (~1440²) vs. full sensor. The user chose full-res over ungraded.
+- *Alternative considered & rejected:* keep a low-rate natural BGRA8 mailbox —
+  reintroduces a near-per-frame pass and defeats the efficiency goal.
 
 ### D3. Sequence after `frame-delivery-contract`
 `FrameSet.natural` is removed as part of the `Frame` migration; this change lands

@@ -40,13 +40,12 @@ struct Stage06Tests {
 
     // MARK: - P2b — first-open preview seeding (measurements 2026-05-20 §1)
 
-    /// `seedPreviewMailboxes()` makes the natural + processed lanes non-nil
-    /// before the first frame is encoded.
+    /// `seedPreviewMailboxes()` makes the processed lane non-nil before the first
+    /// frame is encoded, and seeds the internal 16F natural texture for calibration.
     ///
-    /// Without it, `currentNaturalPixelBuffer()` / `currentTexture()` are nil on
-    /// first open and the raw lane stays black (texture id 0) until a close→open
-    /// cycle. Seeds the BGRA8 buffer + BGRA8 texture (Flutter bridge) and the
-    /// RGBA16F texture (calibration).
+    /// remove-natural-lane: the streaming natural BGRA8 buffer/texture mailboxes are
+    /// gone; only the processed BGRA8 lane (Flutter bridge) and the 16F natural
+    /// texture (calibration sampler) are seeded.
     @Test func seedPreviewMailboxesPopulatesLanesBeforeFirstFrame() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let size = Size(width: 256, height: 256)
@@ -54,22 +53,19 @@ struct Stage06Tests {
         let pipeline = try MetalPipeline(
             device: device, captureSize: size,
             gateOpen: true, consumers: ConsumerRegistry())
-        #expect(pipeline.latestNaturalBuffer == nil, "precondition: nil before any frame")
-        #expect(pipeline.latestProcessedBuffer == nil)
+        #expect(pipeline.latestProcessedBuffer == nil, "precondition: nil before any frame")
         pipeline.seedPreviewMailboxes()
-        #expect(pipeline.latestNaturalBuffer != nil, "natural lane seeded on open")
         #expect(pipeline.latestProcessedBuffer != nil, "processed lane seeded on open")
-        #expect(pipeline.latestNaturalBgra8Tex != nil, "bridge BGRA8 texture seeded")
         #expect(pipeline.latestProcessedBgra8Tex != nil)
         #expect(pipeline.latestNaturalTex16F != nil, "calibration RGBA16F texture seeded")
         #expect(pipeline.latestProcessedTex16F != nil)
 
         // The bridge buffer must be BGRA8 (the unconditional Flutter delivery format).
-        let nat8 = try #require(pipeline.latestNaturalBuffer)
+        let proc8 = try #require(pipeline.latestProcessedBuffer)
         #expect(
-            CVPixelBufferGetPixelFormatType(nat8) == kCVPixelFormatType_32BGRA,
+            CVPixelBufferGetPixelFormatType(proc8) == kCVPixelFormatType_32BGRA,
             "BGRA8 lane must seed a BGRA8 buffer for the Flutter bridge")
-        #expect(CVPixelBufferGetIOSurface(nat8) != nil, "seeded buffer is IOSurface-backed")
+        #expect(CVPixelBufferGetIOSurface(proc8) != nil, "seeded buffer is IOSurface-backed")
     }
 
     /// Seeding is idempotent: a second call must not replace a live mailbox.
@@ -80,9 +76,9 @@ struct Stage06Tests {
             device: device, captureSize: size,
             gateOpen: true, consumers: ConsumerRegistry())
         pipeline.seedPreviewMailboxes()
-        let firstTex = try #require(pipeline.latestNaturalBgra8Tex)
+        let firstTex = try #require(pipeline.latestProcessedBgra8Tex)
         pipeline.seedPreviewMailboxes()  // guard: latestNaturalTex16F != nil → no-op
-        let secondTex = try #require(pipeline.latestNaturalBgra8Tex)
+        let secondTex = try #require(pipeline.latestProcessedBgra8Tex)
         #expect(firstTex === secondTex, "second seed must not replace the live texture")
     }
 

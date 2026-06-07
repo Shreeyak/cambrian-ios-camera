@@ -123,7 +123,7 @@ nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?
 
 Returns the latest IOSurface-backed `CVPixelBuffer` for the requested lane, or `nil` if no frame has been delivered yet (or post-pause/close). **Format:** All three lanes return `kCVPixelFormatType_32BGRA` (BGRA8).
 
-- `.natural` / `.processed`: Pass-7 RGBA16F→BGRA8 conversion.
+- `.primary`: Pass-7 RGBA16F→BGRA8 conversion.
 - `.tracker`: fused — `trackerPool` is BGRA8; Pass-4 writes BGRA8 directly.
 
 ### currentProcessedTexture()
@@ -158,14 +158,6 @@ func currentStateSnapshot() -> SessionState
 
 Returns the engine's actual current `SessionState` (the state machine's live value). A fresh point-in-time read — NOT a replay of a past event. Lets a late observer (e.g. a Flutter preview widget that subscribes after `open()` already published `.streaming`) learn the true current state instead of waiting for the next transition. `.closed` before `open()`.
 
-### currentTexture()
-
-```swift
-nonisolated func currentTexture() -> (any MTLTexture)?
-```
-
-Exposes the live natural-lane texture for the MTKView draw pass. `.bgra8Unorm` — the same IOSurface delivered by `currentPixelBuffer(stream:.natural)`, exposed as an `MTLTexture` for the preview. One 8-bit surface per lane; the camera is 8-bit-locked, so there is no precision to preserve at the delivery boundary (RGBA16F survives only as an internal compute intermediate for the Metal math / calibration sampling). Forwards to `MetalPipeline.latestNaturalBgra8Tex` (single writer: delivery queue). MUST be re-evaluated each draw; do not cache (Bug 4: pool rotation strands cached pointers).
-
 ### currentTrackerTexture()
 
 ```swift
@@ -198,19 +190,19 @@ func frameResultStream() -> AsyncStream<FrameResult>
 
 Sensor-metadata heartbeat at `frameRateTargetFPS / frameResultHeartbeatIntervalFrames` Hz.
 
-### getNativePipelineHandle()
-
-```swift
-func getNativePipelineHandle() -> UInt64?
-```
-
-Returns the raw C++ PixelSinkPool pointer as UInt64 while holding the engine actor. Returns nil when the engine is not open.
-
 ### getPersistedProcessingParameters()
 
 ```swift
 nonisolated func getPersistedProcessingParameters() -> ProcessingParameters?
 ```
+
+### lockedPixels(stream:)
+
+```swift
+nonisolated func lockedPixels(stream: StreamId) -> PixelHandle?
+```
+
+Returns a lease-holding ``FrameTransport/PixelHandle`` for the lane's latest buffer. The handle keeps the IOSurface read lock held for its lifetime, so a consumer may retain the pixels across a bounded pipeline hold. Returns nil when no buffer is available or the lock cannot be taken.
 
 ### open(configuration:)
 

@@ -19,6 +19,7 @@ in the table below to find its file.
 | `CameraEngine` | [camera-engine.md](camera-engine.md) |
 | `CameraEngineProtocol` | [camera-engine.md](camera-engine.md) |
 | `CameraError` | [errors.md](errors.md) |
+| `CameraFrameMetadata` | [frames.md](frames.md) |
 | `CameraKitLog` | [logging.md](logging.md) |
 | `CameraMode` | [camera-settings.md](camera-settings.md) |
 | `CameraPermissionStatus` | [permissions.md](permissions.md) |
@@ -26,16 +27,15 @@ in the table below to find its file.
 | `CameraSettings` | [camera-settings.md](camera-settings.md) |
 | `CaptureMetadata` | [frames.md](frames.md) |
 | `ConsumerRegistry` | [consumers.md](consumers.md) |
-| `ConsumerToken` | [consumers.md](consumers.md) |
 | `EngineError` | [errors.md](errors.md) |
 | `ErrorCode` | [errors.md](errors.md) |
+| `ExposureState` | [frames.md](frames.md) |
+| `FocusState` | [frames.md](frames.md) |
 | `FrameDeliveryStats` | [frames.md](frames.md) |
 | `FrameResult` | [frames.md](frames.md) |
-| `FrameSet` | [frames.md](frames.md) |
 | `MetalError` | [errors.md](errors.md) |
 | `OpenConfiguration` | [configuration.md](configuration.md) |
 | `PhotosDestination` | [recording.md](recording.md) |
-| `PixelSinkCallbacks` | [consumers.md](consumers.md) |
 | `ProcessingMetadata` | [frames.md](frames.md) |
 | `ProcessingParameters` | [image-processing.md](image-processing.md) |
 | `RecordingError` | [errors.md](errors.md) |
@@ -51,10 +51,10 @@ in the table below to find its file.
 | `StillCaptureOutput` | [stills.md](stills.md) |
 | `StreamConfiguration` | [configuration.md](configuration.md) |
 | `StreamId` | [session-state.md](session-state.md) |
-| `TrackerQuality` | [frames.md](frames.md) |
 | `WhiteBalanceGains` | [calibration.md](calibration.md) |
 | `WhiteBalanceMode` | [camera-settings.md](camera-settings.md) |
 | `WhiteBalancePreset` | [camera-settings.md](camera-settings.md) |
+| `WhiteBalanceState` | [frames.md](frames.md) |
 
 ## SECTION: BY CLUSTER
 
@@ -67,10 +67,10 @@ in the table below to find its file.
 - [Recording](recording.md): `RecordingOptions`, `RecordingStart`, `RecordingState`, `PhotosDestination`
 - [Stills](stills.md): `StillCaptureOutput`
 - [Session State](session-state.md): `SessionState`, `StreamId`
-- [Frames](frames.md): `FrameResult`, `FrameSet`, `CaptureMetadata`, `ProcessingMetadata`, `FrameDeliveryStats`, `TrackerQuality`
+- [Frames](frames.md): `FrameResult`, `CameraFrameMetadata`, `FocusState`, `WhiteBalanceState`, `ExposureState`, `CaptureMetadata`, `ProcessingMetadata`, `FrameDeliveryStats`
 - [Errors](errors.md): `CameraError`, `ErrorCode`, `EngineError`, `MetalError`, `RecordingError`, `StillCaptureError`
 - [Permissions](permissions.md): `CameraPermissionStatus`
-- [Consumers](consumers.md): `ConsumerRegistry`, `ConsumerToken`, `PixelSinkCallbacks`
+- [Consumers](consumers.md): `ConsumerRegistry`
 - [Logging](logging.md): `CameraKitLog`
 
 ## SECTION: NOT IN THIS REFERENCE

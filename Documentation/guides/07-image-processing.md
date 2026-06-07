@@ -23,11 +23,10 @@ await engine.setProcessingParams(params)
 
 ## Processed lane only
 
-Processing affects **only** the processed lane. The natural lane — preview
-(`CameraEngine.currentTexture()`) and
-`CameraEngine.captureNaturalPicture(outputURL:photosDestination:)` — is never
-altered. To show or capture adjustments, use the processed lane
-([04-preview](04-preview.md), [05-capturing-stills-and-video](05-capturing-stills-and-video.md)).
+Processing affects **only** the processed lane. The natural still
+(`CameraEngine.captureNaturalPicture(outputURL:photosDestination:)`) is
+captured from the un-graded sensor image. To show or capture adjustments, use
+the processed lane ([04-preview](04-preview.md), [05-capturing-stills-and-video](05-capturing-stills-and-video.md)).
 
 ## The identity baseline
 

@@ -10,7 +10,7 @@
     "recording": ["RecordingOptions", "RecordingStart", "RecordingState", "PhotosDestination"],
     "stills": ["StillCaptureOutput"],
     "session-state": ["SessionState", "StreamId"],
-    "frames": ["FrameResult", "FrameSet", "CaptureMetadata", "ProcessingMetadata", "FrameDeliveryStats", "TrackerQuality"],
+    "frames": ["FrameResult", "CameraFrameMetadata", "FocusState", "WhiteBalanceState", "ExposureState", "CaptureMetadata", "ProcessingMetadata", "FrameDeliveryStats"],
     "errors": ["CameraError", "ErrorCode", "EngineError", "MetalError", "RecordingError", "StillCaptureError"],
     "permissions": ["CameraPermissionStatus"],
     "consumers": ["ConsumerRegistry", "ConsumerToken", "PixelSinkCallbacks"],

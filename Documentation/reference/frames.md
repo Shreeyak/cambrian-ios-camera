@@ -10,11 +10,19 @@ struct FrameResult
 
 Sensor metadata delivered at constants.md#FRAME_RESULT_HEARTBEAT_HZ.
 
-### init(iso:exposureTimeNs:focusDistance:wbGainR:wbGainG:wbGainB:)
+### init(iso:exposureTimeNs:focusDistance:wbGainR:wbGainG:wbGainB:diagnosticsJSON:)
 
 ```swift
-init(iso: Int? = nil, exposureTimeNs: Int64? = nil, focusDistance: Double? = nil, wbGainR: Double? = nil, wbGainG: Double? = nil, wbGainB: Double? = nil)
+init(iso: Int? = nil, exposureTimeNs: Int64? = nil, focusDistance: Double? = nil, wbGainR: Double? = nil, wbGainG: Double? = nil, wbGainB: Double? = nil, diagnosticsJSON: String? = nil)
 ```
+
+### diagnosticsJSON
+
+```swift
+var diagnosticsJSON: String?
+```
+
+Heavyweight, debug-only diagnostics as a JSON string (frame-metadata-signals). Carries detail a consumer does NOT branch on — full AF/WB/AE convergence state and the grade params (brightness/contrast/saturation/gamma/cropRegion/ white-balance gains, formerly `ProcessingMetadata`). It is NOT a control surface: anything load-bearing must be promoted to a typed field (on `CameraFrameMetadata` for per-frame decisions). Shape is intentionally unstable — debug grade, not a contract.
 
 ### exposureTimeNs
 
@@ -52,87 +60,169 @@ var wbGainG: Double?
 var wbGainR: Double?
 ```
 
-## FrameSet
+## CameraFrameMetadata
 
 *Struct*
 
 ```swift
-struct FrameSet
+struct CameraFrameMetadata
 ```
 
-Published to subscribed lanes via `ConsumerRegistry.yield(_:stream:)`. # Lifetime contract Consumers must not retain a `FrameSet` (or its `natural` / `processed` / `tracker` `CVPixelBuffer`s) across an `await` or beyond the next stream yield. The buffers are pool-backed (POOL_CAP_RULE); retention exhausts the pool, starves frame delivery, and surfaces three hops away as `frameStall` / watchdog recovery — root cause invisible from the symptom. Snapshot any fields you need (`frameNumber`, `captureTime`, `capture`, `processing`, `blurScore`, `trackerQuality`) into your own storage before yielding control. If you need the pixel data itself, copy it under `CVPixelBufferLockBaseAddress` into your own backing store.
+The camera's per-frame metadata, carried on every delivered ``Frame``. Carries the **typed decision signals** a consumer branches on — convergence state derived from the real device (`DeviceStateSnapshot` / KVO), never a zero-valued placeholder. Heavyweight debug detail (full AF/WB/AE state, grade params) is NOT here — it rides the low-rate `frameResultStream()` JSON payload (`FrameResult.diagnosticsJSON`). Rule (frame-metadata-signals): anything a consumer makes a control decision on is a typed member here. Consumers downcast `Frame.metadata` to this type at the camera-source boundary, then read `settled` (and/or the per-axis states) to gate decisions such as a first-writer-wins mosaic seed.
 
-### init(frameNumber:captureTime:natural:processed:tracker:capture:processing:blurScore:trackerQuality:)
+### init(focusState:wbState:exposureState:)
 
 ```swift
-init(frameNumber: UInt64, captureTime: CMTime, natural: CVPixelBuffer, processed: CVPixelBuffer, tracker: CVPixelBuffer, capture: CaptureMetadata, processing: ProcessingMetadata, blurScore: Float, trackerQuality: TrackerQuality)
+init(focusState: FocusState = .unknown, wbState: WhiteBalanceState = .unknown, exposureState: ExposureState = .unknown)
 ```
 
-### blurScore
+Designated init. `settled` is computed as the conjunction of the three axes; it is never set independently. Defaults are `.unknown` (pre-snapshot fail-safe: `settled == false`, so an unconverged-or-unknown frame never seeds).
+
+### exposureState
 
 ```swift
-let blurScore: Float
+let exposureState: ExposureState
 ```
 
-### capture
+### focusState
 
 ```swift
-let capture: CaptureMetadata
+let focusState: FocusState
 ```
 
-### captureTime
+### settled
 
 ```swift
-let captureTime: CMTime
+let settled: Bool
 ```
 
-### frameNumber
+`true` iff all three axes have converged. `AE converged && WB settled && focus converged`. A single Bool would hide which axis is unconverged, so the per-axis fields below are also exposed for finer gating.
+
+### wbState
 
 ```swift
-let frameNumber: UInt64
+let wbState: WhiteBalanceState
 ```
 
-### natural
+## FocusState
+
+*Enum*
 
 ```swift
-let natural: CVPixelBuffer
+enum FocusState
 ```
 
-### processed
+Lens convergence state for the frame.
+
+### init(rawValue:)
 
 ```swift
-let processed: CVPixelBuffer
+init?(rawValue: String)
 ```
 
-### processing
+### FocusState.adjusting
 
 ```swift
-let processing: ProcessingMetadata
+case adjusting
 ```
 
-### tracker
+Mid-autofocus — the lens is still moving.
+
+### FocusState.converged
 
 ```swift
-let tracker: CVPixelBuffer
+case converged
 ```
 
-### trackerQuality
+Lens is locked or has finished adjusting.
+
+### FocusState.unknown
 
 ```swift
-let trackerQuality: TrackerQuality
+case unknown
 ```
 
-### hash(into:)
+No device snapshot was available when the frame was built.
+
+## WhiteBalanceState
+
+*Enum*
 
 ```swift
-func hash(into hasher: inout Hasher)
+enum WhiteBalanceState
 ```
 
-### ==(_:_:)
+White-balance convergence state for the frame.
+
+### init(rawValue:)
 
 ```swift
-static func == (lhs: FrameSet, rhs: FrameSet) -> Bool
+init?(rawValue: String)
 ```
+
+### WhiteBalanceState.adjusting
+
+```swift
+case adjusting
+```
+
+White balance is still adjusting.
+
+### WhiteBalanceState.settled
+
+```swift
+case settled
+```
+
+White balance has settled (locked, manual, or finished adjusting).
+
+### WhiteBalanceState.unknown
+
+```swift
+case unknown
+```
+
+No device snapshot was available when the frame was built.
+
+## ExposureState
+
+*Enum*
+
+```swift
+enum ExposureState
+```
+
+Auto-exposure convergence state for the frame.
+
+### init(rawValue:)
+
+```swift
+init?(rawValue: String)
+```
+
+### ExposureState.adjusting
+
+```swift
+case adjusting
+```
+
+Auto-exposure is still searching.
+
+### ExposureState.converged
+
+```swift
+case converged
+```
+
+Exposure is locked or has finished converging.
+
+### ExposureState.unknown
+
+```swift
+case unknown
+```
+
+No device snapshot was available when the frame was built.
 
 ## CaptureMetadata
 
@@ -302,36 +392,4 @@ let poolExhaustion: UInt64
 
 ```swift
 let producedByLane: [StreamId : UInt64]
-```
-
-## TrackerQuality
-
-*Enum*
-
-```swift
-enum TrackerQuality
-```
-
-### init(rawValue:)
-
-```swift
-init?(rawValue: String)
-```
-
-### TrackerQuality.degraded
-
-```swift
-case degraded
-```
-
-### TrackerQuality.good
-
-```swift
-case good
-```
-
-### TrackerQuality.invalid
-
-```swift
-case invalid
 ```

@@ -58,10 +58,10 @@ Target height (px) of the downsampled `tracker` lane. The tracker width is deriv
 struct SessionCapabilities
 ```
 
-### init(supportedSizes:previewTextureId:naturalTextureId:activeCaptureResolution:activeCropRegion:streamPixelFormat:isoRange:exposureDurationRangeNs:focusRange:zoomRange:evCompensationRange:)
+### init(supportedSizes:previewTextureId:activeCaptureResolution:activeCropRegion:streamPixelFormat:isoRange:exposureDurationRangeNs:focusRange:zoomRange:evCompensationRange:)
 
 ```swift
-init(supportedSizes: [Size], previewTextureId: Int, naturalTextureId: Int, activeCaptureResolution: Size, activeCropRegion: Rect, streamPixelFormat: String, isoRange: ClosedRange<Float>, exposureDurationRangeNs: ClosedRange<Int64>, focusRange: ClosedRange<Double>, zoomRange: ClosedRange<Double>, evCompensationRange: ClosedRange<Float>)
+init(supportedSizes: [Size], previewTextureId: Int, activeCaptureResolution: Size, activeCropRegion: Rect, streamPixelFormat: String, isoRange: ClosedRange<Float>, exposureDurationRangeNs: ClosedRange<Int64>, focusRange: ClosedRange<Double>, zoomRange: ClosedRange<Double>, evCompensationRange: ClosedRange<Float>)
 ```
 
 ### activeCaptureResolution
@@ -104,12 +104,6 @@ Lens-position range — always `0.0...1.0` on iOS. `AVCaptureDevice.lensPosition
 let isoRange: ClosedRange<Float>
 ```
 
-### naturalTextureId
-
-```swift
-let naturalTextureId: Int
-```
-
 ### previewTextureId
 
 ```swift
@@ -122,7 +116,7 @@ let previewTextureId: Int
 let streamPixelFormat: String
 ```
 
-Always `"BGRA8"` (`kCVPixelFormatType_32BGRA`, `.bgra8Unorm`) — Apple's `CVMetalTextureCache`-canonical 32-bit RGBA-family format on iOS, and the single delivery format for every lane and every surface type. The **texture accessors** — `currentTexture()`, `currentProcessedTexture()`, `currentTrackerTexture()` — return the same BGRA8 IOSurface as the matching `currentPixelBuffer(stream:)`. RGBA16F survives only as an internal Metal-compute intermediate (the camera is 8-bit-locked, so float precision buys nothing at the boundary). Note this is **not** the camera *source* format (YUV `420f`, converted by MetalPipeline Pass-1).
+Always `"BGRA8"` (`kCVPixelFormatType_32BGRA`, `.bgra8Unorm`) — Apple's `CVMetalTextureCache`-canonical 32-bit RGBA-family format on iOS, and the single delivery format for every lane and every surface type. The **texture accessors** — `currentProcessedTexture()`, `currentTrackerTexture()` — return the same BGRA8 IOSurface as the matching `currentPixelBuffer(stream:)`. RGBA16F survives only as an internal Metal-compute intermediate (the camera is 8-bit-locked, so float precision buys nothing at the boundary). Note this is **not** the camera *source* format (YUV `420f`, converted by MetalPipeline Pass-1).
 
 ### supportedSizes
 

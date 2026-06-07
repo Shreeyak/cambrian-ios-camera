@@ -410,7 +410,7 @@ case alreadyInFlight
 case bufferUnavailable
 ```
 
-`captureNaturalPicture` was called before any natural-lane frame reached the pipeline's mailbox. Engine is open but `MetalPipeline.latestNaturalBuffer` is `nil` — caller raced the first sample-buffer-delegate fire. Try again after the first frame arrives. Distinct from `metalReadbackFailed`, which covers GPU-readback failures on the processed lane (vImage, CGImage build, IOSurface lock).
+A still capture had no source buffer available. For `captureImage`, the processed-lane mailbox is `nil` (caller raced the first sample-buffer-delegate fire). For `captureNaturalPicture` (remove-natural-lane), the ISP one-shot path requires a running session — it is surfaced when capture is attempted while paused. Try again once frames are flowing. Distinct from `metalReadbackFailed`, which covers GPU-readback failures (vImage, CGImage build, IOSurface lock).
 
 ### StillCaptureError.fileWriteFailed(_:)
 

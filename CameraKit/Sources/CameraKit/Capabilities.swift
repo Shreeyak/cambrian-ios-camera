@@ -31,7 +31,9 @@ public struct Rect: Sendable, Hashable {
 public struct SessionCapabilities: Sendable, Hashable {
     public let supportedSizes: [Size]
     public let previewTextureId: Int
-    public let naturalTextureId: Int
+    // remove-natural-lane: `naturalTextureId` was removed with the streaming
+    // natural lane. The Flutter-facing Pigeon field is dropped in
+    // `flutter-single-preview`.
     public let activeCaptureResolution: Size
     public let activeCropRegion: Rect
     /// Pixel format string of the *lane buffer* returned by
@@ -41,7 +43,7 @@ public struct SessionCapabilities: Sendable, Hashable {
     /// Always `"BGRA8"` (`kCVPixelFormatType_32BGRA`, `.bgra8Unorm`) — Apple's
     /// `CVMetalTextureCache`-canonical 32-bit RGBA-family format on iOS, and the
     /// single delivery format for every lane and every surface type. The
-    /// **texture accessors** — `currentTexture()`, `currentProcessedTexture()`,
+    /// **texture accessors** — `currentProcessedTexture()`,
     /// `currentTrackerTexture()` — return the same BGRA8 IOSurface as the
     /// matching `currentPixelBuffer(stream:)`. RGBA16F survives only as an
     /// internal Metal-compute intermediate (the camera is 8-bit-locked, so
@@ -70,7 +72,6 @@ public struct SessionCapabilities: Sendable, Hashable {
     public init(
         supportedSizes: [Size],
         previewTextureId: Int,
-        naturalTextureId: Int,
         activeCaptureResolution: Size,
         activeCropRegion: Rect,
         streamPixelFormat: String,
@@ -82,7 +83,6 @@ public struct SessionCapabilities: Sendable, Hashable {
     ) {
         self.supportedSizes = supportedSizes
         self.previewTextureId = previewTextureId
-        self.naturalTextureId = naturalTextureId
         self.activeCaptureResolution = activeCaptureResolution
         self.activeCropRegion = activeCropRegion
         self.streamPixelFormat = streamPixelFormat

@@ -28,7 +28,7 @@ struct Stage04Tests {
         let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
         try fillBufferUniform(nBuf, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
-        pipeline.setLatestNaturalForTest(buffer: nBuf, texture: nTex)
+        pipeline.setLatestNaturalForTest(texture: nTex)
 
         // Dequeue a processed buffer to receive the output.
         let (pBuf, pTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
@@ -73,7 +73,7 @@ struct Stage04Tests {
         let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
         try fillBufferUniform(nBuf, r: 0.75, g: 0.75, b: 0.75, a: 1.0)
-        pipeline.setLatestNaturalForTest(buffer: nBuf, texture: nTex)
+        pipeline.setLatestNaturalForTest(texture: nTex)
 
         let (pBuf, pTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.processedPoolForTest, width: size.width, height: size.height)

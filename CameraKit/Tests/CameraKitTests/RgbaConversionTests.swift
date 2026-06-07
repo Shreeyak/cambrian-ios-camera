@@ -147,8 +147,8 @@ struct RgbaConversionPipelinePoolTests {
 @Suite("RGBA8 conversion — mailbox format end-to-end")
 struct RgbaConversionMailboxFormatTests {
 
-    @Test("latest*Buffer is BGRA8 for natural and processed (conversion is unconditional)")
-    func naturalProcessedAreBgra8() throws {
+    @Test("latestProcessedBuffer is BGRA8 (conversion is unconditional)")
+    func processedIsBgra8() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -168,13 +168,11 @@ struct RgbaConversionMailboxFormatTests {
         // Deterministic — no sleep.
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
-        guard let natural = pipeline.latestNaturalBufferForTest,
-            let processed = pipeline.latestProcessedBufferForTest
-        else {
-            Issue.record("natural/processed mailboxes not populated")
+        // remove-natural-lane: only the processed streaming buffer remains.
+        guard let processed = pipeline.latestProcessedBufferForTest else {
+            Issue.record("processed mailbox not populated")
             return
         }
-        #expect(CVPixelBufferGetPixelFormatType(natural) == kCVPixelFormatType_32BGRA)
         #expect(CVPixelBufferGetPixelFormatType(processed) == kCVPixelFormatType_32BGRA)
     }
 
@@ -206,12 +204,11 @@ struct RgbaConversionMailboxFormatTests {
         #expect(pipeline.latestProcessedTex16F?.pixelFormat == .rgba16Float)
     }
 
-    /// The natural/processed preview textures (`currentTexture()` /
-    /// `currentProcessedTexture()` read these) are `.bgra8Unorm`, sharing the
-    /// matching lane buffer's surface — one BGRA8 surface per lane delivered as
-    /// both a `CVPixelBuffer` and an `MTLTexture` (the old texture/buffer
-    /// format asymmetry is gone).
-    @Test("Preview lane textures are .bgra8Unorm over the matching lane buffer")
+    /// The processed preview texture (`currentProcessedTexture()` reads it) is
+    /// `.bgra8Unorm`, sharing the processed lane buffer's surface — one BGRA8
+    /// surface delivered as both a `CVPixelBuffer` and an `MTLTexture`.
+    /// (remove-natural-lane: the natural preview texture/buffer were removed.)
+    @Test("Processed preview texture is .bgra8Unorm over the processed lane buffer")
     func previewTexturesAreBgra8() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
@@ -228,23 +225,15 @@ struct RgbaConversionMailboxFormatTests {
         try pipeline.encode(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
-        guard let natTex = pipeline.latestNaturalBgra8Tex,
-            let procTex = pipeline.latestProcessedBgra8Tex,
-            let natBuf = pipeline.latestNaturalBufferForTest,
+        guard let procTex = pipeline.latestProcessedBgra8Tex,
             let procBuf = pipeline.latestProcessedBufferForTest
         else {
             Issue.record("BGRA8 texture/buffer mailboxes not populated")
             return
         }
-        #expect(natTex.pixelFormat == .bgra8Unorm)
         #expect(procTex.pixelFormat == .bgra8Unorm)
         // One surface per lane: the texture and the delivered buffer must wrap
-        // the *same* IOSurface (not merely matching dimensions). This is the
-        // load-bearing Task-3 claim — a lane is one BGRA8 surface exposed two
-        // ways.
-        #expect(
-            sameIOSurface(natBuf, natTex),
-            "natural texture + buffer must share one IOSurface")
+        // the *same* IOSurface (not merely matching dimensions).
         #expect(
             sameIOSurface(procBuf, procTex),
             "processed texture + buffer must share one IOSurface")
@@ -538,39 +527,9 @@ struct RgbaConversionTrackerBgra8Tests {
     }
 }
 
-// MARK: - MetalPipeline natural-lane mailbox is BGRA8
-
-@Suite("RGBA8 conversion — MetalPipeline natural-lane mailbox is BGRA8")
-struct RgbaConversionNaturalCaptureSourceTests {
-
-    /// `MetalPipeline.latestNaturalBuffer` is BGRA8 — the natural lane delivers
-    /// a single BGRA8 surface (the parallel RGBA16F still mailbox is gone).
-    /// Note: `captureNaturalPicture` no longer reads this buffer; it uses an
-    /// ISP one-shot + `gradeOneShot`. This test verifies the mailbox format only.
-    @Test("latestNaturalBuffer is BGRA8")
-    func naturalCaptureBufferIsBgra8() throws {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            Issue.record("no metal device")
-            return
-        }
-        let consumers = ConsumerRegistry()
-        let pipeline = try MetalPipeline(
-            device: device,
-            captureSize: Size(width: 256, height: 192),
-            gateOpen: true,
-            consumers: consumers)
-        let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
-            width: 256, height: 192)
-        try pipeline.encode(sampleBuffer: sample)
-        pipeline.lastCommandBuffer?.waitUntilCompleted()
-
-        guard let buffer = pipeline.latestNaturalBuffer else {
-            Issue.record("natural-lane buffer mailbox not populated")
-            return
-        }
-        #expect(CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA)
-    }
-}
+// remove-natural-lane: the "MetalPipeline natural-lane mailbox is BGRA8" suite was
+// removed — there is no streaming natural buffer mailbox. The natural still is
+// produced on demand via `gradeOneShot` (covered by CaptureNaturalPictureTests).
 
 // MARK: - SessionCapabilities.streamPixelFormat is unconditionally BGRA8
 
@@ -582,7 +541,6 @@ struct RgbaConversionStreamPixelFormatTests {
         let cap = SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
             previewTextureId: 0,
-            naturalTextureId: 0,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
             streamPixelFormat: Constants.streamPixelFormatString,
@@ -731,9 +689,11 @@ struct RgbaConversionEndToEndColorTests {
 
         let expected = (r: 210, g: 129, b: 101)
         let tol = 3  // 8-bit → fp16 → 8-bit rounding
+        // remove-natural-lane: only the processed streaming lane remains. With an
+        // identity Pass-2 grade, processed == natural, so this still validates the
+        // YUV→BGRA8 conversion math.
         let lanes: [(String, CVPixelBuffer?)] = [
-            ("natural", pipeline.latestNaturalBufferForTest),
-            ("processed", pipeline.latestProcessedBufferForTest),
+            ("processed", pipeline.latestProcessedBufferForTest)
         ]
         for (label, maybeBuf) in lanes {
             guard let buf = maybeBuf else {

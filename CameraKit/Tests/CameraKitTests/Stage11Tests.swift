@@ -125,7 +125,7 @@ struct Stage11BBCalibrationScratchTests {
         let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
         try fillBufferUniform(nBuf, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
-        pipeline.setLatestNaturalForTest(buffer: nBuf, texture: nTex)
+        pipeline.setLatestNaturalForTest(texture: nTex)
 
         let sample = try await pipeline.dispatchBBCalibrationSample()
 
@@ -211,7 +211,7 @@ struct Stage11FamilyBFollowupCalibrationTests {
         let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
             pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
         try fillBufferUniform(nBuf, r: 0.4, g: 0.6, b: 0.2, a: 1.0)
-        pipeline.setLatestNaturalForTest(buffer: nBuf, texture: nTex)
+        pipeline.setLatestNaturalForTest(texture: nTex)
 
         let sample = try await pipeline.dispatchCenterPatchOnNatural()
         #expect(abs(sample.r - 0.4) < 1e-2)

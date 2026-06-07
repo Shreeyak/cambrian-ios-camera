@@ -345,7 +345,6 @@ final class ViewModel {
                     self.capabilities = SessionCapabilities(
                         supportedSizes: caps.supportedSizes,
                         previewTextureId: caps.previewTextureId,
-                        naturalTextureId: caps.naturalTextureId,
                         activeCaptureResolution: size,
                         activeCropRegion: caps.activeCropRegion,
                         streamPixelFormat: caps.streamPixelFormat,

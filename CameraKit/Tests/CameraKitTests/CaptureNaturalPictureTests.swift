@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// Unit-level coverage for the `captureNaturalPicture` encode + EXIF path.
 ///
 /// The engine-level wiring (`CameraEngine.captureNaturalPicture`) is a thin
-/// orchestrator over `MetalPipeline.latestNaturalBuffer` and
+/// orchestrator over an ISP one-shot + `MetalPipeline.gradeOneShot(...)` and
 /// `StillCapture.encode(...)` — exercised end-to-end via HITL on the iPad
 /// (`docs/measurements/capture-natural-picture/<date>/`). These tests pin the
 /// pieces the engine relies on: JPEG round-trip through the shared encode
