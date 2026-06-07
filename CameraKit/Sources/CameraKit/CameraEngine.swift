@@ -98,6 +98,10 @@ public actor CameraEngine {
         Mutex<AsyncStream<StreamConfiguration>.Continuation?>(nil)
     private let cachedStreamConfigStream = Mailbox<AsyncStream<StreamConfiguration>>()
     private var currentCropRegion: Rect?
+    // Consumer-requested tracker-lane height (`OpenConfiguration.trackerHeight`),
+    // persisted so pipeline rebuilds (`setResolution`, `setCropRegion`) preserve
+    // it. `nil` → package default (`Constants.trackerHeightPx`).
+    private var currentTrackerHeight: Int?
 
     var watchdogs: WatchdogPair?
     var recovery: RecoveryCoordinator?
@@ -307,6 +311,7 @@ public actor CameraEngine {
             openOutputSize = nil
             openCropOrigin = (0, 0)
         }
+        currentTrackerHeight = configuration.trackerHeight
         let pipeline = try MetalPipeline(
             device: mtlDevice,
             captureSize: captureSize,
@@ -314,7 +319,8 @@ public actor CameraEngine {
             cropOrigin: openCropOrigin,
             gate: submissionGate,
             consumers: consumers,
-            engineSessionToken: sessionToken
+            engineSessionToken: sessionToken,
+            trackerHeight: currentTrackerHeight
         )
         pipeline.onMetalError = { [weak self] mErr in
             Task { [weak self] in
@@ -739,7 +745,8 @@ public actor CameraEngine {
             captureSize: size,
             gate: submissionGate,
             consumers: consumers,
-            engineSessionToken: sessionToken
+            engineSessionToken: sessionToken,
+            trackerHeight: currentTrackerHeight
         )
         pipeline.onMetalError = { [weak self] mErr in
             Task { [weak self] in
@@ -946,7 +953,8 @@ public actor CameraEngine {
             cropOrigin: (rect.x, rect.y),
             gate: submissionGate,
             consumers: consumers,
-            engineSessionToken: sessionToken
+            engineSessionToken: sessionToken,
+            trackerHeight: currentTrackerHeight
         )
         newPipeline.onMetalError = { [weak self] mErr in
             Task { [weak self] in

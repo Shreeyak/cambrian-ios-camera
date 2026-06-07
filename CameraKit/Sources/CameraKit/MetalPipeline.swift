@@ -291,7 +291,8 @@ final class MetalPipeline: @unchecked Sendable {
         cropOrigin: (x: Int, y: Int) = (0, 0),
         gate: ManagedAtomic<Bool>,
         consumers: ConsumerRegistry,
-        engineSessionToken: ManagedAtomic<UInt64>
+        engineSessionToken: ManagedAtomic<UInt64>,
+        trackerHeight: Int? = nil
     ) throws {
         submissionGate = gate
         self.engineSessionToken = engineSessionToken
@@ -301,10 +302,21 @@ final class MetalPipeline: @unchecked Sendable {
         self.outputSize = resolvedOutputSize
         self.cropOrigin = cropOrigin
 
-        // Tracker dimensions: preserve OUTPUT aspect ratio, scale to trackerHeightPx.
-        // P2a — the tracker downsamples the rendered processed image (which is now
-        // outputSize), so its aspect must follow outputSize, not the capture resolution.
-        let trackerH = Constants.trackerHeightPx
+        // Tracker dimensions: preserve OUTPUT aspect ratio, scale to the requested
+        // (or default) tracker height. P2a — the tracker downsamples the rendered
+        // processed image (outputSize), so its aspect must follow outputSize, not
+        // the capture resolution. The height is consumer-configurable
+        // (`OpenConfiguration.trackerHeight`); clamp to `2 ... outputHeight` (the
+        // lane is a downsample, never an upscale) and force even.
+        let requestedH = trackerHeight ?? Constants.trackerHeightPx
+        let clampedH = max(2, min(requestedH, resolvedOutputSize.height))
+        let trackerH = clampedH - (clampedH % 2)
+        if trackerH != requestedH {
+            CameraKitLog.notice(
+                .metal,
+                "trackerHeight \(requestedH) clamped to \(trackerH) (output height \(resolvedOutputSize.height))"
+            )
+        }
         let aspect = Double(resolvedOutputSize.width) / Double(resolvedOutputSize.height)
         let rawW = Int((Double(trackerH) * aspect).rounded())
         let trackerW = rawW - (rawW % 2)

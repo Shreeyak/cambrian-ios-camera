@@ -10,10 +10,10 @@ struct OpenConfiguration
 
 Startup arguments for CameraEngine.open(configuration:).
 
-### init(cameraId:captureResolution:cropRegion:initialSettings:)
+### init(cameraId:captureResolution:cropRegion:initialSettings:trackerHeight:)
 
 ```swift
-init(cameraId: String? = nil, captureResolution: Size? = nil, cropRegion: Rect? = nil, initialSettings: CameraSettings? = nil)
+init(cameraId: String? = nil, captureResolution: Size? = nil, cropRegion: Rect? = nil, initialSettings: CameraSettings? = nil, trackerHeight: Int? = nil)
 ```
 
 ### cameraId
@@ -41,6 +41,14 @@ var initialSettings: CameraSettings?
 ```
 
 Hardware settings to apply during session setup, before the first frame is delivered. Folds the Pigeon contract's `open(cameraId, settings)` shape into CameraKit's structural `OpenConfiguration` so the requested settings are live from frame one (no defaults-then-snap flicker). Applied via the same `updateSettings` merge+coupling+commit path after `setupSession` returns and before the first `startRunning`.
+
+### trackerHeight
+
+```swift
+var trackerHeight: Int?
+```
+
+Target height (px) of the downsampled `tracker` lane. The tracker width is derived to preserve the output (processed) lane's aspect ratio — the two lanes must share an aspect so a motion vector measured on the tracker scales linearly to the processed frame. `nil` uses the package default. Clamped to `2... outputHeight` (the lane is a downsample, never an upscale) and rounded down to an even value.
 
 ## SessionCapabilities
 

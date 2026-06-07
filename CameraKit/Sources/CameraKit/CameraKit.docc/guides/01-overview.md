@@ -30,7 +30,9 @@ Every frame is produced in two lanes, plus a low-resolution tracker lane:
 - **Natural lane** — the camera image with no color processing applied.
 - **Processed lane** — the same frame after CameraKit's GPU color pipeline
   (brightness, contrast, saturation, black level, gamma).
-- **Tracker lane** — a downscaled processed image for lightweight analysis.
+- **Tracker lane** — a downscaled processed image for lightweight analysis. Its
+  height is consumer-configurable via ``OpenConfiguration/trackerHeight`` (the
+  width follows the processed lane's aspect ratio); see <doc:06-controlling-the-camera>.
 
 The lane you choose determines what you get, and this distinction recurs across
 the API:

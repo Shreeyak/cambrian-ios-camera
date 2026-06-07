@@ -109,16 +109,28 @@ public struct OpenConfiguration: Sendable, Hashable {
     /// after `setupSession` returns and before the first `startRunning`.
     public var initialSettings: CameraSettings?
 
+    /// Target height (px) of the downsampled `tracker` lane.
+    ///
+    /// The tracker width is derived to preserve the output (processed) lane's
+    /// aspect ratio — the two lanes must share an aspect so a motion vector
+    /// measured on the tracker scales linearly to the processed frame. `nil` uses
+    /// the package default (`Constants.trackerHeightPx`). Clamped to
+    /// `2 ... outputHeight` (the lane is a downsample, never an upscale) and
+    /// rounded down to an even value.
+    public var trackerHeight: Int?
+
     public init(
         cameraId: String? = nil,
         captureResolution: Size? = nil,
         cropRegion: Rect? = nil,
-        initialSettings: CameraSettings? = nil
+        initialSettings: CameraSettings? = nil,
+        trackerHeight: Int? = nil
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
         self.cropRegion = cropRegion
         self.initialSettings = initialSettings
+        self.trackerHeight = trackerHeight
     }
 }
 

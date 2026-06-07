@@ -77,6 +77,26 @@ initial crop at open via ``OpenConfiguration/cropRegion``.
 > ``CameraEngine/setResolution(size:)`` selects a smaller format. Re-apply the
 > crop after changing resolution.
 
+## Tracker lane resolution
+
+The tracker lane (<doc:01-overview>) is a GPU downscale of the processed image,
+sized for lightweight per-frame analysis such as motion tracking. Set its target
+height at open via ``OpenConfiguration/trackerHeight``:
+
+```swift
+let caps = try await engine.open(
+    configuration: OpenConfiguration(trackerHeight: 512))
+```
+
+The width is derived to preserve the processed lane's aspect ratio — the two
+lanes share an aspect so a measurement on the tracker scales linearly to the
+processed frame. The height is clamped to `2 ... outputHeight` (the lane is a
+downscale, never an upscale) and rounded down to even. `nil` (the default) uses
+the package default height. The value persists across
+``CameraEngine/setResolution(size:)`` and ``CameraEngine/setCropRegion(_:)``
+rebuilds; read the live tracker buffer's dimensions from
+``CameraEngine/currentTrackerTexture()`` or the delivered ``FrameSet/tracker``.
+
 ## Settings persistence
 
 Processing parameters persist across launches (<doc:07-image-processing>);
