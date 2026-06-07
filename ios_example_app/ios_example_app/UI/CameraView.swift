@@ -586,7 +586,7 @@ public struct CameraView: View {
     /// (`droppedByLane`) and the C++ pool (`cppOverwriteByLane`), per-window
     /// deltas (D-11).
     private func deliveryStatsPanel(_ stats: FrameDeliveryStats) -> some View {
-        let lanes: [StreamId] = [.natural, .processed, .tracker]
+        let lanes: [StreamId] = [.primary, .tracker]
         return VStack(alignment: .leading, spacing: 2) {
             Text("FrameDeliveryStats (Δ/window)")
                 .font(.caption2.bold())

@@ -300,7 +300,7 @@ struct RgbaConversionTrackerBgra8Tests {
 
         // Subscribe so Pass-4 allocates a tracker pair. Hold the stream alive — discarding
         // it immediately terminates the continuation and removes the subscriber before encode.
-        let trackerStream = await consumers.subscribe(stream: .tracker)
+        let trackerStream = await consumers.subscribe(stream: .tracker, buffering: .keepBuffered(depth: 2))
 
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
@@ -835,7 +835,7 @@ struct TrackerSourceFromProcessedTests {
         pipeline.setColorUniformsForTest(params)
 
         // Subscribe so Pass-4 allocates a tracker pair; hold the stream alive.
-        let trackerStream = await consumers.subscribe(stream: .tracker)
+        let trackerStream = await consumers.subscribe(stream: .tracker, buffering: .keepBuffered(depth: 2))
 
         // Strongly-saturated solid color: R≈210, G≈129, B≈101 (|R-B|≈109).
         let sample = try makeSolidYUVSampleBufferForRgba8Tests(

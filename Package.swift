@@ -15,10 +15,6 @@ let package = Package(
         // FrameMetadata / Lane / PixelFormat / BufferingPolicy). iOS + macOS;
         // CoreVideo/Foundation only, no AVFoundation. Importable standalone.
         .library(name: "FrameTransport", targets: ["FrameTransport"]),
-        // TEMPORARY (Phase 1A): exported so the relocated DisplayViewModel
-        // can `import CameraKitInterop` for CppCannyStub. Phase 1B removes
-        // the OpenCV/Canny consumer from the package and unexports this.
-        .library(name: "CameraKitInterop", targets: ["CameraKitInterop"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
@@ -34,42 +30,19 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
-        // C++ PixelSink pool + atomics. No OpenCV — Phase 1B (2026-05-15) moved
-        // the Canny consumer + the opencv2 xcframework into the ios_example_app
-        // app target. The package contains the consumer-join seam only.
-        .target(
-            name: "CameraKitCxx",
-            path: "CameraKit/Sources/CameraKitCxx",
-            publicHeadersPath: "include",
-            cxxSettings: [
-                .define("CPP_POOL_THREAD_COUNT", to: "4"),
-                .headerSearchPath("include"),
-            ]
-        ),
-        // Thin Swift C++ interop boundary — .interoperabilityMode(.Cxx) confined here (ADR-13).
-        .target(
-            name: "CameraKitInterop",
-            dependencies: ["CameraKitCxx"],
-            path: "CameraKit/Sources/CameraKitInterop",
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-                .interoperabilityMode(.Cxx),
-            ]
-        ),
+        // CameraKit is pure Swift since frame-delivery-rework removed the C-ABI
+        // PixelSink path (the former CameraKitCxx + CameraKitInterop targets and
+        // the .interoperabilityMode(.Cxx) boundary are gone).
         .target(
             name: "CameraKit",
             dependencies: [
-                "CameraKitInterop",
                 "FrameTransport",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
             path: "CameraKit/Sources/CameraKit",
             resources: [.process("Shaders")],
             swiftSettings: [
-                .swiftLanguageMode(.v6),
-                // Required to import CameraKitInterop (built with C++ interop).
-                // No C++ types appear in CameraKit's public API — containment per ADR-13 is met.
-                .interoperabilityMode(.Cxx),
+                .swiftLanguageMode(.v6)
             ]
         ),
         // Informational stub. Produces a clear `#error` for anyone who runs
@@ -80,6 +53,5 @@ let package = Package(
             name: "SPMTestStub",
             path: "CameraKit/Tests/SPMTestStub"
         ),
-    ],
-    cxxLanguageStandard: .cxx20
+    ]
 )

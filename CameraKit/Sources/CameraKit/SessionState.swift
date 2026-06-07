@@ -30,9 +30,14 @@ public enum RecordingState: Sendable, Hashable {
     case finalizing
 }
 
+/// The subscribable delivery lanes (frame-delivery-rework).
+///
+/// `.natural` was removed: a per-lane ``FrameTransport/Frame`` carries a
+/// `FrameTransport.Lane`, which has only `.primary`/`.tracker`. The natural
+/// rendering internals (preview texture, calibration sampling) remain; their
+/// cut is `remove-natural-lane`.
 public enum StreamId: String, Sendable, Hashable, CaseIterable {
-    case natural
-    case processed
+    case primary
     case tracker
 }
 

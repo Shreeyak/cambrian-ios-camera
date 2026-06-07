@@ -283,7 +283,6 @@ let zoomMin = await device.minAvailableVideoZoomFactor
 let zoomMax = await device.maxAvailableVideoZoomFactor
 let evMin = await device.minExposureTargetBias
 let evMax = await device.maxExposureTargetBias
-let poolPtr = consumers.nativePipelinePointer()
 ⋮----
 public func close() async {
 ⋮----
@@ -345,9 +344,9 @@ public nonisolated func currentTrackerTexture() -> (any MTLTexture)? {
 ⋮----
 public nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? {
 ⋮----
-public func getNativePipelineHandle() -> UInt64? {
+public nonisolated func currentNaturalPixelBuffer() -> CVPixelBuffer? {
 ⋮----
-let ptr = consumers.nativePipelinePointer()
+public nonisolated func lockedPixels(stream: StreamId) -> PixelHandle? {
 ⋮----
 public func setProcessingParams(_ params: ProcessingParameters) async {
 ⋮----
@@ -620,6 +619,12 @@ func calibrateWhiteBalance() async throws -> CalibrationResult
 func calibrateBlackBalance() async throws -> CalibrationResult
 ⋮----
 nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?
+```
+
+## File: CameraKit/Sources/CameraKit/CameraFrameMetadata.swift
+```swift
+public struct CameraFrameMetadata: FrameMetadata {
+public init() {}
 ```
 
 ## File: CameraKit/Sources/CameraKit/CameraKitLog.swift
@@ -1083,8 +1088,6 @@ static let poolMinBufferCount: Int = 3
 ⋮----
 static let poolMaxBufferAgeSeconds: Double = 1.0
 ⋮----
-static let cppPoolThreadCount: Int = min(4, ProcessInfo.processInfo.processorCount)
-⋮----
 static let stallGpuThresholdMs: Int = 3000
 ⋮----
 static let stallCaptureThresholdMs: Int = 5000
@@ -1156,21 +1159,6 @@ public enum StillCaptureError: Error, Sendable {
 
 ## File: CameraKit/Sources/CameraKit/FrameSet.swift
 ```swift
-public struct FrameSet: @unchecked Sendable, Hashable {
-public let frameNumber: UInt64
-public let captureTime: CMTime
-public let natural: CVPixelBuffer
-public let processed: CVPixelBuffer
-public let tracker: CVPixelBuffer
-public let capture: CaptureMetadata
-public let processing: ProcessingMetadata
-public let blurScore: Float
-public let trackerQuality: TrackerQuality
-⋮----
-public init(
-⋮----
-public func hash(into hasher: inout Hasher) {
-⋮----
 public enum TrackerQuality: String, Sendable, Hashable {
 ⋮----
 public struct CaptureMetadata: Sendable, Hashable {
@@ -1183,6 +1171,8 @@ public let focusModeActive: CameraMode
 public let exposureModeActive: CameraMode
 public let zoomFactor: Double
 public let cameraPosition: CameraPosition
+⋮----
+public init(
 ⋮----
 static func placeholder() -> CaptureMetadata {
 ⋮----
@@ -1390,9 +1380,6 @@ let processedPair: (buffer: CVPixelBuffer, texture: MTLTexture)
 ⋮----
 let trackerPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
 ⋮----
-let c = storage.color
-let r = storage.crop
-⋮----
 let commandBuffer = commandQueue.makeCommandBuffer()!
 ⋮----
 let naturalTexI = naturalPair.texture
@@ -1434,8 +1421,6 @@ let pass7p = commandBuffer.makeComputeCommandEncoder()!
 let logFirstAfterGate = logNextCommit
 ⋮----
 let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-let captureMeta = CaptureMetadata.placeholder()
-let meta = metadataSnapshot
 let fn = frameNumber
 let naturalBuf = naturalPair.buffer
 let processedBuf = processedPair.buffer
@@ -1450,9 +1435,7 @@ let naturalEightBitTex: MTLTexture? = naturalEightBitPair?.texture
 let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
 let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 ⋮----
-let naturalForSet: CVPixelBuffer = naturalEightBitBuf ?? naturalBuf
 let processedForSet: CVPixelBuffer = processedEightBitBuf ?? processedBuf
-let trackerForSet: CVPixelBuffer = trackerBuf ?? processedForSet
 ⋮----
 let tokenAtCommit = self.engineSessionToken.load(ordering: .acquiring)
 ⋮----
@@ -1460,7 +1443,8 @@ let liveToken = self.engineSessionToken.load(ordering: .acquiring)
 ⋮----
 let code = (cb.error as NSError?)?.code ?? -1
 ⋮----
-let fs = FrameSet(
+let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+let frameMeta = CameraFrameMetadata()
 ⋮----
 let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
 var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
@@ -1631,26 +1615,11 @@ let hint: String
 
 ## File: CameraKit/Sources/CameraKit/PixelSink.swift
 ```swift
-public struct ConsumerToken: Sendable, Hashable {
-public let id: UInt64
-public let stream: StreamId
-⋮----
-public init(id: UInt64, stream: StreamId) {
-⋮----
-public struct PixelSinkCallbacks: @unchecked Sendable {
-⋮----
-public let onFrame: OnFrame?
-public let onOverwrite: OnOverwrite?
-public let onError: OnError?
-public let context: UnsafeMutableRawPointer?
-⋮----
-public init(
-⋮----
 public actor ConsumerRegistry {
 ⋮----
 private struct Subscriber: Sendable {
 let id: UInt64
-let continuation: AsyncStream<FrameSet>.Continuation
+let continuation: AsyncThrowingStream<Frame, Error>.Continuation
 ⋮----
 private struct InnerState {
 var subscribers: [StreamId: [Subscriber]] = [:]
@@ -1660,100 +1629,31 @@ var dropCounts: [StreamId: UInt64] = [:]
 ⋮----
 private nonisolated let state: Mutex<InnerState> = Mutex(InnerState())
 ⋮----
-nonisolated let cppPool: CppPixelSinkPool = CppPixelSinkPool()
-⋮----
-private var cachedMetricsStream: AsyncStream<FrameDeliveryStats>?
-private var metricsSink: MetricsSink?
-⋮----
 public init() {}
 ⋮----
-public func subscribe(stream: StreamId) -> AsyncStream<FrameSet> {
+public func subscribe(
+⋮----
 let id = state.withLock { inner -> UInt64 in
 ⋮----
-public func registerCallback(
+let policy: AsyncThrowingStream<Frame, Error>.Continuation.BufferingPolicy
 ⋮----
-let onError: PixelSinkCallbacks.OnError = callbacks.onError ?? { _, _ in }
+nonisolated func yield(_ frame: Frame, stream: StreamId) {
 ⋮----
-let cbs = CppPixelSinkCallbacks(
-⋮----
-let token = cppPool.register(stream: stream.rawPoolId, callbacks: cbs)
-⋮----
-public func metricsStream() -> AsyncStream<FrameDeliveryStats> {
-⋮----
-var capturedSink: MetricsSink?
-let stream = AsyncStream<FrameDeliveryStats>(
-⋮----
-let sink = MetricsSink(
-⋮----
-private func clearMetricsSink() {
-⋮----
-public func unregister(token: ConsumerToken) {
-let foundContinuation: AsyncStream<FrameSet>.Continuation? = state.withLock {
-⋮----
-let c = lane[idx].continuation
-⋮----
-let lane = foundContinuation != nil ? "swift" : "cpp"
-⋮----
-nonisolated func yield(_ frameSet: FrameSet, stream: StreamId) {
-⋮----
-let r = sub.continuation.yield(frameSet)
-⋮----
-let surface = streamBuffer(for: stream, frameSet: frameSet)
-⋮----
-let tsNs = CMTimeConvertScale(
-⋮----
-let presentationNs = tsNs.value
-⋮----
-let hasSurface = surface != nil
-⋮----
-private nonisolated func streamBuffer(
+let r = sub.continuation.yield(frame)
 ⋮----
 nonisolated func hasSubscriber(_ stream: StreamId) -> Bool {
-let swiftHas = state.withLock { $0.subscribers[stream]?.isEmpty == false }
-let cppHas = cppPool.consumerCount(stream: stream.rawPoolId) > 0
 ⋮----
-nonisolated func nativePipelinePointer() -> UInt64 { cppPool.rawPointer() }
+nonisolated func failAllLanes(_ error: Error) {
+let toFinish: [AsyncThrowingStream<Frame, Error>.Continuation] = state.withLock { inner in
+let conts = inner.subscribers.values.flatMap { $0.map(\.continuation) }
 ⋮----
 func release() {
-⋮----
-let toFinish: [AsyncStream<FrameSet>.Continuation] = state.withLock { inner in
-let conts = inner.subscribers.values.flatMap { $0.map(\.continuation) }
 ⋮----
 nonisolated func dropCount(for stream: StreamId) -> UInt64 {
 ⋮----
 nonisolated func _incrementSwiftDropForTest(stream: StreamId, by count: UInt64 = 1) {
 ⋮----
 nonisolated func subscriberCount(for stream: StreamId) -> Int {
-⋮----
-nonisolated func cppConsumerCount(for stream: StreamId) -> UInt32 {
-⋮----
-var rawPoolId: UInt32 {
-⋮----
-private final class MetricsSink: @unchecked Sendable {
-private let continuation: AsyncStream<FrameDeliveryStats>.Continuation
-private let cppPool: CppPixelSinkPool
-private let swiftDropCount: @Sendable (StreamId) -> UInt64
-private let prev = Mutex<(cpp: [StreamId: UInt64], swift: [StreamId: UInt64])>(
-⋮----
-private let lastLogged = Mutex<ContinuousClock.Instant?>(nil)
-⋮----
-init(
-⋮----
-func onMetric(stream: UInt32, overwriteCount: UInt64) {
-⋮----
-let stats: FrameDeliveryStats = prev.withLock { p in
-var cppDelta: [StreamId: UInt64] = [:]
-var swiftDelta: [StreamId: UInt64] = [:]
-⋮----
-let curCpp = cppPool.overwriteCount(stream: lane.rawPoolId)
-let curSwift = swiftDropCount(lane)
-⋮----
-let now = ContinuousClock.now
-let shouldLog = lastLogged.withLock { last -> Bool in
-⋮----
-let perLane = StreamId.allCases.map { lane in
-⋮----
-func finish() { continuation.finish() }
 ```
 
 ## File: CameraKit/Sources/CameraKit/ProcessingMetadata.swift

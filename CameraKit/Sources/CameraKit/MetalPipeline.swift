@@ -1,6 +1,7 @@
 import Atomics
 import CoreMedia
 import CoreVideo
+import FrameTransport
 import Metal
 import Synchronization
 
@@ -495,11 +496,11 @@ final class MetalPipeline: @unchecked Sendable {
         // 4. Snapshot uniforms — Stage 05 Mutex<UniformStorage> (ADR-34, D-17, Inv 6).
         //    `withLock` critical section contains only the struct-copy snapshot;
         //    no Metal encode or commit call appears inside the closure (05:mutex-scope-is-tight).
-        let (colorSnapshot, cropSnapshot, metadataSnapshot): (ColorUniform, CropUniform, ProcessingMetadata) =
+        // ProcessingMetadata snapshot is no longer delivered (CameraFrameMetadata
+        // is minimal in frame-delivery-rework; fields land in frame-metadata-signals).
+        let (colorSnapshot, cropSnapshot): (ColorUniform, CropUniform) =
             uniforms.withLock { storage in
-                let c = storage.color
-                let r = storage.crop
-                return (c, r, ProcessingMetadata(color: c, crop: r))
+                (storage.color, storage.crop)
             }
 
         // 5. Command buffer.
@@ -627,8 +628,6 @@ final class MetalPipeline: @unchecked Sendable {
         // Capture all frame-local values before the completion handler. CMSampleBuffer
         // is not Sendable; capture derived values (CMTime, metadata snapshot) instead.
         let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let captureMeta = CaptureMetadata.placeholder()
-        let meta = metadataSnapshot
         let fn = frameNumber
         let naturalBuf = naturalPair.buffer
         let processedBuf = processedPair.buffer
@@ -645,14 +644,11 @@ final class MetalPipeline: @unchecked Sendable {
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
         let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 
-        // FrameSet delivers BGRA8 for all three lanes to the C++/AsyncStream
-        // consumers (CannyConsumer format-branches on _32BGRA). The `?? <16F>`
-        // fallbacks only fire if a Pass-7 dequeue was dropped on pool
-        // exhaustion (rare); the tracker (now a processed-lane downsample) falls
-        // back to the BGRA8 processed buffer.
-        let naturalForSet: CVPixelBuffer = naturalEightBitBuf ?? naturalBuf
+        // Per-lane delivery is BGRA8. The `?? <16F>` fallback only fires if a
+        // Pass-7 dequeue was dropped on pool exhaustion (rare). The tracker is
+        // genuinely absent when unsubscribed (trackerBuf == nil) — NO fallback
+        // to the full-res processed buffer (frame-delivery-rework §4.2).
         let processedForSet: CVPixelBuffer = processedEightBitBuf ?? processedBuf
-        let trackerForSet: CVPixelBuffer = trackerBuf ?? processedForSet
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
         // advanced (close() / recovery ran) — prevents stale FrameSet publish and
@@ -678,23 +674,26 @@ final class MetalPipeline: @unchecked Sendable {
             if let encBuf = encoderBufForCompletion, cb.status == .completed {
                 self.onEncodedBufferReady?(encBuf, captureTime)
             }
-            // Construct FrameSet from delivery-queue-local captures only.
-            let fs = FrameSet(
-                frameNumber: fn,
-                captureTime: captureTime,
-                natural: naturalForSet,
-                processed: processedForSet,
-                tracker: trackerForSet,
-                capture: captureMeta,
-                processing: meta,
-                blurScore: 0.0,
-                trackerQuality: .good
-            )
-            // Publish to subscribed lanes (nonisolated — no actor hop).
-            consumers.yield(fs, stream: .natural)
-            consumers.yield(fs, stream: .processed)
-            if trackerBuf != nil {
-                consumers.yield(fs, stream: .tracker)
+            // Publish per-lane Frames (nonisolated — no actor hop). Each Frame
+            // carries a PixelHandle lease that locks the pool buffer until the
+            // consumer releases it (the holdable lease, §4.1). Both lanes share
+            // `fn` (the cross-lane correlation index) and `tsNs`.
+            let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+            let frameMeta = CameraFrameMetadata()
+            if let primaryPixels = PixelHandle(pixelBuffer: processedForSet, format: .bgra8) {
+                consumers.yield(
+                    Frame(
+                        lane: .primary, index: fn, timestampNs: tsNs,
+                        pixels: primaryPixels, metadata: frameMeta),
+                    stream: .primary)
+            }
+            // Tracker only when produced (a subscriber existed at dequeue time).
+            if let trackerBuf, let trackerPixels = PixelHandle(pixelBuffer: trackerBuf, format: .bgra8) {
+                consumers.yield(
+                    Frame(
+                        lane: .tracker, index: fn, timestampNs: tsNs,
+                        pixels: trackerPixels, metadata: frameMeta),
+                    stream: .tracker)
             }
             // Update lane mailboxes. Delivery is BGRA8 for every lane and every
             // surface type: the buffer mailboxes (natural/processed via Pass-7,

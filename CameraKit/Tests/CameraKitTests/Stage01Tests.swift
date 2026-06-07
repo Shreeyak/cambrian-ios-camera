@@ -1,4 +1,5 @@
 import CoreMedia
+import FrameTransport
 import Testing
 
 @testable import CameraKit
@@ -203,28 +204,31 @@ struct Stage01Tests {
 
     // MARK: Test 5 — Consumer registry subscribe / unregister (Stage 06 actor API)
 
-    /// Verifies ConsumerRegistry.subscribe returns an AsyncStream and unregister does not crash.
+    /// Verifies ConsumerRegistry.subscribe returns a per-lane AsyncThrowingStream
+    /// and release() does not crash.
     ///
-    /// Stage 06 replaced the Stage-01 class-based ConsumerRegistry with an actor.
-    /// The old register/deregister API is gone; subscribe(stream:)/unregister(token:) are the
-    /// production paths. This test verifies the new contract.
+    /// frame-delivery-rework: subscribe(stream:buffering:) yields
+    /// `AsyncThrowingStream<Frame>` per lane; the C-ABI register/unregister API
+    /// is gone. Consumers end a subscription by cancelling the consuming task.
     @Test func consumerRegistrySubscribeUnregister() async {
         let registry = ConsumerRegistry()
 
-        // subscribe() returns an AsyncStream — verified at compile time.
-        let stream1: AsyncStream<FrameSet> = await registry.subscribe(stream: .natural)
+        // subscribe() returns an AsyncThrowingStream<Frame> — verified at compile time.
+        let stream1: AsyncThrowingStream<Frame, Error> =
+            await registry.subscribe(stream: .primary, buffering: .latestWins)
         _ = stream1
 
         // subscriberCount nonisolated accessor reflects the registration.
-        #expect(registry.subscriberCount(for: .natural) == 1)
+        #expect(registry.subscriberCount(for: .primary) == 1)
 
         // A second subscription increments the count.
-        let stream2: AsyncStream<FrameSet> = await registry.subscribe(stream: .natural)
+        let stream2: AsyncThrowingStream<Frame, Error> =
+            await registry.subscribe(stream: .primary, buffering: .latestWins)
         _ = stream2
-        #expect(registry.subscriberCount(for: .natural) == 2)
+        #expect(registry.subscriberCount(for: .primary) == 2)
 
         // release() finishes all continuations — does not crash.
         await registry.release()
-        #expect(registry.subscriberCount(for: .natural) == 0)
+        #expect(registry.subscriberCount(for: .primary) == 0)
     }
 }

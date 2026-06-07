@@ -16,8 +16,15 @@ sink (remove). Authoritative design: `docs/03-authoritative-frame-transport-rewo
 - One termination model; camera death is visible; CameraKit owns terminality.
 - A holdable `lockedPixels()` lease; tracker genuinely absent when off.
 - Remove `FrameSet` and the C-ABI sink.
+- Drop `.natural` from the `StreamId` delivery enum (`StreamId = {primary, tracker}`):
+  a per-lane `Frame` carries a `FrameTransport.Lane`, which has only
+  `.primary`/`.tracker`, so a natural delivery lane is structurally unrepresentable.
 
 **Non-Goals:**
+- Cutting the natural *rendering pipeline* (the natural pool, preview texture,
+  and calibration sampling) — that is `remove-natural-lane`. This change removes
+  only the natural *delivery lane* (the `StreamId` case); the natural buffer
+  remains available via `currentNaturalPixelBuffer()` / `currentTexture()`.
 - The `Frame`/`PixelHandle` type definitions (`frame-transport-package`).
 - The camera's `CameraFrameMetadata` fields and 3 Hz JSON (`frame-metadata-signals`).
 - Cutting the natural lane (`remove-natural-lane`).

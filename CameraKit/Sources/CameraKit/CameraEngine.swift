@@ -2,6 +2,7 @@ import AVFoundation
 import Atomics
 import CoreMedia
 import CoreVideo
+import FrameTransport
 import Metal
 import Photos
 import Synchronization
@@ -464,10 +465,9 @@ public actor CameraEngine {
         let zoomMax = await device.maxAvailableVideoZoomFactor
         let evMin = await device.minExposureTargetBias
         let evMax = await device.maxExposureTargetBias
-        let poolPtr = consumers.nativePipelinePointer()
         CameraKitLog.notice(
             .engine,
-            "open: pipeline ready — \(captureSize.width)×\(captureSize.height) pool=0x\(String(poolPtr, radix: 16))"
+            "open: pipeline ready — \(captureSize.width)×\(captureSize.height)"
         )
         return SessionCapabilities(
             supportedSizes: supportedSizes,
@@ -618,6 +618,13 @@ public actor CameraEngine {
     // `.permissionDenied` on mid-session revocation — mirrors `publishState`.
     func publishError(_ err: CameraError) {
         errorContinuationBox.withLock { $0?.yield(err) }
+        // Terminal-vs-transient (frame-delivery-rework): CameraKit owns the
+        // judgement. Only a fatal error finishes the per-lane streams by
+        // throwing; transient faults leave them open (delivery resumes after
+        // recovery). `errorStream()` above carries both for observability.
+        if err.isFatal {
+            consumers.failAllLanes(err)
+        }
     }
 
     /// Called from `CaptureDelegate` on every sample buffer (nonisolated — delivery queue).
@@ -834,26 +841,33 @@ public actor CameraEngine {
     ///
     /// **Format:** All three lanes return `kCVPixelFormatType_32BGRA` (BGRA8).
     ///
-    /// - `.natural` / `.processed`: Pass-7 RGBA16F→BGRA8 conversion.
+    /// - `.primary`: Pass-7 RGBA16F→BGRA8 conversion.
     /// - `.tracker`: fused — `trackerPool` is BGRA8; Pass-4 writes BGRA8 directly.
     public nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? {
         switch stream {
-        case .natural: return _metalPipeline.latest?.latestNaturalBuffer
-        case .processed: return _metalPipeline.latest?.latestProcessedBuffer
+        case .primary: return _metalPipeline.latest?.latestProcessedBuffer
         case .tracker: return _metalPipeline.latest?.latestTrackerBuffer
         }
     }
 
-    /// Returns the raw C++ PixelSinkPool pointer as UInt64 while holding the engine actor (D-15).
+    /// The latest natural (un-graded) BGRA8 buffer.
     ///
-    /// Returns nil when the engine is not open.
-    public func getNativePipelineHandle() -> UInt64? {
-        guard isOpen else {
-            CameraKitLog.warning(.engine, "getNativePipelineHandle: engine not open — returning nil")
-            return nil
-        }
-        let ptr = consumers.nativePipelinePointer()
-        return ptr
+    /// `.natural` is no longer a subscribable ``StreamId`` lane, but the natural
+    /// rendering internals remain (preview, calibration). This accessor exposes
+    /// that buffer until `remove-natural-lane` cuts the natural pipeline.
+    public nonisolated func currentNaturalPixelBuffer() -> CVPixelBuffer? {
+        _metalPipeline.latest?.latestNaturalBuffer
+    }
+
+    /// Returns a lease-holding ``FrameTransport/PixelHandle`` for the lane's
+    /// latest buffer (frame-delivery-rework §4.1).
+    ///
+    /// The handle keeps the IOSurface read lock held for its lifetime, so a
+    /// consumer may retain the pixels across a bounded pipeline hold. Returns
+    /// nil when no buffer is available or the lock cannot be taken.
+    public nonisolated func lockedPixels(stream: StreamId) -> PixelHandle? {
+        guard let buffer = currentPixelBuffer(stream: stream) else { return nil }
+        return PixelHandle(pixelBuffer: buffer, format: .bgra8)
     }
 
     /// Stage 05: writes color-transform uniforms through `Mutex<UniformStorage>` (ADR-34, D-17, Inv 6).

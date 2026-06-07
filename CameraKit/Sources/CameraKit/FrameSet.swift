@@ -7,67 +7,10 @@ import Foundation
 // is strictly gated by CVPixelBufferLockBaseAddress (ADR-06) at all call sites.
 extension CVPixelBuffer: @retroactive @unchecked Sendable {}
 
-/// Atomic unit of publication per ADR-18.
-///
-/// Stage 06: constructed in `MetalPipeline.addCompletedHandler` from three
-/// IOSurface-backed `CVPixelBuffer`s (natural/processed/tracker), the
-/// `CMSampleBuffer` capture metadata, and the per-frame `ProcessingMetadata`
-/// snapshot from the `Mutex<UniformStorage>` read in `encode()`. Published to
-/// subscribed lanes via `ConsumerRegistry.yield(_:stream:)`.
-///
-/// `@unchecked Sendable` per G-13: `CVPixelBuffer` is not yet `Sendable` on
-/// iOS 26; IOSurface backing plus the GPU-completion-before-construction
-/// ordering in the completion handler make cross-thread use safe.
-///
-/// # Lifetime contract
-///
-/// Consumers must not retain a `FrameSet` (or its `natural` / `processed` /
-/// `tracker` `CVPixelBuffer`s) across an `await` or beyond the next stream
-/// yield. The buffers are pool-backed (POOL_CAP_RULE); retention exhausts
-/// the pool, starves frame delivery, and surfaces three hops away as
-/// `frameStall` / watchdog recovery — root cause invisible from the symptom.
-///
-/// Snapshot any fields you need (`frameNumber`, `captureTime`, `capture`,
-/// `processing`, `blurScore`, `trackerQuality`) into your own storage before
-/// yielding control. If you need the pixel data itself, copy it under
-/// `CVPixelBufferLockBaseAddress` (ADR-06) into your own backing store.
-public struct FrameSet: @unchecked Sendable, Hashable {
-    public let frameNumber: UInt64
-    public let captureTime: CMTime
-    public let natural: CVPixelBuffer
-    public let processed: CVPixelBuffer
-    public let tracker: CVPixelBuffer
-    public let capture: CaptureMetadata
-    public let processing: ProcessingMetadata
-    public let blurScore: Float
-    public let trackerQuality: TrackerQuality
-
-    public init(
-        frameNumber: UInt64, captureTime: CMTime,
-        natural: CVPixelBuffer, processed: CVPixelBuffer, tracker: CVPixelBuffer,
-        capture: CaptureMetadata, processing: ProcessingMetadata,
-        blurScore: Float, trackerQuality: TrackerQuality
-    ) {
-        self.frameNumber = frameNumber
-        self.captureTime = captureTime
-        self.natural = natural
-        self.processed = processed
-        self.tracker = tracker
-        self.capture = capture
-        self.processing = processing
-        self.blurScore = blurScore
-        self.trackerQuality = trackerQuality
-    }
-
-    public static func == (lhs: FrameSet, rhs: FrameSet) -> Bool {
-        lhs.frameNumber == rhs.frameNumber && lhs.captureTime == rhs.captureTime
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(frameNumber)
-        hasher.combine(captureTime.value)
-    }
-}
+// `FrameSet` (the bundled all-lanes envelope) was removed in
+// frame-delivery-rework — delivery is now per-lane `FrameTransport.Frame`
+// streams. The value types below survived because they are self-contained and
+// referenced beyond FrameSet.
 
 public enum TrackerQuality: String, Sendable, Hashable {
     case good

@@ -55,11 +55,6 @@ enum Constants {
     /// ADR-19).
     static let poolMaxBufferAgeSeconds: Double = 1.0
 
-    // MARK: - Stage 08 — C++ pool
-
-    /// Thread-count cap for the C++ PixelSinkPool worker queue.
-    static let cppPoolThreadCount: Int = min(4, ProcessInfo.processInfo.processorCount)
-
     // MARK: - Stage 09 — Health monitoring
 
     // Stage 09: stall watchdogs.

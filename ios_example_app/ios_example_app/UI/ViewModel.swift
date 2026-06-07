@@ -316,17 +316,10 @@ final class ViewModel {
     }
 
     #if DEBUG
-    /// Subscribes to `engine.consumers.metricsStream()` (D-11) and mirrors each
-    /// per-window `FrameDeliveryStats` into `frameDeliveryStats` for the
-    /// long-press debug overlay.
+    /// DEBUG metrics overlay: `metricsStream()` was removed with the C-ABI path
+    /// (frame-delivery-rework). Stubbed to a no-op; `frameDeliveryStats` stays nil.
     private func makeMetricsTask() -> Task<Void, Never> {
-        Task { [weak self] in
-            guard let engine = self?.engine else { return }
-            for await stats in await engine.consumers.metricsStream() {
-                guard let self else { return }
-                await MainActor.run { self.frameDeliveryStats = stats }
-            }
-        }
+        Task {}
     }
     #endif
 

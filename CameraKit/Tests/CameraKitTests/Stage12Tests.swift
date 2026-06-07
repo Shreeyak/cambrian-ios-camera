@@ -1,5 +1,4 @@
 import AVFoundation
-import CameraKitInterop
 import CoreMedia
 import Foundation
 import Testing
@@ -185,72 +184,9 @@ struct Stage12BackgroundTaskTests {
     }
 }
 
-// MARK: - Suite 2: D-11 observability
-
-@Suite("Stage 12 — D-11 observability", .progressLogged)
-struct Stage12ObservabilityTests {
-
-    /// 12:pixel-sink-registration-without-on-overwrite-rejected — a `nil`
-    /// `onOverwrite` is rejected with `InteropError.missingOnOverwrite`
-    /// (G-26-avoidance quality gate); a non-nil one registers successfully.
-    @Test("12:pixel-sink-registration-without-on-overwrite-rejected")
-    func pixelSinkRegistrationWithoutOnOverwriteRejected() async throws {
-        let registry = ConsumerRegistry()
-
-        let missingOverwrite = PixelSinkCallbacks(
-            onFrame: { _, _, _, _, _ in },
-            onOverwrite: nil,
-            onError: nil,
-            context: nil)
-        do {
-            _ = try await registry.registerCallback(
-                stream: .tracker, callbacks: missingOverwrite)
-            Issue.record("Expected InteropError.missingOnOverwrite but no error was thrown")
-        } catch InteropError.missingOnOverwrite {
-            // Expected.
-        } catch {
-            Issue.record("Expected InteropError.missingOnOverwrite but got \(error)")
-        }
-
-        let valid = PixelSinkCallbacks(
-            onFrame: { _, _, _, _, _ in },
-            onOverwrite: { _, _ in },
-            onError: nil,
-            context: nil)
-        let token = try await registry.registerCallback(stream: .tracker, callbacks: valid)
-        #expect(token.stream == .tracker)
-        #expect(registry.cppConsumerCount(for: .tracker) == 1)
-        await registry.unregister(token: token)
-    }
-
-    /// 12:frame-delivery-stats-merges-swift-and-cpp-counters — synthetic drops
-    /// injected on both the Swift facade and the C++ pool surface together in a
-    /// single `FrameDeliveryStats` from `metricsStream()`.
-    @Test("12:frame-delivery-stats-merges-swift-and-cpp-counters")
-    func frameDeliveryStatsMergesSwiftAndCppCounters() async throws {
-        let registry = ConsumerRegistry()
-        let stream = await registry.metricsStream()
-        var iterator = stream.makeAsyncIterator()
-
-        // Swift-side per-lane drop counters.
-        registry._incrementSwiftDropForTest(stream: .natural, by: 3)
-        registry._incrementSwiftDropForTest(stream: .processed, by: 1)
-        // C++-side per-lane mailbox-overwrite counters.
-        registry.cppPool.noteOverwrite(stream: StreamId.natural.rawPoolId)
-        registry.cppPool.noteOverwrite(stream: StreamId.natural.rawPoolId)
-        registry.cppPool.noteOverwrite(stream: StreamId.tracker.rawPoolId)
-
-        // Force a window emission (the pool otherwise emits once per FPS window).
-        registry.cppPool.emitMetrics()
-
-        let stats = try #require(await iterator.next())
-        #expect(stats.droppedByLane[.natural] == 3)
-        #expect(stats.droppedByLane[.processed] == 1)
-        #expect(stats.cppOverwriteByLane[.natural] == 2)
-        #expect(stats.cppOverwriteByLane[.tracker] == 1)
-        #expect(stats.cppOverwriteByLane[.processed] ?? 0 == 0)
-    }
-}
+// frame-delivery-rework removed Suite 2 (D-11 observability): it exercised the
+// C-ABI PixelSinkCallbacks / registerCallback / metricsStream / cppPool surface,
+// all deleted with the C-ABI path.
 
 // MARK: - Suite 3: carried-forward recording (still passes under bg-task wrapping)
 
