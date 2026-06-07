@@ -31,7 +31,7 @@ class _PreviewWidgetState extends State<PreviewWidget> {
     widget.engine.currentState().then((s) {
       if (mounted) setState(() => _lastState = s);
     }).catchError((_) {});
-    widget.engine.createPreviewTexture(stream: StreamId.processed).then((id) {
+    widget.engine.createPreviewTexture(stream: StreamId.primary).then((id) {
       if (mounted) setState(() => _textureId = id);
     }).catchError((Object _) {
       // createPreviewTexture shouldn't fail on iOS, but if it does, drop the

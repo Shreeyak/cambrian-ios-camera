@@ -35,7 +35,9 @@ enum SessionState {
   interrupted,
 }
 
-enum StreamId { natural, processed, tracker }
+// Mirrors CameraKit `StreamId` (frame-delivery-rework): `.natural` was dropped
+// and `processed` renamed to `primary`.
+enum StreamId { primary, tracker }
 
 enum CameraPermissionStatus { notDetermined, denied, restricted, authorized }
 

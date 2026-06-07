@@ -279,8 +279,7 @@ extension CameraKit.SessionState {
 extension StreamId {
     func toCameraKit() -> CameraKit.StreamId {
         switch self {
-        case .natural: return .natural
-        case .processed: return .processed
+        case .primary: return .primary
         case .tracker: return .tracker
         }
     }

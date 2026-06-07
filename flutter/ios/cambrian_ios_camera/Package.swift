@@ -38,6 +38,9 @@ let package = Package(
             name: "cambrian_ios_camera",
             dependencies: [
                 .product(name: "CameraKit", package: "CameraKit"),
+                // Platform-neutral frame vocabulary (Frame / BufferingPolicy /
+                // PixelHandle) — the adapter names BufferingPolicy when subscribing.
+                .product(name: "FrameTransport", package: "CameraKit"),
             ],
             resources: [.process("Resources/PrivacyInfo.xcprivacy")],
             swiftSettings: [
@@ -47,12 +50,9 @@ let package = Package(
                 // generated globals into hard errors. The hand-written adapter is
                 // concurrency-aware regardless (actors, Sendable captures).
                 .swiftLanguageMode(.v5),
-                // CameraKit/CameraKitInterop are built with C++ interop (ADR-13);
-                // importing them requires the importer to enable it too, even
-                // though no C++ types cross CameraKit's public API. The Xcode
-                // RunnerTests target sets the equivalent
-                // `-cxx-interoperability-mode=default` for its `@testable import`.
-                .interoperabilityMode(.Cxx),
+                // (frame-delivery-rework removed the C++ interop requirement:
+                // CameraKit is now pure Swift, so `.interoperabilityMode(.Cxx)`
+                // is no longer needed here.)
             ]
         ),
     ]

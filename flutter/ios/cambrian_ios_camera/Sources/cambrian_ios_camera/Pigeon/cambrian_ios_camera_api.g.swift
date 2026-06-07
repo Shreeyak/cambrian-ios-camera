@@ -75,9 +75,8 @@ enum SessionState: Int {
 }
 
 enum StreamId: Int {
-  case natural = 0
-  case processed = 1
-  case tracker = 2
+  case primary = 0
+  case tracker = 1
 }
 
 enum CameraPermissionStatus: Int {

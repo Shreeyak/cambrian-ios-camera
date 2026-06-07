@@ -2,6 +2,7 @@ import CameraKit
 import CoreVideo
 import Flutter
 import Foundation
+import FrameTransport
 import os
 
 /// One FlutterTexture instance per active preview stream.
@@ -119,10 +120,17 @@ extension CambrianIosCameraPlugin {
         let kitStream = stream.toCameraKit()
         return Task {
             guard let engine else { return }
-            let frames = await engine.consumers.subscribe(stream: kitStream)
-            for await _ in frames {
-                if Task.isCancelled { break }
-                registry.textureFrameAvailable(textureId)
+            // Preview is latest-wins; the texture only needs the newest frame.
+            // Frame contents are unused here — delivery just signals the registry.
+            let frames = await engine.consumers.subscribe(
+                stream: kitStream, buffering: .latestWins)
+            do {
+                for try await _ in frames {
+                    if Task.isCancelled { break }
+                    registry.textureFrameAvailable(textureId)
+                }
+            } catch {
+                // Lane finished with a terminal fault — stop signalling.
             }
         }
     }

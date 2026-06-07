@@ -63,9 +63,8 @@ enum class SessionState(val raw: Int) {
 }
 
 enum class StreamId(val raw: Int) {
-  NATURAL(0),
-  PROCESSED(1),
-  TRACKER(2);
+  PRIMARY(0),
+  TRACKER(1);
 
   companion object {
     fun ofRaw(raw: Int): StreamId? {

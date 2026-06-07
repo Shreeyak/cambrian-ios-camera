@@ -8,8 +8,8 @@
 ## 2. Lane rename + Flutter ripple
 
 - [x] 2.1 Rename `StreamId.processed → .primary` across CameraKit (`SessionState`, `MetalPipeline`, `CameraEngine`, docs)
-- [ ] 2.2 Update the Pigeon DSL + regenerate the Swift/Dart/Kotlin `StreamId` mirrors (`processed→primary`)
-- [ ] 2.3 Update `TextureBridge` to `.primary`
+- [x] 2.2 Update the Pigeon DSL + regenerate the Swift/Dart/Kotlin `StreamId` mirrors (`processed→primary`)
+- [x] 2.3 Update `TextureBridge` to `.primary`
 
 ## 3. Buffering policy + termination
 
@@ -30,6 +30,6 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Build CameraKit + Flutter plugin green (demos excluded/broken is acceptable)
+- [x] 6.1 Build CameraKit + Flutter plugin green (demos excluded/broken is acceptable)
 - [x] 6.2 Tests: per-lane delivery yields single-lane `Frame`; tracker absent when unsubscribed; throwing-stream throws on fatal, survives transient
-- [ ] 6.3 `openspec validate frame-delivery-rework --strict` passes
+- [x] 6.3 `openspec validate frame-delivery-rework --strict` passes
