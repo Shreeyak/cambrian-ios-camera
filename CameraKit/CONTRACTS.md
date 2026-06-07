@@ -213,6 +213,8 @@ private nonisolated let streamConfigContinuationBox =
 private let cachedStreamConfigStream = Mailbox<AsyncStream<StreamConfiguration>>()
 private var currentCropRegion: Rect?
 ⋮----
+private var currentTrackerHeight: Int?
+⋮----
 var watchdogs: WatchdogPair?
 var recovery: RecoveryCoordinator?
 ⋮----
@@ -794,6 +796,8 @@ public var cropRegion: Rect?
 ⋮----
 public var initialSettings: CameraSettings?
 ⋮----
+public var trackerHeight: Int?
+⋮----
 public enum CameraMode: String, Sendable, Hashable, Codable {
 ⋮----
 public enum WhiteBalanceMode: String, Sendable, Hashable, Codable {
@@ -1051,8 +1055,8 @@ static let captureDefaultWidthPx: Int = 4160
 static let captureDefaultHeightPx: Int = 3120
 static let captureFallbackWidthPx: Int = 1280
 static let captureFallbackHeightPx: Int = 960
-static let cropDefaultWidthPx: Int = 1600
-static let cropDefaultHeightPx: Int = 1200
+static let cropDefaultWidthPx: Int = 1440
+static let cropDefaultHeightPx: Int = 1440
 static let captureOrientationAngleDeg: CGFloat = 0
 static let stateStreamBufferSize: Int = 64
 ⋮----
@@ -1361,7 +1365,10 @@ internal private(set) var commitCount: Int = 0
 ⋮----
 let resolvedOutputSize = outputSize ?? captureSize
 ⋮----
-let trackerH = Constants.trackerHeightPx
+let requestedH = trackerHeight ?? Constants.trackerHeightPx
+let clampedH = max(2, min(requestedH, resolvedOutputSize.height))
+let trackerH = clampedH - (clampedH % 2)
+⋮----
 let aspect = Double(resolvedOutputSize.width) / Double(resolvedOutputSize.height)
 let rawW = Int((Double(trackerH) * aspect).rounded())
 let trackerW = rawW - (rawW % 2)

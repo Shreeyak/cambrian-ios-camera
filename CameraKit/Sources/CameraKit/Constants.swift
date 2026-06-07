@@ -9,8 +9,8 @@ enum Constants {
     static let captureDefaultHeightPx: Int = 3120
     static let captureFallbackWidthPx: Int = 1280
     static let captureFallbackHeightPx: Int = 960
-    static let cropDefaultWidthPx: Int = 1600
-    static let cropDefaultHeightPx: Int = 1200
+    static let cropDefaultWidthPx: Int = 1440
+    static let cropDefaultHeightPx: Int = 1440
     static let captureOrientationAngleDeg: CGFloat = 0
     static let stateStreamBufferSize: Int = 64
     /// ADR-30: Deadline for startRunning() / stopRunning() awaited from @MainActor.
