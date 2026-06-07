@@ -230,6 +230,10 @@ nonisolated let sessionToken: ManagedAtomic<UInt64> = ManagedAtomic(0)
 ⋮----
 private let _metalPipeline = Mailbox<MetalPipeline>()
 ⋮----
+private let deviceSnapshotMailbox = Mailbox<DeviceStateSnapshot>()
+⋮----
+private var snapshotForwardTask: Task<Void, Never>?
+⋮----
 var currentPhase: AppLifecyclePhase
 ⋮----
 var reconciledSessionRunning = false
@@ -313,6 +317,8 @@ func publishError(_ err: CameraError) {
 nonisolated func tickFrame() {
 ⋮----
 private func onFrameTick() async {
+⋮----
+let diagnostics = FrameDiagnostics.json(
 ⋮----
 let r = FrameResult(
 ⋮----
@@ -550,6 +556,15 @@ func armWatchdogs() {
 ⋮----
 let token = sessionToken.load(ordering: .acquiring)
 ⋮----
+/// Mirrors every device KVO snapshot into `deviceSnapshotMailbox`.
+⋮----
+/// Lets the nonisolated MetalPipeline completion handler build per-frame
+/// `CameraFrameMetadata` without an actor hop. No early-return path: forwarding
+/// continues across recovery (the device — and its KVO stream — persist).
+private func startSnapshotForwarder(device: any CaptureDeviceProviding) {
+⋮----
+let mailbox = deviceSnapshotMailbox
+⋮----
 private func startAEMonitor(device: any CaptureDeviceProviding) {
 ⋮----
 let clock = self.clock
@@ -623,8 +638,22 @@ nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?
 
 ## File: CameraKit/Sources/CameraKit/CameraFrameMetadata.swift
 ```swift
-public struct CameraFrameMetadata: FrameMetadata {
-public init() {}
+public struct CameraFrameMetadata: FrameMetadata, Hashable {
+⋮----
+public let settled: Bool
+public let focusState: FocusState
+public let wbState: WhiteBalanceState
+public let exposureState: ExposureState
+⋮----
+public init(
+⋮----
+init(snapshot: DeviceStateSnapshot) {
+⋮----
+public enum FocusState: String, Sendable, Hashable {
+⋮----
+public enum WhiteBalanceState: String, Sendable, Hashable {
+⋮----
+public enum ExposureState: String, Sendable, Hashable {
 ```
 
 ## File: CameraKit/Sources/CameraKit/CameraKitLog.swift
@@ -901,6 +930,10 @@ public let exposureDurationNs: Int64
 public let lensPosition: Float
 public let whiteBalanceGains: WhiteBalanceGains
 public let isAdjustingExposure: Bool
+⋮----
+public let isAdjustingFocus: Bool
+⋮----
+public let isAdjustingWhiteBalance: Bool
 public let systemPressureLevel: SystemPressureLevel
 ⋮----
 public init(
@@ -1157,10 +1190,22 @@ public init(filePath: String) { self.filePath = filePath }
 public enum StillCaptureError: Error, Sendable {
 ```
 
+## File: CameraKit/Sources/CameraKit/FrameDiagnostics.swift
+```swift
+enum FrameDiagnostics {
+⋮----
+static func json(
+⋮----
+var fields: [(String, String)] = []
+⋮----
+let body = fields.map { "\"\($0.0)\":\($0.1)" }.joined(separator: ",")
+⋮----
+private static func num(_ value: Double) -> String {
+var s = String(format: "%.4f", value)
+```
+
 ## File: CameraKit/Sources/CameraKit/FrameSet.swift
 ```swift
-public enum TrackerQuality: String, Sendable, Hashable {
-⋮----
 public struct CaptureMetadata: Sendable, Hashable {
 public let iso: Float
 public let exposureDurationNs: Int64
@@ -1199,6 +1244,8 @@ public var focusDistance: Double?
 public var wbGainR: Double?
 public var wbGainG: Double?
 public var wbGainB: Double?
+⋮----
+public var diagnosticsJSON: String?
 ⋮----
 public struct RgbSample: Sendable, Hashable {
 public var r: Double
@@ -1324,6 +1371,8 @@ private var frameNumber: UInt64 = 0
 ⋮----
 let consumers: ConsumerRegistry
 ⋮----
+private let deviceSnapshot: Mailbox<DeviceStateSnapshot>
+⋮----
 private let commandQueue: MTLCommandQueue
 private let yuvToRgbaPSO: MTLComputePipelineState
 private let colorTransformPSO: MTLComputePipelineState
@@ -1444,7 +1493,8 @@ let liveToken = self.engineSessionToken.load(ordering: .acquiring)
 let code = (cb.error as NSError?)?.code ?? -1
 ⋮----
 let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
-let frameMeta = CameraFrameMetadata()
+⋮----
+let frameMeta =
 ⋮----
 let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
 var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)

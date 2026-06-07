@@ -3,7 +3,7 @@ import Foundation
 /// Non-nil-field overlay merge per 07-settings.md §Merge model.
 ///
 /// Types `CameraMode`, `WhiteBalanceMode`, `CameraSettings`, `ProcessingParameters` live in
-/// `Capabilities.swift`; `WhiteBalanceGains`, `CameraPosition`, `TrackerQuality` in `FrameSet.swift`.
+/// `Capabilities.swift`; `WhiteBalanceGains`, `CameraPosition` in `FrameSet.swift`.
 /// This file adds behavior (merging + coupling + Codable) without redeclaring types.
 extension CameraSettings {
 

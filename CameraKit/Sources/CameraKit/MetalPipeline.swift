@@ -199,6 +199,12 @@ final class MetalPipeline: @unchecked Sendable {
     /// Consumer registry handed in from CameraEngine.
     let consumers: ConsumerRegistry
 
+    /// Latest device KVO snapshot, shared by reference with `CameraEngine`.
+    ///
+    /// Written by the engine's snapshot forwarder; read in the nonisolated
+    /// completion handler to build per-frame `CameraFrameMetadata` — no actor hop.
+    private let deviceSnapshot: Mailbox<DeviceStateSnapshot>
+
     // MARK: - Shared properties
 
     private let commandQueue: MTLCommandQueue
@@ -293,11 +299,13 @@ final class MetalPipeline: @unchecked Sendable {
         gate: ManagedAtomic<Bool>,
         consumers: ConsumerRegistry,
         engineSessionToken: ManagedAtomic<UInt64>,
+        deviceSnapshot: Mailbox<DeviceStateSnapshot>,
         trackerHeight: Int? = nil
     ) throws {
         submissionGate = gate
         self.engineSessionToken = engineSessionToken
         self.consumers = consumers
+        self.deviceSnapshot = deviceSnapshot
         self.captureSize = captureSize
         let resolvedOutputSize = outputSize ?? captureSize
         self.outputSize = resolvedOutputSize
@@ -679,7 +687,12 @@ final class MetalPipeline: @unchecked Sendable {
             // consumer releases it (the holdable lease, §4.1). Both lanes share
             // `fn` (the cross-lane correlation index) and `tsNs`.
             let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
-            let frameMeta = CameraFrameMetadata()
+            // frame-metadata-signals: build typed convergence metadata from the
+            // latest device KVO snapshot. `nil` before the first snapshot →
+            // all-unknown → `settled == false` (fail-safe: never seed pre-snapshot).
+            let frameMeta =
+                self.deviceSnapshot.latest.map(CameraFrameMetadata.init(snapshot:))
+                ?? CameraFrameMetadata()
             if let primaryPixels = PixelHandle(pixelBuffer: processedForSet, format: .bgra8) {
                 consumers.yield(
                     Frame(
@@ -1110,7 +1123,8 @@ final class MetalPipeline: @unchecked Sendable {
             cropOrigin: cropOrigin,
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: ConsumerRegistry(),
-            engineSessionToken: ManagedAtomic<UInt64>(0)
+            engineSessionToken: ManagedAtomic<UInt64>(0),
+            deviceSnapshot: Mailbox<DeviceStateSnapshot>()
         )
     }
 
@@ -1133,7 +1147,8 @@ final class MetalPipeline: @unchecked Sendable {
             cropOrigin: cropOrigin,
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: consumers,
-            engineSessionToken: ManagedAtomic<UInt64>(0)
+            engineSessionToken: ManagedAtomic<UInt64>(0),
+            deviceSnapshot: Mailbox<DeviceStateSnapshot>()
         )
     }
 

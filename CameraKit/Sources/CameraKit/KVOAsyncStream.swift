@@ -68,6 +68,15 @@ final class DeviceKVOObserver: @unchecked Sendable {
                 device.observe(\.deviceWhiteBalanceGains, options: [.new]) { dev, _ in
                     cont.yield(Self.snapshot(avDevice: dev))
                 },
+                // frame-metadata-signals: focus/WB adjusting flags must refresh
+                // the snapshot when they flip, else `focusState`/`wbState` go stale
+                // exactly when they matter (mid-autofocus / WB search).
+                device.observe(\.isAdjustingFocus, options: [.new]) { dev, _ in
+                    cont.yield(Self.snapshot(avDevice: dev))
+                },
+                device.observe(\.isAdjustingWhiteBalance, options: [.new]) { dev, _ in
+                    cont.yield(Self.snapshot(avDevice: dev))
+                },
             ]
         }
     }
@@ -84,6 +93,8 @@ final class DeviceKVOObserver: @unchecked Sendable {
                 green: d.deviceWhiteBalanceGains.greenGain,
                 blue: d.deviceWhiteBalanceGains.blueGain),
             isAdjustingExposure: d.isAdjustingExposure,
+            isAdjustingFocus: d.isAdjustingFocus,
+            isAdjustingWhiteBalance: d.isAdjustingWhiteBalance,
             systemPressureLevel: .nominal)
     }
 }

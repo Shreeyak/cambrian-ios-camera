@@ -48,9 +48,7 @@ engine.consumers.unregister(token: token)
 Each ``FrameSet`` is one atomic, multi-lane payload:
 ``FrameSet/frameNumber``, ``FrameSet/captureTime``, the three lane buffers
 ``FrameSet/natural`` / ``FrameSet/processed`` / ``FrameSet/tracker``,
-``FrameSet/capture`` (``CaptureMetadata``), ``FrameSet/processing``
-(``ProcessingMetadata``), ``FrameSet/blurScore``, and ``FrameSet/trackerQuality``
-(``TrackerQuality``).
+and ``FrameSet/capture`` (``CaptureMetadata``).
 
 ## Delivery metrics and back-pressure
 

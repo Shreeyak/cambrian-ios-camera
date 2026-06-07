@@ -12,11 +12,11 @@ extension CVPixelBuffer: @retroactive @unchecked Sendable {}
 // streams. The value types below survived because they are self-contained and
 // referenced beyond FrameSet.
 
-public enum TrackerQuality: String, Sendable, Hashable {
-    case good
-    case degraded
-    case invalid
-}
+// `TrackerQuality` and the `blurScore`/`trackerQuality` frame fields were removed
+// in frame-metadata-signals: they were hardcoded (`0.0` / `.good`) — a contract
+// advertising GPU-computed quality signals that were never computed. A consumer
+// needing a frame-quality gate uses its own (e.g. EvaScan's `QualityGate`). If
+// CameraKit ever provides these, they must be honestly computed.
 
 public struct CaptureMetadata: Sendable, Hashable {
     public let iso: Float
@@ -122,10 +122,20 @@ public struct FrameResult: Sendable, Hashable {
     public var wbGainR: Double?
     public var wbGainG: Double?
     public var wbGainB: Double?
+    /// Heavyweight, debug-only diagnostics as a JSON string (frame-metadata-signals).
+    ///
+    /// Carries detail a consumer does NOT branch on — full AF/WB/AE convergence
+    /// state and the grade params (brightness/contrast/saturation/gamma/cropRegion/
+    /// white-balance gains, formerly `ProcessingMetadata`). It is NOT a control
+    /// surface: anything load-bearing must be promoted to a typed field (on
+    /// `CameraFrameMetadata` for per-frame decisions). Shape is intentionally
+    /// unstable — debug grade, not a contract.
+    public var diagnosticsJSON: String?
 
     public init(
         iso: Int? = nil, exposureTimeNs: Int64? = nil, focusDistance: Double? = nil,
-        wbGainR: Double? = nil, wbGainG: Double? = nil, wbGainB: Double? = nil
+        wbGainR: Double? = nil, wbGainG: Double? = nil, wbGainB: Double? = nil,
+        diagnosticsJSON: String? = nil
     ) {
         self.iso = iso
         self.exposureTimeNs = exposureTimeNs
@@ -133,6 +143,7 @@ public struct FrameResult: Sendable, Hashable {
         self.wbGainR = wbGainR
         self.wbGainG = wbGainG
         self.wbGainB = wbGainB
+        self.diagnosticsJSON = diagnosticsJSON
     }
 }
 

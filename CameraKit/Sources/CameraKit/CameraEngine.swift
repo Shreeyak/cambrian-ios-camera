@@ -140,6 +140,17 @@ public actor CameraEngine {
     // once per close; the mailbox holds a single pointer-sized reference.
     private let _metalPipeline = Mailbox<MetalPipeline>()
 
+    // frame-metadata-signals: latest device KVO snapshot, shared by reference with
+    // every MetalPipeline (passed into init, like the gate/token). The completion
+    // handler reads `.latest` to build `CameraFrameMetadata` for each delivered
+    // Frame. Engine-owned so it survives pipeline rebuilds (setResolution/recovery);
+    // written by `snapshotForwardTask` from the device KVO stream.
+    private let deviceSnapshotMailbox = Mailbox<DeviceStateSnapshot>()
+    // Forwards every `device.snapshotStream()` value into `deviceSnapshotMailbox`.
+    // Separate from `aeMonitorTask` (whose timeout branch can early-return) so
+    // snapshot forwarding never stops mid-session. Cancelled in `close()`.
+    private var snapshotForwardTask: Task<Void, Never>?
+
     // MARK: - Public API
 
     // Lifecycle reconciliation state (this block through `lifecycleTestHook`).
@@ -321,6 +332,7 @@ public actor CameraEngine {
             gate: submissionGate,
             consumers: consumers,
             engineSessionToken: sessionToken,
+            deviceSnapshot: deviceSnapshotMailbox,
             trackerHeight: currentTrackerHeight
         )
         pipeline.onMetalError = { [weak self] mErr in
@@ -400,6 +412,7 @@ public actor CameraEngine {
         self.recovery = RecoveryCoordinator(clock: clock, hooks: hooks)
 
         startAEMonitor(device: device)
+        startSnapshotForwarder(device: device)
 
         // 9a. Apply initialSettings (Phase-2 §2a) BEFORE startRunning so the first
         //     frame is at the requested settings — no defaults-then-snap flicker.
@@ -494,6 +507,9 @@ public actor CameraEngine {
         watchdogs?.disarmAll()
         aeMonitorTask?.cancel()
         aeMonitorTask = nil
+        snapshotForwardTask?.cancel()
+        snapshotForwardTask = nil
+        deviceSnapshotMailbox.store(nil)
         fpsWindowStartMs = 0
         fpsFrameCount = 0
         fpsLowStreak = 0
@@ -638,13 +654,22 @@ public actor CameraEngine {
             let device = cameraSession?.device,
             let snap = await device.lastSnapshot
         else { return }
+        // frame-metadata-signals: heavyweight debug detail rides the JSON payload —
+        // AF/WB/AE convergence state plus the grade params (formerly delivered as
+        // per-frame ProcessingMetadata). Nothing branches on these; decision data
+        // is the typed CameraFrameMetadata on each Frame.
+        let diagnostics = FrameDiagnostics.json(
+            snapshot: snap,
+            processing: currentProcessing,
+            crop: currentCropRegion)
         let r = FrameResult(
             iso: Int(snap.iso),
             exposureTimeNs: snap.exposureDurationNs,
             focusDistance: Double(snap.lensPosition),
             wbGainR: Double(snap.whiteBalanceGains.red),
             wbGainG: Double(snap.whiteBalanceGains.green),
-            wbGainB: Double(snap.whiteBalanceGains.blue))
+            wbGainB: Double(snap.whiteBalanceGains.blue),
+            diagnosticsJSON: diagnostics)
         frameResultContinuationBox.withLock { $0?.yield(r) }
     }
 
@@ -753,6 +778,7 @@ public actor CameraEngine {
             gate: submissionGate,
             consumers: consumers,
             engineSessionToken: sessionToken,
+            deviceSnapshot: deviceSnapshotMailbox,
             trackerHeight: currentTrackerHeight
         )
         pipeline.onMetalError = { [weak self] mErr in
@@ -968,6 +994,7 @@ public actor CameraEngine {
             gate: submissionGate,
             consumers: consumers,
             engineSessionToken: sessionToken,
+            deviceSnapshot: deviceSnapshotMailbox,
             trackerHeight: currentTrackerHeight
         )
         newPipeline.onMetalError = { [weak self] mErr in
@@ -1734,6 +1761,22 @@ public actor CameraEngine {
         let token = sessionToken.load(ordering: .acquiring)
         pair.gpu.arm(sessionToken: token)
         pair.capture.arm(sessionToken: token)
+    }
+
+    /// Mirrors every device KVO snapshot into `deviceSnapshotMailbox`.
+    ///
+    /// Lets the nonisolated MetalPipeline completion handler build per-frame
+    /// `CameraFrameMetadata` without an actor hop. No early-return path: forwarding
+    /// continues across recovery (the device — and its KVO stream — persist).
+    private func startSnapshotForwarder(device: any CaptureDeviceProviding) {
+        snapshotForwardTask?.cancel()
+        let mailbox = deviceSnapshotMailbox
+        snapshotForwardTask = Task {
+            for await snap in device.snapshotStream() {
+                if Task.isCancelled { return }
+                mailbox.store(snap)
+            }
+        }
     }
 
     private func startAEMonitor(device: any CaptureDeviceProviding) {

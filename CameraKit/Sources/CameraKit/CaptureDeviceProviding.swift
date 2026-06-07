@@ -117,11 +117,21 @@ public struct DeviceStateSnapshot: Sendable, Hashable {
     public let lensPosition: Float
     public let whiteBalanceGains: WhiteBalanceGains
     public let isAdjustingExposure: Bool
+    /// Mid-autofocus flag (`AVCaptureDevice.isAdjustingFocus`).
+    ///
+    /// KVO-observed so a focus transition pushes a fresh snapshot. Feeds
+    /// `CameraFrameMetadata.focusState`.
+    public let isAdjustingFocus: Bool
+    /// White-balance-adjusting flag (`AVCaptureDevice.isAdjustingWhiteBalance`).
+    ///
+    /// KVO-observed; feeds `CameraFrameMetadata.wbState`.
+    public let isAdjustingWhiteBalance: Bool
     public let systemPressureLevel: SystemPressureLevel
 
     public init(
         iso: Float, exposureDurationNs: Int64, lensPosition: Float,
         whiteBalanceGains: WhiteBalanceGains, isAdjustingExposure: Bool,
+        isAdjustingFocus: Bool = false, isAdjustingWhiteBalance: Bool = false,
         systemPressureLevel: SystemPressureLevel
     ) {
         self.iso = iso
@@ -129,6 +139,8 @@ public struct DeviceStateSnapshot: Sendable, Hashable {
         self.lensPosition = lensPosition
         self.whiteBalanceGains = whiteBalanceGains
         self.isAdjustingExposure = isAdjustingExposure
+        self.isAdjustingFocus = isAdjustingFocus
+        self.isAdjustingWhiteBalance = isAdjustingWhiteBalance
         self.systemPressureLevel = systemPressureLevel
     }
 }
