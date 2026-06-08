@@ -73,13 +73,21 @@ final class CameraSession: @unchecked Sendable {
     ///     the caller (`CameraEngine`).
     ///   - sampleBufferDelegate: The `CaptureDelegate` that receives sample buffers.
     ///     Owned by the caller.
+    ///   - requestedSize: When non-`nil`, the capture resolution to select. It must
+    ///     match (exact dimensions) one of the device's FullRange formats — the same
+    ///     set surfaced by `SessionCapabilities.supportedSizes` and selectable by
+    ///     `reconfigureSize(_:)` — so validation and selection draw from one list. An
+    ///     unsupported size throws `EngineError.settingsConflict`. `nil` keeps the
+    ///     default behavior (largest 4:3 format at 30 fps).
     /// - Returns: The live device wrapper and the chosen capture size.
     /// - Throws: `EngineError.noBackCamera` if the device is absent;
+    ///   `EngineError.settingsConflict` if `requestedSize` is not a supported format;
     ///   `EngineError.lockForConfigurationFailed` if the device lock fails;
     ///   `EngineError.noSupportedFormat` if landscape-right rotation is unsupported.
     func configure(
         deliveryQueue: DispatchQueue,
-        sampleBufferDelegate: AVCaptureVideoDataOutputSampleBufferDelegate
+        sampleBufferDelegate: AVCaptureVideoDataOutputSampleBufferDelegate,
+        requestedSize: Size? = nil
     ) throws -> (device: any CaptureDeviceProviding, captureSize: Size) {
 
         // ── 1. Device discovery (D-08) ──────────────────────────────────────────────
@@ -129,7 +137,35 @@ final class CameraSession: @unchecked Sendable {
                 return Int(lDims.width) * Int(lDims.height) > Int(rDims.width) * Int(rDims.height)
             }
 
-        let (chosenFormat, chosenSize): (AVCaptureDevice.Format?, Size) = {
+        let (chosenFormat, chosenSize): (AVCaptureDevice.Format?, Size) = try {
+            // Requested capture resolution: select the FullRange format whose exact
+            // dimensions match (preferring a 30 fps-capable variant). This draws from
+            // the same list `SessionCapabilities.supportedSizes` advertises and
+            // `reconfigureSize(_:)` matches against — so a size that validates can
+            // always be selected (validate-and-apply, not just validate). An
+            // unsupported size is rejected naming the requested size + supported set.
+            if let requested = requestedSize {
+                let matches = sortedByPreference.filter { format in
+                    let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                    return Int(d.width) == requested.width && Int(d.height) == requested.height
+                }
+                let pick =
+                    matches.first { format in
+                        format.videoSupportedFrameRateRanges.contains { range in
+                            range.minFrameRate <= Double(fps30) && Double(fps30) <= range.maxFrameRate
+                        }
+                    } ?? matches.first
+                guard let pick else {
+                    throw EngineError.settingsConflict(
+                        reason:
+                            "requested capture resolution \(requested.width)x\(requested.height) "
+                            + "is not a supported format; supported: "
+                            + Self.uniqueSupportedSizes(yuvFormats)
+                            .map { "\($0.width)x\($0.height)" }
+                            .joined(separator: ", "))
+                }
+                return (pick, requested)
+            }
             if let best = candidateFormats.first {
                 let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
                 return (best, Size(width: Int(dims.width), height: Int(dims.height)))
@@ -330,6 +366,23 @@ final class CameraSession: @unchecked Sendable {
     ///
     /// Stage 03 placeholder for `setResolution` (brief §4): re-select device format.
     /// Stage 06 replaces with pool-resize. Runs on `sessionQueue` (ADR-07).
+    /// Unique selectable capture sizes from a FullRange format list, ≥640×480,
+    /// sorted by area descending — mirrors `LiveCaptureDevice.supportedSizes` so the
+    /// `requestedSize` validation message names the same set the picker advertises.
+    private static func uniqueSupportedSizes(_ fullRangeFormats: [AVCaptureDevice.Format]) -> [Size] {
+        var seen: Set<Size> = []
+        var unique: [Size] = []
+        for format in fullRangeFormats {
+            let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            let w = Int(d.width)
+            let h = Int(d.height)
+            guard w >= 640, h >= 480 else { continue }
+            let size = Size(width: w, height: h)
+            if seen.insert(size).inserted { unique.append(size) }
+        }
+        return unique.sorted { ($0.width * $0.height) > ($1.width * $1.height) }
+    }
+
     func reconfigureSize(_ size: Size) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             sessionQueue.async {

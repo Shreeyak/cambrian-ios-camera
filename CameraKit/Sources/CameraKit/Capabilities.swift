@@ -99,6 +99,17 @@ public struct OpenConfiguration: Sendable, Hashable {
     public var cameraId: String?
     public var captureResolution: Size?
     public var cropRegion: Rect?
+
+    /// Whether the output is cropped at open.
+    ///
+    /// Separates crop *policy* from *geometry* (camera-crop-config). When
+    /// `cropRegion` is set, that rect is the configured crop and is applied
+    /// regardless of this flag. When `cropRegion` is `nil` and this is `true`, a
+    /// centered `Constants.cropDefault*` (1440×1440) crop, clamped to the active
+    /// capture resolution, is applied so the first delivered frame is already
+    /// cropped (no full-frame-then-crop transition). Defaults to `false`
+    /// (full-frame output).
+    public var cropEnabled: Bool
     /// Hardware settings to apply during session setup, before the first frame
     /// is delivered.
     ///
@@ -123,12 +134,14 @@ public struct OpenConfiguration: Sendable, Hashable {
         cameraId: String? = nil,
         captureResolution: Size? = nil,
         cropRegion: Rect? = nil,
+        cropEnabled: Bool = false,
         initialSettings: CameraSettings? = nil,
         trackerHeight: Int? = nil
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
         self.cropRegion = cropRegion
+        self.cropEnabled = cropEnabled
         self.initialSettings = initialSettings
         self.trackerHeight = trackerHeight
     }

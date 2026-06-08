@@ -22,12 +22,23 @@ frame-delivery shape (separate change); tracker sizing (already shipped via
 
 ## Decisions
 
-### D1. Resolution validation: reject, don't snap
+### D1. Resolution validation: reject, don't snap — and *apply* at open
 Compare requested `Size` against `device.supportedSizes`; throw
 `EngineError.settingsConflict` naming both when absent. `nil` keeps default.
 Silent snapping would hide a caller bug and shift crop math under a surprising
 resolution. (A fixed `Resolution` enum is rejected — supported sizes are
 device-dependent; `[Size]` in `SessionCapabilities` is the right surface.)
+
+**Implementation note (validate-AND-apply).** `captureResolution` was found to be
+**entirely unwired** at `open()` — `CameraSession.configure()` ignored it and
+selected the largest 4:3/30fps format. The spec scenario ("the session is
+configured at that resolution") mandates apply, not just validate, so this change
+wires `captureResolution` into `configure(requestedSize:)`. Selection uses
+**exact-dimension FullRange matching** — the same list `SessionCapabilities.supportedSizes`
+advertises and `reconfigureSize` matches against — so the set we validate against
+and the set we can select from coincide (a size that passes validation can always
+be applied). `setResolution` already applied via `reconfigureSize`; it gains the
+shared `validateRequestedResolution` pre-check for the richer error.
 
 ### D2. `setCenterCrop` math (pinned)
 `func setCenterCrop(width:Int, height:Int, offsetX:Double = 0, offsetY:Double = 0) async throws`.
@@ -61,6 +72,11 @@ Engine state: `cropEnabled: Bool = false`, `configuredCrop: Rect?`.
   so a toggle/re-enable doesn't lose the rect. (Modeling "disabled" as
   `cropRegion == captureSize` is rejected — loses geometry and couples policy to a
   resolution that `setResolution` can change.)
+- **`setResolution` × crop (implementation note).** A resolution change rebuilds
+  full-frame, and a remembered rect may not fit the new (smaller) resolution, so
+  `setResolution` resets `cropEnabled = false` / `configuredCrop = nil` — a later
+  enable applies the default rather than throwing on a stale rect. The spec didn't
+  pin this interaction; documented in guide 06.
 
 ### D4. Wire `Constants.cropDefault*` into `open()`
 The default crop size reads from `Constants.cropDefault*` (1440×1440) — resolves

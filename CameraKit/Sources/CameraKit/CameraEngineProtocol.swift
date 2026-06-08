@@ -35,6 +35,8 @@ public protocol CameraEngineProtocol: Actor {
     func setResolution(size: Size) async throws
     func setProcessingParams(_ params: ProcessingParameters) async
     func setCropRegion(_ rect: Rect) async throws
+    func setCenterCrop(width: Int, height: Int, offsetX: Double, offsetY: Double) async throws
+    func setCropEnabled(_ enabled: Bool) async throws
 
     // MARK: Capture
     func captureImage(

@@ -99,6 +99,11 @@ public actor CameraEngine {
         Mutex<AsyncStream<StreamConfiguration>.Continuation?>(nil)
     private let cachedStreamConfigStream = Mailbox<AsyncStream<StreamConfiguration>>()
     private var currentCropRegion: Rect?
+    // Crop policy/geometry split (camera-crop-config D3). `cropEnabled` is the
+    // policy (full-frame when false); `configuredCrop` remembers the last geometry
+    // so disable→re-enable restores it. Both default to disabled/full-frame.
+    private var cropEnabled: Bool = false
+    private var configuredCrop: Rect?
     // Consumer-requested tracker-lane height (`OpenConfiguration.trackerHeight`),
     // persisted so pipeline rebuilds (`setResolution`, `setCropRegion`) preserve
     // it. `nil` → package default (`Constants.trackerHeightPx`).
@@ -302,28 +307,49 @@ public actor CameraEngine {
         //    session.configure() runs synchronously on the queue; the closure only
         //    touches session internals — no actor re-entry.
         let (device, captureSize): (any CaptureDeviceProviding, Size) = try session.sessionQueue.sync {
-            try session.configure(deliveryQueue: delivery, sampleBufferDelegate: delegate)
+            // Validate-and-apply the requested capture resolution against the device's
+            // supported formats (camera-crop-config D1): unsupported → settingsConflict;
+            // nil → device default.
+            try session.configure(
+                deliveryQueue: delivery,
+                sampleBufferDelegate: delegate,
+                requestedSize: configuration.captureResolution)
         }
 
         // 4. Metal pipeline — pass the shared submission gate (ADR-09).
         guard let mtlDevice = MTLCreateSystemDefaultDevice() else {
             throw EngineError.metal(MetalError.unsupportedFormat)
         }
-        // P2a — honor OpenConfiguration.cropRegion as a TRUE crop: validate it
-        // against the active capture resolution (same constraints as
-        // setCropRegion — in-bounds, even coords for 4:2:0), then size the
-        // output textures to the crop.
-        // nil → full-frame output (captureSize), the default.
+        // Crop-on-open (camera-crop-config D3): separate crop *policy* (enabled vs
+        // full-frame) from *geometry* so a later toggle/re-enable doesn't lose the
+        // rect.
+        //   • cropRegion != nil   → that rect is the configured crop, enabled.
+        //   • cropRegion == nil && cropEnabled → centered Constants.cropDefault*
+        //                            clamped to the capture resolution (first frame
+        //                            already cropped — no full-frame-then-crop step).
+        //   • otherwise           → full-frame output (the default).
+        // The rect is a TRUE crop: validated against the active capture resolution
+        // (in-bounds, even coords for 4:2:0); Pass-1 reads the sub-region.
         let openOutputSize: Size?
         let openCropOrigin: (x: Int, y: Int)
+        let openCrop: Rect?
         if let crop = configuration.cropRegion {
             try validateCropRegion(crop, captureSize: captureSize)
+            openCrop = crop
+        } else if configuration.cropEnabled {
+            openCrop = Self.centeredDefaultCrop(in: captureSize)
+        } else {
+            openCrop = nil
+        }
+        if let crop = openCrop {
             openOutputSize = Size(width: crop.width, height: crop.height)
             openCropOrigin = (crop.x, crop.y)
         } else {
             openOutputSize = nil
             openCropOrigin = (0, 0)
         }
+        self.configuredCrop = openCrop
+        self.cropEnabled = (openCrop != nil)
         currentTrackerHeight = configuration.trackerHeight
         let pipeline = try MetalPipeline(
             device: mtlDevice,
@@ -462,11 +488,12 @@ public actor CameraEngine {
             await self.setProcessingParams(persistedProcessing)
         }
 
-        // Mirror the requested crop into `currentCropRegion` so subsequent
-        // `publishStreamConfiguration()` callers reflect the open-time crop even
-        // before any `setCropRegion(_:)`. Source of truth for published config is
-        // pipeline state (`Self.activeCropRect(for:)`), not this mirror.
-        currentCropRegion = configuration.cropRegion
+        // Mirror the resolved open-time crop (explicit rect or the on-open default)
+        // into `currentCropRegion` so subsequent `publishStreamConfiguration()`
+        // callers reflect it even before any `setCropRegion(_:)`. Source of truth for
+        // published config is pipeline state (`Self.activeCropRect(for:)`), not this
+        // mirror.
+        currentCropRegion = openCrop
 
         // 11. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
@@ -752,13 +779,26 @@ public actor CameraEngine {
     /// Session-only teardown + re-select format + restart for new resolution.
     ///
     /// Pool-resize is a placeholder until Stage 06 introduces the trio (brief §4).
+    /// The requested `size` is validated against the device's supported formats
+    /// (camera-crop-config D1) before the reconfigure; the rebuilt pipeline is
+    /// full-frame, so any active crop is dropped (re-apply via `setCropEnabled`/
+    /// `setCropRegion`).
     ///
-    /// - Throws: `EngineError.notOpen` if not yet open.
+    /// - Throws: `EngineError.notOpen` if not yet open;
+    ///   `EngineError.settingsConflict` if `size` is not a supported format;
+    ///   `EngineError.calibrationInProgress` during calibration.
     public func setResolution(size: Size) async throws {
         guard let session = cameraSession else { throw EngineError.notOpen }
         // Phase-2 §2b: setResolution restarts the session, which would invalidate
         // an in-flight calibration's pipeline reference.
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
+
+        // Reject an unsupported resolution up front with a clear error naming the
+        // supported set (camera-crop-config D1). `reconfigureSize` would otherwise
+        // throw a thinner `noSupportedFormat`; this richer check wins first.
+        if let device = session.device {
+            try Self.validateRequestedResolution(size, supportedSizes: await device.supportedSizes)
+        }
 
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         await drainSubmittedFrame()
@@ -804,6 +844,13 @@ public actor CameraEngine {
         CameraKitLog.notice(
             .engine,
             "[resolution] startRunning returned sessionRunning=\(session.avSession.isRunning)")
+        // The rebuilt pipeline is full-frame — keep crop policy honest. The
+        // remembered geometry (`configuredCrop`) may no longer fit the new
+        // resolution, so it is cleared; a later enable uses the default
+        // (camera-crop-config D3).
+        currentCropRegion = nil
+        cropEnabled = false
+        configuredCrop = nil
         // Phase-2 §2c: emit active-config-changed.
         publishStreamConfiguration()
     }
@@ -953,6 +1000,95 @@ public actor CameraEngine {
 
         let captureSize = pipeline.captureSize
         try validateCropRegion(rect, captureSize: captureSize)
+        try await rebuildPipelineForCrop(
+            outputSize: Size(width: rect.width, height: rect.height),
+            cropOrigin: (rect.x, rect.y))
+
+        // Setting a crop region implies crop is enabled; remember the geometry so a
+        // later disable→re-enable restores it (camera-crop-config D3).
+        currentCropRegion = rect
+        configuredCrop = rect
+        cropEnabled = true
+        // Phase-2 §2c: emit active-config-changed.
+        publishStreamConfiguration()
+    }
+
+    /// Sets a crop by output size plus an optional center displacement, computing
+    /// the pixel ROI for the existing crop machinery (camera-crop-config D2).
+    ///
+    /// `offsetX`/`offsetY` are ratios of the active resolution's width/height
+    /// (default `0`, centered) measured from the resolution center. The center is
+    /// `evenNearest(resW/2 + offsetX*resW)` (and likewise for Y); `width`/`height`
+    /// are snapped down to even, each capped at the resolution dimension; the origin
+    /// is derived from the center, clamped fully in-bounds, and even-snapped. The
+    /// derived rect is routed through `setCropRegion` (so it reuses the validation +
+    /// rebuild + remembered-geometry path), which enables crop.
+    ///
+    /// Note the clamp is applied *after* the offset, so an offset on a crop sized to
+    /// fill a dimension is a no-op in that axis (the only legal origin is the edge).
+    ///
+    /// - Throws: `EngineError.notOpen` if the session is not open;
+    ///   `EngineError.calibrationInProgress` during calibration;
+    ///   `EngineError.settingsConflict` if the normalized rect is degenerate.
+    public func setCenterCrop(
+        width: Int, height: Int, offsetX: Double = 0, offsetY: Double = 0
+    ) async throws {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        let rect = Self.centerCropRect(
+            width: width, height: height, offsetX: offsetX, offsetY: offsetY,
+            resolution: pipeline.captureSize)
+        try await setCropRegion(rect)
+    }
+
+    /// Enables or disables crop without re-specifying geometry (camera-crop-config D3).
+    ///
+    /// Enabling applies the remembered `configuredCrop`, or — if no geometry was
+    /// ever configured — a centered `Constants.cropDefault*` (1440×1440) clamped to
+    /// the active resolution. Disabling rebuilds at full capture resolution
+    /// (full-frame output) while preserving `configuredCrop` so a later enable
+    /// restores it.
+    ///
+    /// - Throws: `EngineError.notOpen` if the session is not open;
+    ///   `EngineError.calibrationInProgress` during calibration;
+    ///   `EngineError.settingsConflict` if a remembered crop no longer fits the
+    ///   active resolution.
+    public func setCropEnabled(_ enabled: Bool) async throws {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        if calibrationTask != nil { throw EngineError.calibrationInProgress }
+        let captureSize = pipeline.captureSize
+
+        if enabled {
+            let rect = configuredCrop ?? Self.centeredDefaultCrop(in: captureSize)
+            try validateCropRegion(rect, captureSize: captureSize)
+            try await rebuildPipelineForCrop(
+                outputSize: Size(width: rect.width, height: rect.height),
+                cropOrigin: (rect.x, rect.y))
+            currentCropRegion = rect
+            configuredCrop = rect
+            cropEnabled = true
+        } else {
+            try await rebuildPipelineForCrop(outputSize: nil, cropOrigin: (0, 0))
+            currentCropRegion = nil
+            cropEnabled = false
+            // configuredCrop intentionally retained for a later re-enable.
+        }
+        publishStreamConfiguration()
+    }
+
+    /// Rebuilds the `MetalPipeline` for a crop change.
+    ///
+    /// Gate-off, drain, recreate with the new `outputSize`/`cropOrigin` (the AVF
+    /// session is unchanged, unlike `setResolution`), re-seed, gate-on. Shared by
+    /// `setCropRegion`/`setCropEnabled`.
+    ///
+    /// `outputSize == nil` → full-frame output at the capture resolution.
+    /// Precondition: `metalPipeline != nil` and no calibration in flight (callers
+    /// check). Runs on the actor.
+    private func rebuildPipelineForCrop(
+        outputSize: Size?, cropOrigin: (x: Int, y: Int)
+    ) async throws {
+        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+        let captureSize = pipeline.captureSize
 
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         await drainSubmittedFrame()
@@ -966,8 +1102,8 @@ public actor CameraEngine {
         let newPipeline = try MetalPipeline(
             device: mtlDevice,
             captureSize: captureSize,
-            outputSize: Size(width: rect.width, height: rect.height),
-            cropOrigin: (rect.x, rect.y),
+            outputSize: outputSize,
+            cropOrigin: cropOrigin,
             gate: submissionGate,
             consumers: consumers,
             engineSessionToken: sessionToken,
@@ -992,10 +1128,60 @@ public actor CameraEngine {
         newPipeline.seedPreviewMailboxes()
 
         submissionGate.store(true, ordering: .sequentiallyConsistent)
+    }
 
-        currentCropRegion = rect
-        // Phase-2 §2c: emit active-config-changed.
-        publishStreamConfiguration()
+    /// Largest even integer `≤ v` (for non-negative `v`).
+    private static func evenDown(_ v: Int) -> Int { v - (v % 2) }
+
+    /// Nearest even integer to `d` (round-to-nearest, then to even).
+    private static func evenNearest(_ d: Double) -> Int { Int((d / 2).rounded()) * 2 }
+
+    /// Pure ROI math for `setCenterCrop` (camera-crop-config D2).
+    ///
+    /// Extracted as a static so it is unit-testable without a live session.
+    ///
+    /// `offsetX`/`offsetY` are ratios of `resolution`, measured from its center.
+    /// Extents snap down to even, capped at the resolution; the center is the
+    /// nearest even integer to `res/2 + offset*res`; the origin is derived, clamped
+    /// fully in-bounds, and even-snapped. The result always satisfies the crop
+    /// invariants (even x/y/w/h, in-bounds) for a non-degenerate size.
+    static func centerCropRect(
+        width: Int, height: Int, offsetX: Double, offsetY: Double, resolution res: Size
+    ) -> Rect {
+        let w = evenDown(min(width, res.width))
+        let h = evenDown(min(height, res.height))
+        let centerX = evenNearest(Double(res.width) / 2 + offsetX * Double(res.width))
+        let centerY = evenNearest(Double(res.height) / 2 + offsetY * Double(res.height))
+        let x = evenDown(max(0, min(centerX - w / 2, res.width - w)))
+        let y = evenDown(max(0, min(centerY - h / 2, res.height - h)))
+        return Rect(x: x, y: y, width: w, height: h)
+    }
+
+    /// A centered crop of `Constants.cropDefault*` (1440×1440), clamped to `res`
+    /// (never upscales) with even origin and extents (camera-crop-config D3/D4).
+    static func centeredDefaultCrop(in res: Size) -> Rect {
+        let w = evenDown(min(Constants.cropDefaultWidthPx, res.width))
+        let h = evenDown(min(Constants.cropDefaultHeightPx, res.height))
+        let x = evenDown((res.width - w) / 2)
+        let y = evenDown((res.height - h) / 2)
+        return Rect(x: x, y: y, width: w, height: h)
+    }
+
+    /// Validates a requested capture resolution against the device's supported sizes (camera-crop-config D1).
+    ///
+    /// `nil` is always valid (device default). An unsupported size throws
+    /// `settingsConflict` naming the request + supported set. Shared rule for
+    /// `setResolution`; the `open()` path enforces the equivalent in
+    /// `CameraSession.configure(requestedSize:)`.
+    static func validateRequestedResolution(_ size: Size?, supportedSizes: [Size]) throws {
+        guard let size else { return }
+        guard supportedSizes.contains(size) else {
+            throw EngineError.settingsConflict(
+                reason:
+                    "requested capture resolution \(size.width)x\(size.height) is not a "
+                    + "supported format; supported: "
+                    + supportedSizes.map { "\($0.width)x\($0.height)" }.joined(separator: ", "))
+        }
     }
 
     /// Stage 04: dispatches the center-patch sampler and returns per-channel trimmed mean.

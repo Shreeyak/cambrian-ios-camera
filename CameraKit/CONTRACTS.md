@@ -213,6 +213,9 @@ private nonisolated let streamConfigContinuationBox =
 private let cachedStreamConfigStream = Mailbox<AsyncStream<StreamConfiguration>>()
 private var currentCropRegion: Rect?
 ⋮----
+private var cropEnabled: Bool = false
+private var configuredCrop: Rect?
+⋮----
 private var currentTrackerHeight: Int?
 ⋮----
 var watchdogs: WatchdogPair?
@@ -262,6 +265,7 @@ let delivery = DispatchQueue(label: "com.cambrian.camerakit.delivery", qos: .use
 ⋮----
 let openOutputSize: Size?
 let openCropOrigin: (x: Int, y: Int)
+let openCrop: Rect?
 ⋮----
 let pipeline = try MetalPipeline(
 ⋮----
@@ -360,7 +364,38 @@ public func setCropRegion(_ rect: Rect) async throws {
 ⋮----
 let captureSize = pipeline.captureSize
 ⋮----
+public func setCenterCrop(
+⋮----
+let rect = Self.centerCropRect(
+⋮----
+public func setCropEnabled(_ enabled: Bool) async throws {
+⋮----
+let rect = configuredCrop ?? Self.centeredDefaultCrop(in: captureSize)
+⋮----
+private func rebuildPipelineForCrop(
+⋮----
 let newPipeline = try MetalPipeline(
+⋮----
+private static func evenDown(_ v: Int) -> Int { v - (v % 2) }
+⋮----
+private static func evenNearest(_ d: Double) -> Int { Int((d / 2).rounded()) * 2 }
+⋮----
+static func centerCropRect(
+⋮----
+let w = evenDown(min(width, res.width))
+let h = evenDown(min(height, res.height))
+let centerX = evenNearest(Double(res.width) / 2 + offsetX * Double(res.width))
+let centerY = evenNearest(Double(res.height) / 2 + offsetY * Double(res.height))
+let x = evenDown(max(0, min(centerX - w / 2, res.width - w)))
+let y = evenDown(max(0, min(centerY - h / 2, res.height - h)))
+⋮----
+static func centeredDefaultCrop(in res: Size) -> Rect {
+let w = evenDown(min(Constants.cropDefaultWidthPx, res.width))
+let h = evenDown(min(Constants.cropDefaultHeightPx, res.height))
+let x = evenDown((res.width - w) / 2)
+let y = evenDown((res.height - h) / 2)
+⋮----
+static func validateRequestedResolution(_ size: Size?, supportedSizes: [Size]) throws {
 ⋮----
 public func sampleCenterPatch() async throws -> RgbSample {
 ⋮----
@@ -618,6 +653,8 @@ func updateSettings(_ settings: CameraSettings) async throws
 func setResolution(size: Size) async throws
 func setProcessingParams(_ params: ProcessingParameters) async
 func setCropRegion(_ rect: Rect) async throws
+func setCenterCrop(width: Int, height: Int, offsetX: Double, offsetY: Double) async throws
+func setCropEnabled(_ enabled: Bool) async throws
 ⋮----
 func captureImage(
 ⋮----
@@ -729,6 +766,11 @@ let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
 let w = Int32(dims.width)
 let h = Int32(dims.height)
 ⋮----
+let matches = sortedByPreference.filter { format in
+let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+⋮----
+let pick =
+⋮----
 let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
 ⋮----
 let fallbackW = Constants.captureFallbackWidthPx
@@ -755,6 +797,15 @@ func startRunningAsync() async {
 func stopRunningAsync() async {
 ⋮----
 func capturePhoto() async throws -> CVPixelBuffer {
+⋮----
+private static func uniqueSupportedSizes(_ fullRangeFormats: [AVCaptureDevice.Format]) -> [Size] {
+var seen: Set<Size> = []
+var unique: [Size] = []
+⋮----
+let w = Int(d.width)
+let h = Int(d.height)
+⋮----
+let size = Size(width: w, height: h)
 ⋮----
 func reconfigureSize(_ size: Size) async throws {
 ⋮----
@@ -823,6 +874,8 @@ public struct OpenConfiguration: Sendable, Hashable {
 public var cameraId: String?
 public var captureResolution: Size?
 public var cropRegion: Rect?
+⋮----
+public var cropEnabled: Bool
 ⋮----
 public var initialSettings: CameraSettings?
 ⋮----

@@ -52,30 +52,69 @@ Set `CameraSettings.zoomRatio` within `SessionCapabilities.zoomRange` and
 
 ## Resolution
 
-Change the capture resolution with `CameraEngine.setResolution(size:)`, passing
-a `Size` from `SessionCapabilities.supportedSizes`. The active value is
-reported as `SessionCapabilities.activeCaptureResolution`.
+Select the capture resolution by passing a `Size` from
+`SessionCapabilities.supportedSizes` — at open via
+`OpenConfiguration.captureResolution`, or live via
+`CameraEngine.setResolution(size:)`. The size is validated against the device's
+supported formats: an unsupported size throws `EngineError` (`settingsConflict`)
+naming the request and the supported set, and a supported size is applied (it is
+not silently snapped). `nil` (the default) selects the device default format. The
+active value is reported as `SessionCapabilities.activeCaptureResolution`.
 
 ## Region-of-interest crop
 
-`CameraEngine.setCropRegion(_:)` applies a true 1:1 crop: the output resolution
-becomes the crop-region size. The `Rect` is expressed in **active
-capture-resolution pixels** — `SessionCapabilities.activeCaptureResolution` —
-not the physical sensor. Constraints:
+Crop is a **true 1:1 crop** — the output resolution becomes the crop size (no
+zoom, no scaling) — and is **disabled by default** (full-frame output). The crop
+`Rect` is expressed in **active capture-resolution pixels**
+(`SessionCapabilities.activeCaptureResolution`), not the physical sensor. Every
+applied crop, from any entry point, satisfies the same invariants:
 
 - The rect must lie within the active capture resolution.
 - All four fields (`x`, `y`, `width`, `height`) must be even (4:2:0 chroma
   alignment).
 - The rect must be non-degenerate (non-zero width and height).
 
-A violation throws `EngineError` (`settingsConflict`). You may also set an
-initial crop at open via `OpenConfiguration.cropRegion`.
+A violation throws `EngineError` (`settingsConflict`). Apply a pixel-exact
+rect directly with `CameraEngine.setCropRegion(_:)`.
 
-> Important: the crop bound moves with the capture resolution. Because the rect
-> is validated against `SessionCapabilities.activeCaptureResolution`, a crop
-> that is valid at one resolution may be out of bounds after
-> `CameraEngine.setResolution(size:)` selects a smaller format. Re-apply the
-> crop after changing resolution.
+### Center-relative crop
+
+`CameraEngine.setCenterCrop(width:height:offsetX:offsetY:)` specifies a crop by
+output size plus an optional center displacement. `offsetX`/`offsetY` are ratios
+of the active resolution (default `0`, centered): the requested center is
+`evenNearest(resW/2 + offsetX*resW)` (and likewise for Y), extents snap down to
+even and are each capped at the resolution dimension, and the origin is clamped
+fully in-bounds.
+
+```swift
+// Centered 1440×1440 crop on a 1920×1440 frame → origin (240, 0).
+try await engine.setCenterCrop(width: 1440, height: 1440)
+
+// Shift the center right by 10% of the width: center 1152 → origin (432, 0).
+try await engine.setCenterCrop(width: 1440, height: 1440, offsetX: 0.1)
+```
+
+> Note: the clamp is applied *after* the offset, so an offset on a crop sized to
+> fill a dimension is a no-op in that axis — e.g. a 100×100 crop on a 100×100
+> frame has only the one legal origin `(0, 0)`, whatever the offset.
+
+### Enable, disable, and the default crop
+
+`CameraEngine.setCropEnabled(_:)` toggles crop without re-specifying geometry.
+Enabling when no geometry was ever configured applies a centered **1440×1440**
+package default, clamped to the active resolution (never upscaled). Disabling
+returns to full-frame; enabling again restores the most recently configured crop.
+
+Setting a crop — `CameraEngine.setCropRegion(_:)` or
+`CameraEngine.setCenterCrop(width:height:offsetX:offsetY:)` — implies crop is
+enabled and remembers the geometry. To start cropped at open, pass
+`OpenConfiguration.cropEnabled`: `true` applies the default crop when
+`OpenConfiguration.cropRegion` is `nil`, so the first delivered frame is already
+cropped (no full-frame-then-crop transition).
+
+> Important: the crop bound moves with the capture resolution. A
+> `CameraEngine.setResolution(size:)` change rebuilds full-frame and clears the
+> remembered crop; re-enable or re-apply afterward.
 
 ## Tracker lane resolution
 

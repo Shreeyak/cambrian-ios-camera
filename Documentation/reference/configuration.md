@@ -10,10 +10,10 @@ struct OpenConfiguration
 
 Startup arguments for CameraEngine.open(configuration:).
 
-### init(cameraId:captureResolution:cropRegion:initialSettings:trackerHeight:)
+### init(cameraId:captureResolution:cropRegion:cropEnabled:initialSettings:trackerHeight:)
 
 ```swift
-init(cameraId: String? = nil, captureResolution: Size? = nil, cropRegion: Rect? = nil, initialSettings: CameraSettings? = nil, trackerHeight: Int? = nil)
+init(cameraId: String? = nil, captureResolution: Size? = nil, cropRegion: Rect? = nil, cropEnabled: Bool = false, initialSettings: CameraSettings? = nil, trackerHeight: Int? = nil)
 ```
 
 ### cameraId
@@ -27,6 +27,14 @@ var cameraId: String?
 ```swift
 var captureResolution: Size?
 ```
+
+### cropEnabled
+
+```swift
+var cropEnabled: Bool
+```
+
+Whether the output is cropped at open. Separates crop *policy* from *geometry* (camera-crop-config). When `cropRegion` is set, that rect is the configured crop and is applied regardless of this flag. Defaults to `false` (full-frame output).
 
 ### cropRegion
 

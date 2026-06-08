@@ -236,6 +236,26 @@ Samples processedTex's CENTER_PATCH_SIZE_PX x CENTER_PATCH_SIZE_PX center, await
 - Throws: `EngineError.notOpen` if the session is not open.
 - Throws: `EngineError.metal(_:)` on Metal failures.
 
+### setCenterCrop(width:height:offsetX:offsetY:)
+
+```swift
+func setCenterCrop(width: Int, height: Int, offsetX: Double = 0, offsetY: Double = 0) async throws
+```
+
+Sets a crop by output size plus an optional center displacement, computing the pixel ROI for the existing crop machinery (camera-crop-config D2). `offsetX`/`offsetY` are ratios of the active resolution's width/height (default `0`, centered) measured from the resolution center. The center is `evenNearest(resW/2 + offsetX*resW)` (and likewise for Y); `width`/`height` are snapped down to even, each capped at the resolution dimension; the origin is derived from the center, clamped fully in-bounds, and even-snapped. The derived rect is routed through `setCropRegion` (so it reuses the validation + rebuild + remembered-geometry path), which enables crop. Note the clamp is applied *after* the offset, so an offset on a crop sized to fill a dimension is a no-op in that axis (the only legal origin is the edge).
+
+- Throws: `EngineError.notOpen` if the session is not open; `EngineError.calibrationInProgress` during calibration; `EngineError.settingsConflict` if the normalized rect is degenerate.
+
+### setCropEnabled(_:)
+
+```swift
+func setCropEnabled(_ enabled: Bool) async throws
+```
+
+Enables or disables crop without re-specifying geometry (camera-crop-config D3). Disabling rebuilds at full capture resolution (full-frame output) while preserving `configuredCrop` so a later enable restores it.
+
+- Throws: `EngineError.notOpen` if the session is not open; `EngineError.calibrationInProgress` during calibration; `EngineError.settingsConflict` if a remembered crop no longer fits the active resolution.
+
 ### setCropRegion(_:)
 
 ```swift
@@ -273,9 +293,9 @@ Wholesale replacement. **Pipeline order (`Shaders/ColorShaders.metal`):** 1. Bri
 func setResolution(size: Size) async throws
 ```
 
-Session-only teardown + re-select format + restart for new resolution.
+Session-only teardown + re-select format + restart for new resolution. The requested `size` is validated against the device's supported formats (camera-crop-config D1) before the reconfigure; the rebuilt pipeline is full-frame, so any active crop is dropped (re-apply via `setCropEnabled`/ `setCropRegion`).
 
-- Throws: `EngineError.notOpen` if not yet open.
+- Throws: `EngineError.notOpen` if not yet open; `EngineError.settingsConflict` if `size` is not a supported format; `EngineError.calibrationInProgress` during calibration.
 
 ### startRecording(options:)
 
@@ -423,6 +443,18 @@ func open(configuration: OpenConfiguration) async throws -> SessionCapabilities
 
 ```swift
 func recordingStateStream() -> AsyncStream<RecordingState>
+```
+
+### setCenterCrop(width:height:offsetX:offsetY:)
+
+```swift
+func setCenterCrop(width: Int, height: Int, offsetX: Double, offsetY: Double) async throws
+```
+
+### setCropEnabled(_:)
+
+```swift
+func setCropEnabled(_ enabled: Bool) async throws
 ```
 
 ### setCropRegion(_:)
