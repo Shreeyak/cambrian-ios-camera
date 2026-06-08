@@ -1218,6 +1218,35 @@ public actor CameraEngine {
         return try await pipeline.dispatchBBCalibrationSample()
     }
 
+    /// Test-only: the *measured* dimensions of the device's active capture
+    /// format (`CMVideoFormatDescription`), not the echoed requested size.
+    ///
+    /// `SessionCapabilities.activeCaptureResolution` echoes the requested size
+    /// (`configure` returns it verbatim), so asserting against it is tautological.
+    /// This reads the real format actually set on the hardware, letting a device
+    /// test confirm a requested resolution was applied. Throws `notOpen` when no
+    /// session is live.
+    func _activeFormatSizeForTest() async throws -> Size {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        return await device.activeFormatSize
+    }
+
+    /// Test-only: the live applied crop rectangle, derived from the Metal
+    /// pipeline's `outputSize`/`cropOrigin` (the same source `open()` and
+    /// `publishStreamConfiguration()` use), not the `currentCropRegion` mirror.
+    ///
+    /// Lets a device test read the *effective* crop after a live
+    /// `setCropEnabled`/`setCropRegion` change. Throws `notOpen` when no pipeline
+    /// is live.
+    func _activeCropRegionForTest() async throws -> Rect {
+        guard let pipeline = metalPipeline else {
+            throw EngineError.notOpen
+        }
+        return Self.activeCropRect(for: pipeline)
+    }
+
     /// Current AVCaptureDevice WB gains — whatever continuous AWB or a prior
     /// manual lock most recently set.
     ///

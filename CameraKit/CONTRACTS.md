@@ -65,6 +65,12 @@ let resumed = ManagedAtomic<Bool>(false)
 let resumeOnce: @Sendable () -> Void = {
 ```
 
+## File: CameraKit/Sources/CameraKit/CMTime+Nanoseconds.swift
+```swift
+var finiteNanoseconds: Int64? {
+let seconds = CMTimeGetSeconds(self)
+```
+
 ## File: CameraKit/Sources/CameraKit/CalibrationCompute.swift
 ```swift
 public enum CalibrationCompute {
@@ -402,6 +408,10 @@ public func sampleCenterPatch() async throws -> RgbSample {
 func sampleCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
 func sampleCenterPatchForBBCalibration() async throws -> RgbSample {
+⋮----
+func _activeFormatSizeForTest() async throws -> Size {
+⋮----
+func _activeCropRegionForTest() async throws -> Rect {
 ⋮----
 func currentDeviceWBGains() async throws -> WhiteBalanceGains {
 ⋮----
@@ -1026,8 +1036,9 @@ let colorSpaces = format.supportedColorSpaces
 var isoRange: ClosedRange<Float> {
 ⋮----
 var exposureDurationRangeNs: ClosedRange<Int64> {
-let minNs = Int64(CMTimeGetSeconds(avDevice.activeFormat.minExposureDuration) * 1_000_000_000)
-let maxNs = Int64(CMTimeGetSeconds(avDevice.activeFormat.maxExposureDuration) * 1_000_000_000)
+⋮----
+let minNs = avDevice.activeFormat.minExposureDuration.finiteNanoseconds ?? 0
+let maxNs = avDevice.activeFormat.maxExposureDuration.finiteNanoseconds ?? minNs
 ⋮----
 var maxWhiteBalanceGain: Float { avDevice.maxWhiteBalanceGain }
 ⋮----
@@ -1325,7 +1336,8 @@ static func makeStream(
 nonisolated(unsafe) let device = avDevice
 ⋮----
 static func snapshot(avDevice d: AVCaptureDevice) -> DeviceStateSnapshot {
-let ns = Int64(CMTimeGetSeconds(d.exposureDuration) * 1_000_000_000)
+⋮----
+let ns = d.exposureDuration.finiteNanoseconds ?? 0
 ```
 
 ## File: CameraKit/Sources/CameraKit/Mailbox.swift

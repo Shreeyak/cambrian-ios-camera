@@ -7,11 +7,11 @@ import Testing
 /// (D3/D4), resolution validation (D1), and the geometry invariants enforced at
 /// every entry point.
 ///
-/// The ROI/validation logic is unit-tested through the pure static helpers
+/// The ROI/validation logic is unit-tested here through the pure static helpers
 /// (`centerCropRect`, `centeredDefaultCrop`, `validateRequestedResolution`) so the
-/// math is deterministic without a live capture session. The open()/setResolution
-/// *apply* paths and "first frame already cropped" need camera hardware and are
-/// covered by device HITL (matching the Stage04 crop-precedent).
+/// math is deterministic without a live capture session. The open()/apply paths
+/// (resolution applied, crop-on-open, disable→re-enable) run on real hardware in
+/// `CameraCropConfigDeviceTests`; cropped-pixel delivery remains app HITL.
 @Suite("CameraCropConfigTests", .progressLogged)
 struct CameraCropConfigTests {
 
@@ -128,16 +128,16 @@ struct CameraCropConfigTests {
     }
 }
 
-/// Device-backed coverage for the one open-session behavior that can run under
-/// `xcodebuild test` here: rejection of an unsupported resolution.
+/// Device-backed coverage of the open-session crop/resolution behavior.
 ///
-/// It throws inside `CameraSession.configure()` at format selection — *before*
-/// `open()` reaches `device.exposureDurationRangeNs`, which fatal-errors in the
-/// xcodebuild-test launch context on this device (a pre-existing, out-of-scope
-/// `Int64(CMTimeGetSeconds(maxExposureDuration) * 1e9)` crash on a non-finite
-/// CMTime; production `open()` is unaffected). So the full-open scenarios
-/// (apply-a-supported-size, crop-on-open, disable→re-enable) cannot run here and
-/// are verified by construction + app HITL, not by this suite.
+/// Full `open()` runs under `xcodebuild test` since the `CMTime.finiteNanoseconds`
+/// guard fixed the non-finite `maxExposureDuration` → `Int64` trap that previously
+/// fatal-errored at `device.exposureDurationRangeNs` on every open. These tests
+/// read *measured* hardware state — `_activeFormatSizeForTest` (the real active
+/// format, not the echoed `activeCaptureResolution`) and `_activeCropRegionForTest`
+/// (the live pipeline crop, not the `currentCropRegion` mirror) — so the
+/// assertions are non-tautological. Actual cropped-pixel *delivery* still relies
+/// on app HITL; this suite verifies the applied geometry, not frame contents.
 @Suite("CameraCropConfigDeviceTests", .serialized)
 struct CameraCropConfigDeviceTests {
 
@@ -156,6 +156,98 @@ struct CameraCropConfigDeviceTests {
                 return
             }
         }
+        await engine.close()
+    }
+
+    /// Discriminating probe: a default `open()` completes and reports a *real*
+    /// active format.
+    ///
+    /// Before the `CMTime.finiteNanoseconds` guard, `open()` fatal-errored here
+    /// (non-finite `maxExposureDuration` → `Int64` trap). A real materialized
+    /// format has non-degenerate dimensions (≥ the 640×480 floor the picker
+    /// enforces); a placeholder would not. If this passes, the active format is
+    /// genuine and the measured-resolution assertion below is meaningful.
+    @Test func openCompletesWithRealActiveFormat() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        _ = try await engine.open(configuration: OpenConfiguration())
+        let measured = try await engine._activeFormatSizeForTest()
+        #expect(measured.width >= 640 && measured.height >= 480)
+        await engine.close()
+    }
+
+    /// A requested supported resolution is actually applied to the hardware.
+    ///
+    /// Reads the *measured* `activeFormatSize` (not the echoed
+    /// `activeCaptureResolution`): opens at the default to discover the supported
+    /// set and the default format, then reopens at a different supported size and
+    /// confirms the device's active format matches the request.
+    @Test func appliesRequestedSupportedResolution() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let caps = try await engine.open(configuration: OpenConfiguration())
+        let defaultSize = try await engine._activeFormatSizeForTest()
+        let supported = caps.supportedSizes
+        await engine.close()
+
+        guard let target = supported.first(where: { $0 != defaultSize }) else {
+            // A silent skip here would report green without exercising the apply
+            // path — the one behavior this test exists to prove. Make it loud.
+            Issue.record(
+                "device reported only one distinct supported size (\(defaultSize)); resolution-apply path not exercised"
+            )
+            return
+        }
+
+        let caps2 = try await engine.open(
+            configuration: OpenConfiguration(captureResolution: target))
+        let measured = try await engine._activeFormatSizeForTest()
+        #expect(measured == target)
+        #expect(caps2.activeCaptureResolution == target)
+        await engine.close()
+    }
+
+    /// Opening with `cropEnabled` applies the centered default crop geometry —
+    /// the first pipeline state is already cropped, not full-frame.
+    ///
+    /// Reads the pipeline-derived `activeCropRegion` (not an echoed value) and
+    /// compares it to the expected default computed from the measured format.
+    @Test func cropOnOpenAppliesDefaultGeometry() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let caps = try await engine.open(
+            configuration: OpenConfiguration(cropEnabled: true))
+        let measured = try await engine._activeFormatSizeForTest()
+        let expected = CameraEngine.centeredDefaultCrop(in: measured)
+        #expect(caps.activeCropRegion == expected)
+        // The default crop must be a true sub-region, not the full frame, on a
+        // sensor large enough to contain it.
+        if measured.width > expected.width || measured.height > expected.height {
+            #expect(
+                caps.activeCropRegion
+                    != Rect(
+                        x: 0, y: 0, width: measured.width, height: measured.height))
+        }
+        await engine.close()
+    }
+
+    /// Disabling crop returns to full-frame; re-enabling restores the default
+    /// geometry — verified against the live pipeline crop, not the mirror.
+    @Test func disableThenReEnableRestoresGeometry() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        _ = try await engine.open(configuration: OpenConfiguration(cropEnabled: true))
+        let measured = try await engine._activeFormatSizeForTest()
+        let fullFrame = Rect(x: 0, y: 0, width: measured.width, height: measured.height)
+        let expectedCrop = CameraEngine.centeredDefaultCrop(in: measured)
+
+        // Enabled at open → default crop.
+        #expect(try await engine._activeCropRegionForTest() == expectedCrop)
+
+        // Disable → full frame.
+        try await engine.setCropEnabled(false)
+        #expect(try await engine._activeCropRegionForTest() == fullFrame)
+
+        // Re-enable → default crop again.
+        try await engine.setCropEnabled(true)
+        #expect(try await engine._activeCropRegionForTest() == expectedCrop)
+
         await engine.close()
     }
 }

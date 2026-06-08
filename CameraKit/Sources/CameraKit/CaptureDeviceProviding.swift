@@ -250,9 +250,15 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     }
 
     var exposureDurationRangeNs: ClosedRange<Int64> {
-        let minNs = Int64(CMTimeGetSeconds(avDevice.activeFormat.minExposureDuration) * 1_000_000_000)
-        let maxNs = Int64(CMTimeGetSeconds(avDevice.activeFormat.maxExposureDuration) * 1_000_000_000)
-        return minNs...maxNs
+        // Guard non-finite CMTimes: a non-materialized activeFormat (seen under
+        // `xcodebuild test`) yields NaN/inf durations, and `Int64(_:)` traps on
+        // those. Fall back to a collapsed bound rather than crash. See
+        // `CMTime.finiteNanoseconds`.
+        let minNs = avDevice.activeFormat.minExposureDuration.finiteNanoseconds ?? 0
+        let maxNs = avDevice.activeFormat.maxExposureDuration.finiteNanoseconds ?? minNs
+        // `lo...hi` traps if lo > hi; order defensively (a non-finite max above
+        // collapses to minNs, but a malformed format could still invert them).
+        return Swift.min(minNs, maxNs)...Swift.max(minNs, maxNs)
     }
 
     var maxWhiteBalanceGain: Float { avDevice.maxWhiteBalanceGain }

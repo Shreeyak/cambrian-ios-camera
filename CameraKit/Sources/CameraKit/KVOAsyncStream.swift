@@ -83,7 +83,9 @@ final class DeviceKVOObserver: @unchecked Sendable {
 
     /// Snapshot builder for AVCaptureDevice.
     static func snapshot(avDevice d: AVCaptureDevice) -> DeviceStateSnapshot {
-        let ns = Int64(CMTimeGetSeconds(d.exposureDuration) * 1_000_000_000)
+        // Guard non-finite exposure (see `CMTime.finiteNanoseconds`): `Int64(_:)`
+        // traps on NaN/inf, which a non-materialized device can momentarily report.
+        let ns = d.exposureDuration.finiteNanoseconds ?? 0
         return DeviceStateSnapshot(
             iso: d.iso,
             exposureDurationNs: ns,
