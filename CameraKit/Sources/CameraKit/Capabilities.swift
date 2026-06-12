@@ -68,6 +68,13 @@ public struct SessionCapabilities: Sendable, Hashable {
     ///
     /// Reported in EV stops (signed). Phase-2 design §2c.
     public let evCompensationRange: ClosedRange<Float>
+    /// Effective (clamped and even-rounded) tracker lane resolution.
+    ///
+    /// Derived from `OpenConfiguration.trackerHeight` (height-driven, aspect-preserved against
+    /// the primary output size, clamped `2…primaryHeight`, rounded to even). When
+    /// `trackerHeight == primaryHeight`, this equals `activeCaptureResolution` and the tracker
+    /// is produced by a 1:1 copy with no resampling.
+    public let trackerResolution: Size
 
     public init(
         supportedSizes: [Size],
@@ -79,7 +86,8 @@ public struct SessionCapabilities: Sendable, Hashable {
         exposureDurationRangeNs: ClosedRange<Int64>,
         focusRange: ClosedRange<Double>,
         zoomRange: ClosedRange<Double>,
-        evCompensationRange: ClosedRange<Float>
+        evCompensationRange: ClosedRange<Float>,
+        trackerResolution: Size
     ) {
         self.supportedSizes = supportedSizes
         self.previewTextureId = previewTextureId
@@ -91,6 +99,7 @@ public struct SessionCapabilities: Sendable, Hashable {
         self.focusRange = focusRange
         self.zoomRange = zoomRange
         self.evCompensationRange = evCompensationRange
+        self.trackerResolution = trackerResolution
     }
 }
 

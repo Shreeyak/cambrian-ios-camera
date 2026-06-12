@@ -3,6 +3,7 @@ import CoreMedia
 import CoreVideo
 import FrameTransport
 import Metal
+import MetalPerformanceShaders
 import Synchronization
 
 // MARK: - Stage 04 uniform structs (host ↔ shader layout)
@@ -112,6 +113,10 @@ final class MetalPipeline: @unchecked Sendable {
     private(set) var cropOrigin: (x: Int, y: Int)
 
     private let trackerSize: Size
+    /// Resolved tracker lane dimensions (after clamping and even-rounding).
+    ///
+    /// Read by CameraEngine to populate `SessionCapabilities.trackerResolution`.
+    var resolvedTrackerSize: Size { trackerSize }
 
     /// Internal RGBA16F "latest" textures — Metal-compute intermediates, NOT a
     /// delivery surface.
@@ -181,13 +186,17 @@ final class MetalPipeline: @unchecked Sendable {
     /// delivery queue.
     let latestNaturalPTSNs: ManagedAtomic<Int64> = ManagedAtomic(0)
 
-    // MARK: - Pass 4 — tracker downsample (Stage 06)
+    // MARK: - Pass 4 — tracker resample
 
-    /// Pass-4 tracker downsample PSO + sampler.
+    /// MPS Lanczos scaler for the tracker downscale path.
     ///
-    /// Compiled in init().
-    private let trackerDownsamplePSO: MTLComputePipelineState
-    private let trackerSampler: MTLSamplerState
+    /// Used when `trackerNeedsResize == true` (tracker smaller than primary).
+    /// Created once at pipeline init, reused per frame. When `trackerNeedsResize`
+    /// is false the blit-copy path is taken instead and this scaler is not called.
+    private let trackerLanczos: MPSImageLanczosScale
+    // True when `trackerSize != outputSize` — selects the Lanczos downscale path;
+    // false means a 1:1 blit copy (no resampling).
+    private let trackerNeedsResize: Bool
 
     /// Frame counter incremented per encode.
     ///
@@ -435,24 +444,9 @@ final class MetalPipeline: @unchecked Sendable {
         }
         nv12EncodePSO = try device.makeComputePipelineState(function: fnEncode)
 
-        // 7. Pass-4 tracker downsample PSO + sampler.
-        guard let trackerFunction = library.makeFunction(name: "trackerDownsample") else {
-            throw MetalError.pipelineStateCompilation("trackerDownsample not found")
-        }
-        do {
-            trackerDownsamplePSO = try device.makeComputePipelineState(function: trackerFunction)
-        } catch {
-            throw MetalError.pipelineStateCompilation(error.localizedDescription)
-        }
-        let samplerDesc = MTLSamplerDescriptor()
-        samplerDesc.minFilter = .linear
-        samplerDesc.magFilter = .linear
-        samplerDesc.sAddressMode = .clampToEdge
-        samplerDesc.tAddressMode = .clampToEdge
-        guard let sampler = device.makeSamplerState(descriptor: samplerDesc) else {
-            throw MetalError.pipelineStateCompilation("tracker sampler state")
-        }
-        trackerSampler = sampler
+        // 7. Pass-4 tracker: MPS Lanczos scaler (downscale path) + resize flag.
+        trackerLanczos = MPSImageLanczosScale(device: device)
+        trackerNeedsResize = (trackerSize != resolvedOutputSize)
 
     }
 
@@ -542,27 +536,58 @@ final class MetalPipeline: @unchecked Sendable {
         pass2.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
         pass2.endEncoding()
 
-        // 8. Pass 4: tracker downsample processedTexI → trackerTexI (when subscribed).
-        //    Sources the GRADED (Pass-2) image, not the raw natural lane, so
-        //    brightness/contrast/saturation/gamma/black-balance help the tracker
-        //    see (user-directed). Pass-2 writes processedTexI earlier in this same
-        //    command buffer; Metal's hazard tracking inserts the barrier (same as
-        //    Pass-5/Pass-7p, which already read processedTexI after Pass-2).
-        if let trackerPair {
-            let trackerTexI = trackerPair.texture
-            let pass4 = commandBuffer.makeComputeCommandEncoder()!
-            pass4.setComputePipelineState(trackerDownsamplePSO)
-            pass4.setTexture(processedTexI, index: 0)
-            pass4.setTexture(trackerTexI, index: 1)
-            pass4.setSamplerState(trackerSampler, index: 0)
-            let tgTracker = MTLSize(width: 16, height: 16, depth: 1)
-            let groupsTracker = MTLSize(
-                width: (trackerTexI.width + 15) / 16,
-                height: (trackerTexI.height + 15) / 16,
-                depth: 1
-            )
-            pass4.dispatchThreadgroups(groupsTracker, threadsPerThreadgroup: tgTracker)
-            pass4.endEncoding()
+        // Pass 7p: RGBA16F → BGRA8 conversion for the processed lane-buffer mailbox.
+        // Runs before Pass-4 (tracker) so both tracker paths (Lanczos and blit) can
+        // source from this BGRA8 texture (bgra8→bgra8 — sidesteps any rgba16f→bgra8
+        // MPS format-compat concern and unifies both paths on one source).
+        //
+        // remove-natural-lane: the per-frame natural Pass-7n conversion was cut — the
+        // streaming natural lane is gone. The internal 16F natural texture (Pass-1
+        // output, `_latestNaturalTex16F`) is preserved for calibration; the natural
+        // *still* (`captureNaturalPicture`) converts on demand via `gradeOneShot`.
+        var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
+        if let pair = try? texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height
+        ) {
+            let pass7p = commandBuffer.makeComputeCommandEncoder()!
+            pass7p.setComputePipelineState(rgba16fToBgra8PSO)
+            pass7p.setTexture(processedTexI, index: 0)
+            pass7p.setTexture(pair.texture, index: 1)
+            pass7p.dispatchThreadgroups(
+                threadGroups, threadsPerThreadgroup: threadGroupSize)
+            pass7p.endEncoding()
+            processedEightBitPair = pair
+        }
+
+        // 8. Pass 4: tracker resample — when subscribed and BGRA8 processed is available.
+        //    Sources the GRADED (Pass-2) image via the BGRA8 processed texture produced
+        //    above so brightness/contrast/saturation/gamma/black-balance help the tracker.
+        //    Two paths based on whether the tracker needs resizing:
+        //    - Resize (trackerNeedsResize): MPS Lanczos anti-aliased downscale (bgra8→bgra8).
+        //      MPS manages its own encoder — no open encoder may be active when encode() fires.
+        //    - No-resize: 1:1 MTLBlitCommandEncoder copy, origins (0,0,0) (IOSurface invariant).
+        if let trackerPair, let processedBgra8Tex = processedEightBitPair?.texture {
+            if trackerNeedsResize {
+                // Lanczos downscale: MPS opens/closes its own encoder.
+                trackerLanczos.encode(
+                    commandBuffer: commandBuffer,
+                    sourceTexture: processedBgra8Tex,
+                    destinationTexture: trackerPair.texture)
+            } else {
+                // 1:1 blit copy — no resampling. Origins (0,0,0) per IOSurface-blit invariant.
+                let blit = commandBuffer.makeBlitCommandEncoder()!
+                let sz = MTLSize(
+                    width: processedBgra8Tex.width, height: processedBgra8Tex.height, depth: 1)
+                blit.copy(
+                    from: processedBgra8Tex,
+                    sourceSlice: 0, sourceLevel: 0,
+                    sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                    sourceSize: sz,
+                    to: trackerPair.texture,
+                    destinationSlice: 0, destinationLevel: 0,
+                    destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+                blit.endEncoding()
+            }
         }
 
         // Pass 5: RGBA16F → NV12 encode (Stage 10). Runs only while recording.
@@ -588,30 +613,6 @@ final class MetalPipeline: @unchecked Sendable {
                 pass5.endEncoding()
                 encoderPairForCompletion = enc
             }
-        }
-
-        // Pass 7p: RGBA16F → BGRA8 conversion for the processed lane-buffer mailbox
-        // (unconditional). Tracker is NOT converted here — its pool is already BGRA8;
-        // Pass-4 writes BGRA8 directly (fused). Pass-7 reads the RGBA16F lane texture
-        // and writes into a fresh BGRA8 pool buffer's .bgra8Unorm view; the buffer
-        // mailbox below points at the new buffer.
-        //
-        // remove-natural-lane: the per-frame natural Pass-7n conversion was cut — the
-        // streaming natural lane is gone. The internal 16F natural texture (Pass-1
-        // output, `_latestNaturalTex16F`) is preserved for calibration; the natural
-        // *still* (`captureNaturalPicture`) converts on demand via `gradeOneShot`.
-        var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-        if let pair = try? texturePool.dequeueEightBitPoolTexture(
-            pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height
-        ) {
-            let pass7p = commandBuffer.makeComputeCommandEncoder()!
-            pass7p.setComputePipelineState(rgba16fToBgra8PSO)
-            pass7p.setTexture(processedTexI, index: 0)
-            pass7p.setTexture(pair.texture, index: 1)
-            pass7p.dispatchThreadgroups(
-                threadGroups, threadsPerThreadgroup: threadGroupSize)
-            pass7p.endEncoding()
-            processedEightBitPair = pair
         }
 
         // 9. Gate check (ADR-09, D-06). Strict policy: every .inactive gates.
@@ -1098,6 +1099,7 @@ final class MetalPipeline: @unchecked Sendable {
         captureSize: Size,
         outputSize: Size? = nil,
         cropOrigin: (x: Int, y: Int) = (0, 0),
+        trackerHeight: Int? = nil,
         gateOpen: Bool = true
     ) throws {
         try self.init(
@@ -1108,7 +1110,8 @@ final class MetalPipeline: @unchecked Sendable {
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: ConsumerRegistry(),
             engineSessionToken: ManagedAtomic<UInt64>(0),
-            deviceSnapshot: Mailbox<DeviceStateSnapshot>()
+            deviceSnapshot: Mailbox<DeviceStateSnapshot>(),
+            trackerHeight: trackerHeight
         )
     }
 
@@ -1121,6 +1124,7 @@ final class MetalPipeline: @unchecked Sendable {
         captureSize: Size,
         outputSize: Size? = nil,
         cropOrigin: (x: Int, y: Int) = (0, 0),
+        trackerHeight: Int? = nil,
         gateOpen: Bool = true,
         consumers: ConsumerRegistry
     ) throws {
@@ -1132,7 +1136,8 @@ final class MetalPipeline: @unchecked Sendable {
             gate: ManagedAtomic<Bool>(gateOpen),
             consumers: consumers,
             engineSessionToken: ManagedAtomic<UInt64>(0),
-            deviceSnapshot: Mailbox<DeviceStateSnapshot>()
+            deviceSnapshot: Mailbox<DeviceStateSnapshot>(),
+            trackerHeight: trackerHeight
         )
     }
 
@@ -1160,6 +1165,7 @@ extension MetalPipeline {
     var processedPoolForTest: CVPixelBufferPool { processedPool }
     var trackerPoolForTest: CVPixelBufferPool { trackerPool }
     var trackerSizeForTest: Size { trackerSize }
+    var trackerNeedsResizeForTest: Bool { trackerNeedsResize }
 
     // RGBA8 conversion test seams.
     var eightBitNaturalPoolForTest: CVPixelBufferPool { eightBitNaturalPool }

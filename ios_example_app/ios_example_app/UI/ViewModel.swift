@@ -352,7 +352,8 @@ final class ViewModel {
                         exposureDurationRangeNs: caps.exposureDurationRangeNs,
                         focusRange: caps.focusRange,
                         zoomRange: caps.zoomRange,
-                        evCompensationRange: caps.evCompensationRange
+                        evCompensationRange: caps.evCompensationRange,
+                        trackerResolution: caps.trackerResolution
                     )
                 }
                 CameraKitLog.notice(.engine, "[resolution] applied \(size.width)x\(size.height)")

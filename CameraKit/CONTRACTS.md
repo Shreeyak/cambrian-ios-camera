@@ -878,6 +878,8 @@ public let zoomRange: ClosedRange<Double>
 ⋮----
 public let evCompensationRange: ClosedRange<Float>
 ⋮----
+public let trackerResolution: Size
+⋮----
 public init(
 ⋮----
 public struct OpenConfiguration: Sendable, Hashable {
@@ -1398,6 +1400,8 @@ private(set) var cropOrigin: (x: Int, y: Int)
 ⋮----
 private let trackerSize: Size
 ⋮----
+var resolvedTrackerSize: Size { trackerSize }
+⋮----
 private let _latestNaturalTex16F = Mailbox<MTLTexture>()
 private let _latestProcessedTex16F = Mailbox<MTLTexture>()
 private let _latestTrackerTex = Mailbox<MTLTexture>()
@@ -1421,8 +1425,9 @@ private let _processedFallbackScratch = Mailbox<CVPixelBuffer>()
 ⋮----
 let latestNaturalPTSNs: ManagedAtomic<Int64> = ManagedAtomic(0)
 ⋮----
-private let trackerDownsamplePSO: MTLComputePipelineState
-private let trackerSampler: MTLSamplerState
+private let trackerLanczos: MPSImageLanczosScale
+⋮----
+private let trackerNeedsResize: Bool
 ⋮----
 private var frameNumber: UInt64 = 0
 ⋮----
@@ -1474,8 +1479,6 @@ let library: MTLLibrary
 let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
 let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
 ⋮----
-let samplerDesc = MTLSamplerDescriptor()
-⋮----
 func encode(sampleBuffer: CMSampleBuffer) throws {
 ⋮----
 let yTexture: MTLTexture
@@ -1502,11 +1505,12 @@ let pass2 = commandBuffer.makeComputeCommandEncoder()!
 ⋮----
 var colorLocal = colorSnapshot
 ⋮----
-let trackerTexI = trackerPair.texture
-let pass4 = commandBuffer.makeComputeCommandEncoder()!
+var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
 ⋮----
-let tgTracker = MTLSize(width: 16, height: 16, depth: 1)
-let groupsTracker = MTLSize(
+let pass7p = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+let blit = commandBuffer.makeBlitCommandEncoder()!
+let sz = MTLSize(
 ⋮----
 var encoderPairForCompletion: (buffer: CVPixelBuffer, yTex: MTLTexture, cbcrTex: MTLTexture)?
 ⋮----
@@ -1516,10 +1520,6 @@ let cbcrW = enc.cbcrTex.width
 let cbcrH = enc.cbcrTex.height
 let tg5 = MTLSize(width: 16, height: 16, depth: 1)
 let groups5 = MTLSize(
-⋮----
-var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-⋮----
-let pass7p = commandBuffer.makeComputeCommandEncoder()!
 ⋮----
 let logFirstAfterGate = logNextCommit
 ⋮----
@@ -1632,6 +1632,7 @@ var naturalPoolForTest: CVPixelBufferPool { naturalPool }
 var processedPoolForTest: CVPixelBufferPool { processedPool }
 var trackerPoolForTest: CVPixelBufferPool { trackerPool }
 var trackerSizeForTest: Size { trackerSize }
+var trackerNeedsResizeForTest: Bool { trackerNeedsResize }
 ⋮----
 var eightBitNaturalPoolForTest: CVPixelBufferPool { eightBitNaturalPool }
 var eightBitProcessedPoolForTest: CVPixelBufferPool { eightBitProcessedPool }

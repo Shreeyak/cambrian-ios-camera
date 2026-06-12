@@ -22,7 +22,6 @@ actor MockCameraEngine: CameraEngineProtocol {
         SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
             previewTextureId: 1,
-            naturalTextureId: 2,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
             streamPixelFormat: "BGRA8",
@@ -30,7 +29,8 @@ actor MockCameraEngine: CameraEngineProtocol {
             exposureDurationRangeNs: 100_000...33_000_000,
             focusRange: 0.0...1.0,
             zoomRange: 1.0...8.0,
-            evCompensationRange: -8.0...8.0
+            evCompensationRange: -8.0...8.0,
+            trackerResolution: Size(width: 854, height: 480)
         )
     }
 

@@ -152,6 +152,91 @@ struct Stage06Tests {
     }
 }
 
+// MARK: - Configurable tracker size — resolution logic
+
+@Suite("ConfigurableTrackerSizeTests", .progressLogged)
+struct ConfigurableTrackerSizeTests {
+
+    // trackerHeight == primaryHeight → no-resize path selected, trackerSize == outputSize
+    @Test func trackerHeightEqualsPrimarySelectsNoResizePath() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 1920, height: 1080)
+        let pipeline = try MetalPipeline(
+            device: device, captureSize: size,
+            trackerHeight: size.height,
+            gateOpen: true, consumers: ConsumerRegistry())
+
+        #expect(pipeline.trackerSizeForTest == size)
+        #expect(pipeline.trackerNeedsResizeForTest == false)
+    }
+
+    // Smaller height → aspect-preserved, even-rounded, resize path selected
+    @Test func smallerTrackerHeightProducesAspectPreservedEvenSize() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 1920, height: 1080)
+        let trackerH = 480
+        let pipeline = try MetalPipeline(
+            device: device, captureSize: size,
+            trackerHeight: trackerH,
+            gateOpen: true, consumers: ConsumerRegistry())
+
+        let ts = pipeline.trackerSizeForTest
+        #expect(ts.height == trackerH)
+        #expect(ts.width % 2 == 0)
+        let rawW = Int((Double(trackerH) * Double(size.width) / Double(size.height)).rounded())
+        let expectedW = rawW - (rawW % 2)
+        #expect(ts.width == expectedW)
+        #expect(pipeline.trackerNeedsResizeForTest == true)
+    }
+
+    // trackerHeight above primaryHeight → clamped to primaryHeight → no-resize
+    @Test func oversizedTrackerHeightClampedToPrimary() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 1280, height: 720)
+        let pipeline = try MetalPipeline(
+            device: device, captureSize: size,
+            trackerHeight: 9999,
+            gateOpen: true, consumers: ConsumerRegistry())
+
+        #expect(pipeline.trackerSizeForTest == size)
+        #expect(pipeline.trackerNeedsResizeForTest == false)
+    }
+
+    // trackerHeight of 1 → clamped to 2 (minimum even value)
+    @Test func minimumTrackerHeightClampedToTwo() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 128, height: 128)
+        let pipeline = try MetalPipeline(
+            device: device, captureSize: size,
+            trackerHeight: 1,
+            gateOpen: true, consumers: ConsumerRegistry())
+
+        #expect(pipeline.trackerSizeForTest.height == 2)
+        #expect(pipeline.trackerNeedsResizeForTest == true)
+    }
+
+    // SessionCapabilities.trackerResolution echoes the pipeline's resolved size
+    @Test func sessionCapabilitiesTrackerResolutionMatchesPipelineSize() throws {
+        let size = Size(width: 1920, height: 1080)
+        let rawW = Int((Double(480) * Double(size.width) / Double(size.height)).rounded())
+        let expectedW = rawW - (rawW % 2)
+        let expectedResolution = Size(width: expectedW, height: 480)
+        let caps = SessionCapabilities(
+            supportedSizes: [size],
+            previewTextureId: 0,
+            activeCaptureResolution: size,
+            activeCropRegion: Rect(x: 0, y: 0, width: size.width, height: size.height),
+            streamPixelFormat: Constants.streamPixelFormatString,
+            isoRange: 25...3200,
+            exposureDurationRangeNs: 1_000_000...100_000_000,
+            focusRange: 0.0...1.0,
+            zoomRange: 1.0...1.0,
+            evCompensationRange: -3.0...3.0,
+            trackerResolution: expectedResolution)
+        #expect(caps.trackerResolution == expectedResolution)
+    }
+}
+
 // MARK: - Shared test helper
 
 private enum SyntheticBufferError: Error {

@@ -118,23 +118,34 @@ cropped (no full-frame-then-crop transition).
 
 ## Tracker lane resolution
 
-The tracker lane ([01-overview](01-overview.md)) is a GPU downscale of the processed image,
-sized for lightweight per-frame analysis such as motion tracking. Set its target
-height at open via `OpenConfiguration.trackerHeight`:
+The tracker lane ([01-overview](01-overview.md)) is sized for lightweight per-frame analysis
+such as motion tracking. Set its target height at open via
+`OpenConfiguration.trackerHeight`:
 
 ```swift
 let caps = try await engine.open(
     configuration: OpenConfiguration(trackerHeight: 512))
+// caps.trackerResolution holds the effective (clamped, even-rounded) size
 ```
 
-The width is derived to preserve the processed lane's aspect ratio — the two
-lanes share an aspect so a measurement on the tracker scales linearly to the
-processed frame. The height is clamped to `2 ... outputHeight` (the lane is a
-downscale, never an upscale) and rounded down to even. `nil` (the default) uses
-the package default height. The value persists across
-`CameraEngine.setResolution(size:)` and `CameraEngine.setCropRegion(_:)`
-rebuilds; read the live tracker buffer's dimensions from
-`CameraEngine.currentTrackerTexture()` or the delivered `FrameSet.tracker`.
+The width is derived to preserve the processed lane's aspect ratio — both lanes
+share an aspect so a measurement on the tracker scales linearly to the processed
+frame. The height is clamped to `2 ... outputHeight` and rounded down to even.
+`nil` (the default) uses the package default height.
+
+**Resampling:** when the tracker is smaller than the primary output, CameraKit
+downscales using an anti-aliased MPS Lanczos resampler (`MPSImageLanczosScale`).
+To disable downsampling entirely, set `trackerHeight` to the primary output
+height — the engine copies the processed BGRA8 buffer 1:1 with no interpolation.
+
+**Reading back the resolved size:** `SessionCapabilities.trackerResolution`
+contains the effective tracker dimensions after clamping and rounding. Use it to
+confirm what the engine resolved, especially when passing an odd or out-of-range
+value.
+
+The configured height persists across `CameraEngine.setResolution(size:)` and
+`CameraEngine.setCropRegion(_:)` rebuilds; read the live tracker buffer's
+dimensions from `CameraEngine.currentTrackerTexture()`.
 
 ## Settings persistence
 

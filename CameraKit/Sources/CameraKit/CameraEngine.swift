@@ -522,7 +522,8 @@ public actor CameraEngine {
             exposureDurationRangeNs: exposureDurationRangeNs,
             focusRange: 0.0...1.0,
             zoomRange: zoomMin...zoomMax,
-            evCompensationRange: evMin...evMax
+            evCompensationRange: evMin...evMax,
+            trackerResolution: pipeline.resolvedTrackerSize
         )
     }
 

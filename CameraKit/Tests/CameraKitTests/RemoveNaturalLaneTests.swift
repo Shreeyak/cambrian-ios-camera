@@ -34,7 +34,8 @@ import Testing
             exposureDurationRangeNs: 1_000_000...100_000_000,
             focusRange: 0.0...1.0,
             zoomRange: 1.0...1.0,
-            evCompensationRange: -3.0...3.0)
+            evCompensationRange: -3.0...3.0,
+            trackerResolution: Size(width: 854, height: 480))
         let fieldNames = Set(Mirror(reflecting: caps).children.compactMap { $0.label })
         #expect(!fieldNames.contains("naturalTextureId"))
         #expect(fieldNames.contains("previewTextureId"))

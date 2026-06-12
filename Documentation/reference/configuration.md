@@ -66,10 +66,10 @@ Target height (px) of the downsampled `tracker` lane. The tracker width is deriv
 struct SessionCapabilities
 ```
 
-### init(supportedSizes:previewTextureId:activeCaptureResolution:activeCropRegion:streamPixelFormat:isoRange:exposureDurationRangeNs:focusRange:zoomRange:evCompensationRange:)
+### init(supportedSizes:previewTextureId:activeCaptureResolution:activeCropRegion:streamPixelFormat:isoRange:exposureDurationRangeNs:focusRange:zoomRange:evCompensationRange:trackerResolution:)
 
 ```swift
-init(supportedSizes: [Size], previewTextureId: Int, activeCaptureResolution: Size, activeCropRegion: Rect, streamPixelFormat: String, isoRange: ClosedRange<Float>, exposureDurationRangeNs: ClosedRange<Int64>, focusRange: ClosedRange<Double>, zoomRange: ClosedRange<Double>, evCompensationRange: ClosedRange<Float>)
+init(supportedSizes: [Size], previewTextureId: Int, activeCaptureResolution: Size, activeCropRegion: Rect, streamPixelFormat: String, isoRange: ClosedRange<Float>, exposureDurationRangeNs: ClosedRange<Int64>, focusRange: ClosedRange<Double>, zoomRange: ClosedRange<Double>, evCompensationRange: ClosedRange<Float>, trackerResolution: Size)
 ```
 
 ### activeCaptureResolution
@@ -131,6 +131,14 @@ Always `"BGRA8"` (`kCVPixelFormatType_32BGRA`, `.bgra8Unorm`) — Apple's `CVMet
 ```swift
 let supportedSizes: [Size]
 ```
+
+### trackerResolution
+
+```swift
+let trackerResolution: Size
+```
+
+Effective (clamped and even-rounded) tracker lane resolution. Derived from `OpenConfiguration.trackerHeight` (height-driven, aspect-preserved against the primary output size, clamped `2…primaryHeight`, rounded to even). When `trackerHeight == primaryHeight`, this equals `activeCaptureResolution` and the tracker is produced by a 1:1 copy with no resampling.
 
 ### zoomRange
 
