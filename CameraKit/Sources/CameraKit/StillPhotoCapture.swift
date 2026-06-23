@@ -20,11 +20,11 @@ final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @uncheck
 
     /// Builds the fixed photo settings.
     ///
-    /// Requests 420f to match the video format so `MetalPipeline.gradeOneShot`
+    /// Requests 420f to match the video format so `MetalPipeline.renderStill`
     /// consumes the buffer directly. Flash off and `.balanced` quality (nice
     /// native-camera look while honoring device exposure). Does NOT set
     /// `maxPhotoDimensions` — photo dims default to the active format dims so
-    /// `gradeOneShot`'s 1:1 crop mapping holds.
+    /// `renderStill`'s 1:1 crop mapping holds.
     static func makeSettings() -> AVCapturePhotoSettings {
         let fmt = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         let s = AVCapturePhotoSettings(

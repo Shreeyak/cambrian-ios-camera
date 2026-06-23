@@ -231,7 +231,8 @@ public struct CameraSettings: Sendable, Hashable, Codable {
 
 /// GPU color-processing shader parameters.
 ///
-/// All fields required. Full implementation Stage 04.
+/// All fields required. Full implementation Stage 04; linear-light normalization
+/// fields added in linear-normalization-stage.
 public struct ProcessingParameters: Sendable, Hashable, Codable {
     public var brightness: Double
     /// Contrast adjustment in `[-1, 1]`, `0.0` = identity.
@@ -244,14 +245,45 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
     public var saturation: Double
     /// Per-channel black-balance pedestal.
     ///
-    /// The GPU pipeline subtracts these values from the graded image as the
-    /// **final** color step, after brightness, contrast, saturation, and
-    /// gamma. Range typically `[0, 0.5]`. See `Shaders/ColorShaders.metal`
-    /// for the exact order.
+    /// **Deprecated** (linear-normalization-stage): the legacy post-grade
+    /// subtraction. Superseded by the linear, pre-grade black point
+    /// (`blackPointR/G/B` + `blackPointEnabled`). Retained while the migration
+    /// lands (tasks.md §4) so existing behavior is unchanged. See
+    /// `Shaders/ColorShaders.metal`.
     public var blackR: Double
     public var blackG: Double
     public var blackB: Double
     public var gamma: Double
+
+    // MARK: - linear-normalization-stage (applied in linear light, pre-grade)
+
+    /// Per-channel linear black point that offsets dark values toward 0 (identity `0`).
+    ///
+    /// Folded into the normalization affine `b` term when `blackPointEnabled`.
+    /// Derived statistically (`mean + blackPointSigmaK·σ`) from a dark field.
+    public var blackPointR: Double
+    public var blackPointG: Double
+    public var blackPointB: Double
+    public var blackPointEnabled: Bool
+
+    /// Per-channel white-balance chroma residual gain (identity `1`).
+    ///
+    /// Brightness-preserving cast neutralization applied on top of the locked
+    /// hardware gains; gated to manual WB mode (identity in auto — enforced by
+    /// `CameraEngine`, so the stored value is always "effective"). Folded into
+    /// the affine `a` term when `wbChromaEnabled`.
+    public var wbChromaR: Double
+    public var wbChromaG: Double
+    public var wbChromaB: Double
+    public var wbChromaEnabled: Bool
+
+    /// Scalar white-point level lifting the neutralized white reference to the
+    /// configured target `Constants.whitePointTargetDisplay` (identity `1`).
+    ///
+    /// Separate, optional, off by default (phase-contrast grey must not be
+    /// stretched). Only valid alongside `wbChroma`; folded into the affine `a`.
+    public var whitePointLevel: Double
+    public var whitePointEnabled: Bool
 
     public init(
         brightness: Double = 0.0,
@@ -260,7 +292,17 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
         blackR: Double = 0.0,
         blackG: Double = 0.0,
         blackB: Double = 0.0,
-        gamma: Double = 1.0
+        gamma: Double = 1.0,
+        blackPointR: Double = 0.0,
+        blackPointG: Double = 0.0,
+        blackPointB: Double = 0.0,
+        blackPointEnabled: Bool = false,
+        wbChromaR: Double = 1.0,
+        wbChromaG: Double = 1.0,
+        wbChromaB: Double = 1.0,
+        wbChromaEnabled: Bool = false,
+        whitePointLevel: Double = 1.0,
+        whitePointEnabled: Bool = false
     ) {
         self.brightness = brightness
         self.contrast = contrast
@@ -269,7 +311,64 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
         self.blackG = blackG
         self.blackB = blackB
         self.gamma = gamma
+        self.blackPointR = blackPointR
+        self.blackPointG = blackPointG
+        self.blackPointB = blackPointB
+        self.blackPointEnabled = blackPointEnabled
+        self.wbChromaR = wbChromaR
+        self.wbChromaG = wbChromaG
+        self.wbChromaB = wbChromaB
+        self.wbChromaEnabled = wbChromaEnabled
+        self.whitePointLevel = whitePointLevel
+        self.whitePointEnabled = whitePointEnabled
     }
 
     public static let identity = ProcessingParameters()
+
+    // MARK: - Back-compatible decoding (linear-normalization-stage)
+
+    private enum CodingKeys: String, CodingKey {
+        case brightness, contrast, saturation, blackR, blackG, blackB, gamma
+        case blackPointR, blackPointG, blackPointB, blackPointEnabled
+        case wbChromaR, wbChromaG, wbChromaB, wbChromaEnabled
+        case whitePointLevel, whitePointEnabled
+    }
+
+    /// Migration-safe decode: old `…v2` blobs predate the normalization fields,
+    /// and Swift's synthesized `Decodable` throws on missing keys.
+    ///
+    /// Decoding every field via `decodeIfPresent` with the identity default keeps
+    /// persisted brightness/contrast/saturation/gamma *values* (so settings don't
+    /// reset) while new normalization fields default to identity/disabled. This
+    /// does NOT preserve the old operation order or the old black behavior: the
+    /// new order is linear normalization (WB / white point / black point) then the
+    /// gamma-space grade. The legacy `blackR/G/B` pedestal is decoded here only
+    /// transitionally; the legacy black-balance (fields, API, and post-grade
+    /// subtraction) is removed entirely in tasks.md §4 — a breaking change. The
+    /// new linear black point is recalibrated fresh.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ProcessingParameters.identity
+        brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? d.brightness
+        contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? d.contrast
+        saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? d.saturation
+        blackR = try c.decodeIfPresent(Double.self, forKey: .blackR) ?? d.blackR
+        blackG = try c.decodeIfPresent(Double.self, forKey: .blackG) ?? d.blackG
+        blackB = try c.decodeIfPresent(Double.self, forKey: .blackB) ?? d.blackB
+        gamma = try c.decodeIfPresent(Double.self, forKey: .gamma) ?? d.gamma
+        blackPointR = try c.decodeIfPresent(Double.self, forKey: .blackPointR) ?? d.blackPointR
+        blackPointG = try c.decodeIfPresent(Double.self, forKey: .blackPointG) ?? d.blackPointG
+        blackPointB = try c.decodeIfPresent(Double.self, forKey: .blackPointB) ?? d.blackPointB
+        blackPointEnabled =
+            try c.decodeIfPresent(Bool.self, forKey: .blackPointEnabled) ?? d.blackPointEnabled
+        wbChromaR = try c.decodeIfPresent(Double.self, forKey: .wbChromaR) ?? d.wbChromaR
+        wbChromaG = try c.decodeIfPresent(Double.self, forKey: .wbChromaG) ?? d.wbChromaG
+        wbChromaB = try c.decodeIfPresent(Double.self, forKey: .wbChromaB) ?? d.wbChromaB
+        wbChromaEnabled =
+            try c.decodeIfPresent(Bool.self, forKey: .wbChromaEnabled) ?? d.wbChromaEnabled
+        whitePointLevel =
+            try c.decodeIfPresent(Double.self, forKey: .whitePointLevel) ?? d.whitePointLevel
+        whitePointEnabled =
+            try c.decodeIfPresent(Bool.self, forKey: .whitePointEnabled) ?? d.whitePointEnabled
+    }
 }

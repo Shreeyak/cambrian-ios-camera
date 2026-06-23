@@ -122,7 +122,7 @@ struct FrameDeliveryTests {
         #expect(registry.hasSubscriber(.tracker) == false)
 
         let sb = try makeSyntheticYUV(width: size.width, height: size.height)
-        try pipeline.encode(sampleBuffer: sb)
+        try pipeline.renderFrame(sampleBuffer: sb)
 
         // Awaiting the primary frame guarantees the completion handler ran — that
         // is also where a tracker buffer would have been produced/stored.

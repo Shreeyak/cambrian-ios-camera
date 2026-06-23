@@ -31,7 +31,38 @@ enum Constants {
     static let centerPatchTrimRatio: Double = 0.075
     /// Multiplier applied to BB pedestal sample so the per-pixel noise above
     /// the trimmed mean is also driven to the clamp floor on iPad HITL.
+    ///
+    /// **Deprecated** (linear-normalization-stage): the legacy post-grade
+    /// black-balance path multiplies the *mean* by this. It is superseded by the
+    /// statistical black point (`blackPointSigmaK`, a σ-multiplier) and is removed
+    /// when the linear black-point calibration lands (tasks.md §4).
     static let blackBalanceOverscan: Double = 1.5
+
+    // MARK: - linear-normalization-stage — color-normalization constants
+
+    /// White-point calibration target in **display (gamma) space**: 250/255.
+    ///
+    /// The neutralized white reference is lifted to this level (≈ 250 in uint8),
+    /// not a forced 1.0 — keeps the reference balanced without mandatory highlight
+    /// clipping. Converted to linear before forming the white-point scale. Raise
+    /// toward 1.0 for a pure-white DL feed. Build-time only (color-normalization
+    /// design D6).
+    static let whitePointTargetDisplay: Double = 250.0 / 255.0  // ≈ 0.9804
+
+    /// Black-point noise margin as a **σ-multiplier**: `offset = mean + k·σ`.
+    ///
+    /// Replaces the legacy `blackBalanceOverscan` mean-multiplier (design D7).
+    /// `k = 1.5` drives ~93% of the (linear-light) noise band to the clamp floor,
+    /// a deliberately gentle crush that preserves dim signal (fluorescence).
+    static let blackPointSigmaK: Double = 1.5
+
+    /// Black-point sample-collection width as a σ-multiplier of the **seed patch**.
+    ///
+    /// The 96² center patch yields `patchMean`/`patchσ`; every frame pixel within
+    /// `patchMean ± k_select · patchσ` (per channel) is counted as background for
+    /// the `mean`/`σ` statistic. `k_select = 3.0` ≈ 99.7% of the background noise,
+    /// while excluding brighter objects in frame (design D8).
+    static let blackPointSelectSigmaK: Double = 3.0
     /// Per-step log2-space cap retained on `CalibrationCompute.grayWorldGains`
     /// for unit-test stability. `calibrateWB` itself no longer iterates —
     /// the helper is kept as a pure utility but isn't in the live path.

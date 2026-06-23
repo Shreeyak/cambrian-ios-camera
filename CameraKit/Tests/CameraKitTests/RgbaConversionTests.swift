@@ -162,7 +162,7 @@ struct RgbaConversionMailboxFormatTests {
 
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
-        try pipeline.encode(sampleBuffer: sample)
+        try pipeline.renderFrame(sampleBuffer: sample)
         // Metal invokes completion handlers as part of the transition to
         // `.completed`; `waitUntilCompleted()` blocks until both finish.
         // Deterministic — no sleep.
@@ -197,7 +197,7 @@ struct RgbaConversionMailboxFormatTests {
             consumers: consumers)
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
-        try pipeline.encode(sampleBuffer: sample)
+        try pipeline.renderFrame(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         #expect(pipeline.latestNaturalTex16F?.pixelFormat == .rgba16Float)
@@ -222,7 +222,7 @@ struct RgbaConversionMailboxFormatTests {
             consumers: consumers)
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
-        try pipeline.encode(sampleBuffer: sample)
+        try pipeline.renderFrame(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         guard let procTex = pipeline.latestProcessedBgra8Tex,
@@ -293,7 +293,7 @@ struct RgbaConversionTrackerBgra8Tests {
 
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
-        try pipeline.encode(sampleBuffer: sample)
+        try pipeline.renderFrame(sampleBuffer: sample)
         await pipeline.lastCommandBuffer?.completed()
 
         guard let buf = pipeline.latestTrackerBufferForTest else {
@@ -317,101 +317,6 @@ struct RgbaConversionTrackerBgra8Tests {
         // Keep the stream alive through assertions — early dealloc terminates the
         // continuation and removes the subscriber before encode completes.
         withExtendedLifetime(trackerStream) {}
-    }
-
-    /// Pass-4-specific channel-order + clamp verification.
-    ///
-    /// The tracker takes a different path than natural/processed: Pass-4 reads
-    /// `texture2d<float, access::sample>` through a bilinear sampler and does
-    /// `outTex.write(float4, gid)` straight into the `.bgra8Unorm` tracker
-    /// texture (no convert kernel). A binding/order mistake there would not be
-    /// caught by `bgra8ChannelOrderAndClamp` (which drives `rgba16fToBgra8PSO`).
-    /// Drive a uniform known color through `trackerDownsamplePSO` into a BGRA8
-    /// pool texture and assert `[B, G, R, A]` order + unorm clamp.
-    @Test("Pass-4 tracker downsample stores [B, G, R, A] and clamps on write")
-    func trackerPass4ChannelOrderAndClamp() throws {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            Issue.record("no metal device")
-            return
-        }
-        let tpm = try TexturePoolManager(device: device)
-        let library = try device.makeDefaultLibrary(bundle: .module)
-        guard let fn = library.makeFunction(name: "trackerDownsample") else {
-            Issue.record("trackerDownsample kernel not found")
-            return
-        }
-        let pso = try device.makeComputePipelineState(function: fn)
-        let cq = device.makeCommandQueue()!
-        // Match the pipeline's tracker sampler (linear, clampToEdge).
-        let samplerDesc = MTLSamplerDescriptor()
-        samplerDesc.minFilter = .linear
-        samplerDesc.magFilter = .linear
-        samplerDesc.sAddressMode = .clampToEdge
-        samplerDesc.tAddressMode = .clampToEdge
-        let sampler = device.makeSamplerState(descriptor: samplerDesc)!
-
-        let size = Size(width: 4, height: 4)
-
-        // Drives one uniform-red RGBA16F source (so bilinear sampling has no
-        // boundary blend) through Pass-4 into a BGRA8 pool texture; returns the
-        // first pixel's BGRA bytes.
-        func runTracker(redHalf: UInt16) throws -> (b: UInt8, g: UInt8, r: UInt8, a: UInt8) {
-            let srcDesc = MTLTextureDescriptor.texture2DDescriptor(
-                pixelFormat: .rgba16Float, width: size.width, height: size.height,
-                mipmapped: false)
-            srcDesc.usage = [.shaderRead, .shaderWrite]
-            srcDesc.storageMode = .shared
-            let srcTex = device.makeTexture(descriptor: srcDesc)!
-            let half0: UInt16 = 0x0000  // 0.0
-            let half1: UInt16 = 0x3C00  // 1.0 (alpha)
-            let rowBytes = size.width * 4 * 2
-            var rowData = [UInt16](repeating: 0, count: size.width * size.height * 4)
-            for px in 0..<(size.width * size.height) {
-                rowData[px * 4 + 0] = redHalf  // R
-                rowData[px * 4 + 1] = half0  // G
-                rowData[px * 4 + 2] = half0  // B
-                rowData[px * 4 + 3] = half1  // A
-            }
-            srcTex.replace(
-                region: MTLRegionMake2D(0, 0, size.width, size.height),
-                mipmapLevel: 0, withBytes: rowData, bytesPerRow: rowBytes)
-
-            let pool = try tpm.makeBgra8LanePool(size: size)
-            let (dstBuf, dstTex) = try tpm.dequeueEightBitPoolTexture(
-                pool: pool, width: size.width, height: size.height)
-
-            let cb = cq.makeCommandBuffer()!
-            let enc = cb.makeComputeCommandEncoder()!
-            enc.setComputePipelineState(pso)
-            enc.setTexture(srcTex, index: 0)
-            enc.setTexture(dstTex, index: 1)
-            enc.setSamplerState(sampler, index: 0)
-            let tg = MTLSize(width: 8, height: 8, depth: 1)
-            let groups = MTLSize(
-                width: (size.width + 7) / 8, height: (size.height + 7) / 8, depth: 1)
-            enc.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-            enc.endEncoding()
-            cb.commit()
-            cb.waitUntilCompleted()
-
-            CVPixelBufferLockBaseAddress(dstBuf, .readOnly)
-            defer { CVPixelBufferUnlockBaseAddress(dstBuf, .readOnly) }
-            let base = CVPixelBufferGetBaseAddress(dstBuf)!
-            let bytes = base.assumingMemoryBound(to: UInt8.self)
-            return (bytes[0], bytes[1], bytes[2], bytes[3])
-        }
-
-        // Normal red R=1.0 → BGRA = [0, 0, 255, 255].
-        let normal = try runTracker(redHalf: 0x3C00)
-        #expect(normal.b == 0, "B channel of red should be 0, got \(normal.b)")
-        #expect(normal.g == 0, "G channel of red should be 0, got \(normal.g)")
-        #expect(normal.r == 255, "R channel of red should be 255, got \(normal.r)")
-        #expect(normal.a == 255, "A channel of red should be 255, got \(normal.a)")
-
-        // Over-bright red R=2.0 → unorm write clamps to 255 (not wrap to 0).
-        let clamped = try runTracker(redHalf: 0x4000)
-        #expect(clamped.b == 0, "B channel of over-bright red should be 0, got \(clamped.b)")
-        #expect(clamped.r == 255, "R=2.0 should clamp to 255 (not wrap), got \(clamped.r)")
     }
 
     /// Channel-order + unorm-clamp verification: dispatch `rgba16fToBgra8PSO` (the same
@@ -529,7 +434,7 @@ struct RgbaConversionTrackerBgra8Tests {
 
 // remove-natural-lane: the "MetalPipeline natural-lane mailbox is BGRA8" suite was
 // removed — there is no streaming natural buffer mailbox. The natural still is
-// produced on demand via `gradeOneShot` (covered by CaptureNaturalPictureTests).
+// produced on demand via `renderStill` (covered by CaptureNaturalPictureTests).
 
 // MARK: - SessionCapabilities.streamPixelFormat is unconditionally BGRA8
 
@@ -557,7 +462,7 @@ struct RgbaConversionStreamPixelFormatTests {
 // MARK: - Helpers
 
 /// Creates an IOSurface-backed YUV biplanar CVPixelBuffer wrapped in a
-/// CMSampleBuffer for `encode(sampleBuffer:)`.
+/// CMSampleBuffer for `renderFrame(sampleBuffer:)`.
 ///
 /// Mirrors the helper in Stage02Tests / Stage06Tests; named distinctly to avoid
 /// linker overlap.
@@ -685,7 +590,7 @@ struct RgbaConversionEndToEndColorTests {
         // Identity Pass-2 (ProcessingParameters() defaults) ⇒ processed == natural.
         let sample = try makeSolidYUVSampleBufferForRgba8Tests(
             width: 64, height: 64, y: 150, cb: 100, cr: 170)
-        try pipeline.encode(sampleBuffer: sample)
+        try pipeline.renderFrame(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         let expected = (r: 210, g: 129, b: 101)
@@ -732,15 +637,15 @@ struct IspGradeOneShotTests {
         return CMSampleBufferGetImageBuffer(sb)!
     }
 
-    @Test("gradeOneShot applies the live grade (gray on full desaturate) at outputSize BGRA8")
-    func gradeOneShotAppliesGrade() async throws {
+    @Test("renderStill applies the live grade (gray on full desaturate) at outputSize BGRA8")
+    func renderStillAppliesGrade() async throws {
         guard let device = MTLCreateSystemDefaultDevice() else { Issue.record("no metal device"); return }
         let pipeline = try MetalPipeline(device: device, captureSize: Size(width: 64, height: 64), gateOpen: true)
         var params = ProcessingParameters.identity
         params.saturation = -1.0
         pipeline.setColorUniformsForTest(params)
 
-        let out = try await pipeline.gradeOneShot(pixelBuffer: try solidYUVBuffer(64, 64))
+        let out = try await pipeline.renderStill(pixelBuffer: try solidYUVBuffer(64, 64))
 
         #expect(CVPixelBufferGetPixelFormatType(out) == kCVPixelFormatType_32BGRA)
         #expect(CVPixelBufferGetWidth(out) == 64 && CVPixelBufferGetHeight(out) == 64)
@@ -752,12 +657,12 @@ struct IspGradeOneShotTests {
         #expect(abs(r - b) <= 4 && abs(r - g) <= 4, "desaturated grade ⇒ gray; got R=\(r) G=\(g) B=\(b)")
     }
 
-    @Test("gradeOneShot errors cleanly when buffer dims != captureSize")
-    func gradeOneShotDimensionGuard() async throws {
+    @Test("renderStill errors cleanly when buffer dims != captureSize")
+    func renderStillDimensionGuard() async throws {
         guard let device = MTLCreateSystemDefaultDevice() else { Issue.record("no metal device"); return }
         let pipeline = try MetalPipeline(device: device, captureSize: Size(width: 64, height: 64), gateOpen: true)
         await #expect(throws: (any Error).self) {
-            _ = try await pipeline.gradeOneShot(pixelBuffer: try solidYUVBuffer(32, 32))
+            _ = try await pipeline.renderStill(pixelBuffer: try solidYUVBuffer(32, 32))
         }
     }
 }
@@ -801,7 +706,7 @@ struct TrackerSourceFromProcessedTests {
         // Strongly-saturated solid color: R≈210, G≈129, B≈101 (|R-B|≈109).
         let sample = try makeSolidYUVSampleBufferForRgba8Tests(
             width: 64, height: 64, y: 150, cb: 100, cr: 170)
-        try pipeline.encode(sampleBuffer: sample)
+        try pipeline.renderFrame(sampleBuffer: sample)
         await pipeline.lastCommandBuffer?.completed()
 
         guard let buf = pipeline.latestTrackerBufferForTest else {

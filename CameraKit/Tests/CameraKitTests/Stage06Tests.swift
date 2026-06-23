@@ -119,7 +119,7 @@ struct Stage06Tests {
 
         // Source is sensor-sized; Pass-1 reads the offset sub-region.
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
-        try pipeline.encode(sampleBuffer: sb)
+        try pipeline.renderFrame(sampleBuffer: sb)
         // Mailbox stores happen in addCompletedHandler, which fires as part of
         // the transition to .completed — deterministic, no sleep.
         pipeline.lastCommandBuffer?.waitUntilCompleted()
@@ -143,7 +143,7 @@ struct Stage06Tests {
         #expect(pipeline.outputSize == sensor)
 
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
-        try pipeline.encode(sampleBuffer: sb)
+        try pipeline.renderFrame(sampleBuffer: sb)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         let nat = try #require(pipeline.latestNaturalTex16F)

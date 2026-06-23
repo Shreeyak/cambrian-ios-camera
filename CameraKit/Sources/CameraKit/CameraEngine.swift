@@ -381,7 +381,7 @@ public actor CameraEngine {
         //    closure must read it live each frame rather than capture the original
         //    `pipeline` reference (which goes nil at the first `setResolution`).
         delegate.onSampleBuffer = { [weak self] sampleBuffer in
-            try? self?._metalPipeline.latest?.encode(sampleBuffer: sampleBuffer)
+            try? self?._metalPipeline.latest?.renderFrame(sampleBuffer: sampleBuffer)
         }
         delegate.engine = self
 
@@ -1648,7 +1648,7 @@ public actor CameraEngine {
         //    device's live exposure/ISO/WB/focus.
         let photoBuffer = try await session.capturePhoto()
         // 2. Crop + grade through the live Metal pipeline (matches preview grade).
-        let graded = try await pipeline.gradeOneShot(pixelBuffer: photoBuffer)
+        let graded = try await pipeline.renderStill(pixelBuffer: photoBuffer)
 
         // 3. Encode in the extension-chosen format with the same EXIF/lane tag
         //    contract as before.

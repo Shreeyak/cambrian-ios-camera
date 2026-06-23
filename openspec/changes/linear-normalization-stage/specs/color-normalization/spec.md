@@ -144,16 +144,24 @@ invalid "level without chroma" state unrepresentable.
 - **WHEN** `applyWhiteBalance(whitePoint: true)` is called
 - **THEN** both the chroma residual and the white-point level apply
 
-### Requirement: Endpoint preservation across the creative grade
+### Requirement: Creative grade unchanged; endpoints not pinned
 
-The creative grade SHALL preserve and clamp the 0 and 1 endpoints, so that a background normalized
-to solid black (0) or solid white (1) MUST NOT be moved off the endpoint by subsequent operator
-adjustments to brightness, contrast, saturation, and gamma.
+The creative grade (brightness/contrast/saturation/gamma) SHALL operate **unchanged** in gamma
+space after normalization. The grade is **not** endpoint-anchored: operator adjustments MAY move a
+background that was normalized to solid black (0) or solid white (target) off those endpoints, and
+this deviation is **accepted and documented** (the existing 0.5-pivot contrast and linear brightness
+operators drift endpoints inward; no S-curve operators or post-grade re-pin are added). Consumers
+needing a stable solid background SHALL keep the grade at (or near) identity.
 
-#### Scenario: Solid background survives operator adjustment
+#### Scenario: Grade may move the calibrated background
 
-- **WHEN** the background is normalized to solid white (or solid black) and the operator changes brightness/contrast
-- **THEN** the background remains solid white (or solid black) and only mid-tones are reshaped
+- **WHEN** the background is normalized to solid white (or black) and the operator changes brightness/contrast
+- **THEN** the background may shift off the endpoint (the grade is not endpoint-anchored) — this is accepted, not a defect
+
+#### Scenario: Identity grade leaves the normalized background solid
+
+- **WHEN** normalization produces a solid background and the grade is at identity
+- **THEN** the normalized output is delivered unmodified and the background remains solid
 
 ### Requirement: Normalization applies to all delivered outputs
 
@@ -180,26 +188,29 @@ into auto mode on load.
 - **THEN** the saved black-point / chroma / white-point coefficients and toggles are restored
 - **AND** white-balance does not silently start in a stale manual lock
 
-### Requirement: Backward-compatible black-balance deprecation
+### Requirement: Legacy black-balance removed (breaking)
 
-The black-balance → black-point migration SHALL NOT break the existing public API. The legacy
-`calibrateBlackBalance` surface (Swift, Pigeon, and Dart) SHALL be retained as a deprecated alias
-that forwards to the new `calibrateBlackPoint` path. Invoking the legacy path SHALL emit a runtime
-deprecation notice (`Logger` `.notice`, `privacy: .public`). Persisted legacy black-balance values
-SHALL be migrated into the new black-point coefficients on load via a migration shim. The
-deprecation SHALL be documented in the consumer docs and called out in the GitHub release notes.
+The legacy post-grade black-balance SHALL be **removed entirely** — its public API
+(`calibrateBlackBalance` across Swift/Pigeon/Dart), its `ProcessingParameters.blackR/G/B` fields and
+`ColorUniform` mirror, and its post-grade shader subtraction (`ColorShaders.metal` step 5). This is
+an **accepted breaking API change**; no deprecated alias or forwarding is provided. The new linear
+black point (`calibrateBlackPoint`) is the only black operation. Old persisted settings SHALL still
+decode their grade values (brightness/contrast/saturation/gamma) without reset; the legacy black
+keys SHALL be ignored (not applied, not migrated). The removal SHALL be documented in consumer docs
+and called out as **breaking** in the GitHub release notes.
 
-#### Scenario: Legacy API still works
+#### Scenario: Legacy API is gone
 
-- **WHEN** a downstream consumer calls the legacy `calibrateBlackBalance`
-- **THEN** it forwards to `calibrateBlackPoint`, performs the linear black-point calibration, and emits a deprecation notice
+- **WHEN** a downstream consumer references `calibrateBlackBalance`
+- **THEN** it no longer exists (Swift compile error / Flutter `PlatformException`) — consumers must migrate to `calibrateBlackPoint`
 
-#### Scenario: Persisted legacy values migrate
+#### Scenario: Old settings decode grade values without legacy black
 
-- **WHEN** the app loads settings persisted under the old black-balance keys
-- **THEN** the migration shim maps them into the new black-point coefficients without a reset
+- **WHEN** the app loads settings persisted under the old schema
+- **THEN** grade values are preserved (no crash, no reset) and the legacy black keys are ignored
+- **AND** the black point starts disabled, awaiting fresh calibration
 
-#### Scenario: Deprecation is recorded for release
+#### Scenario: Breaking removal recorded for release
 
 - **WHEN** the change is released
-- **THEN** the GitHub release notes and consumer docs note that black balance is deprecated in favor of black point
+- **THEN** the GitHub release notes call out the removal of black balance as a breaking change

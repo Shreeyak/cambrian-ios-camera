@@ -115,10 +115,12 @@ the *floor* (be gentle, preserve dim signal) — two different k for two differe
   whitePoint: Bool = false)` selects at use time — chroma only (phase contrast) or chroma + level
   (brightfield). A single function with the flag makes "level without chroma" unrepresentable; order
   is moot (D2), so no two-function ordering hazard.
-- **Black point**: `calibrateBlackBalance` (Swift/Pigeon/Dart) is kept as a **deprecated alias**
-  forwarding to new `calibrateBlackPoint`, emitting a runtime `.notice` deprecation log. Persisted
-  legacy values migrate via a shim (no reset). Deprecation documented in consumer docs and called
-  out in the GitHub release notes.
+- **Black point**: clean break — the legacy `calibrateBlackBalance` (Swift/Pigeon/Dart),
+  `ProcessingParameters.blackR/G/B` (+ `ColorUniform` mirror), and the post-grade shader subtraction
+  are **removed entirely**. No deprecated alias, no forwarding. `calibrateBlackPoint` is the only
+  black API. This is an **accepted breaking change** (user decision, 2026-06-23). Old persisted
+  blobs still decode their grade values (no reset); legacy black keys are ignored. Removal called
+  out as breaking in the GitHub release notes.
 
 ### D10. Parameter surface & persistence
 Extend `ProcessingParameters` (and `ColorUniform`) with the per-channel linear black point, WB
@@ -182,6 +184,13 @@ old-look toggle), but the legacy API alias remains, so downstream consumers are 
 - **`captureImage` vs `gradeOneShot`** → `captureImage` snapshots the already-normalized streamed
   buffer (inherits normalization for free); `gradeOneShot` re-runs the shared kernel. Sharing the
   fused kernel covers both; no path-specific handling expected (confirm on device).
+- **Endpoint preservation vs grade-unchanged conflict** → resolved by keeping the grade **unchanged**
+  and **softening the contract** (option b, user decision 2026-06-23): the grade is not
+  endpoint-anchored, so operator brightness/contrast/saturation/gamma may move calibrated black/white
+  off the endpoints — accepted and documented. No S-curve operators, no post-grade re-pin.
+- **Black-balance migration** → **clean break** (user decision 2026-06-23): the legacy black-balance
+  is removed entirely (API, fields, post-grade subtraction), not deprecated/forwarded. Breaking
+  change accepted. Old persisted grade values still decode; legacy black keys ignored.
 
 ## Open Questions
 

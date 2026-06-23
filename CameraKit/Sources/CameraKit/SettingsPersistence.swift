@@ -48,6 +48,16 @@ enum SettingsPersistence {
         defaults.set(data, forKey: processingKey)
     }
 
+    /// Load persisted `ProcessingParameters`.
+    ///
+    /// The key is **not** bumped for linear-normalization-stage: old `…v2` blobs
+    /// predate the normalization fields, and `ProcessingParameters.init(from:)`
+    /// decodes every field via `decodeIfPresent` with identity defaults — so a
+    /// pre-normalization blob round-trips its brightness/contrast/saturation/gamma
+    /// *values* instead of resetting, while new normalization fields come up at
+    /// identity/disabled. The legacy black-balance is removed entirely (breaking,
+    /// tasks.md §4): its persisted keys are ignored (not applied, not migrated) and
+    /// the black point is recalibrated fresh via the new `calibrateBlackPoint`.
     static func loadProcessing(defaults: UserDefaults = .standard) -> ProcessingParameters? {
         guard let data = defaults.data(forKey: processingKey) else { return nil }
         return try? JSONDecoder().decode(ProcessingParameters.self, from: data)

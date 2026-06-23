@@ -484,7 +484,7 @@ public func captureNaturalPicture(
 ⋮----
 let photoBuffer = try await session.capturePhoto()
 ⋮----
-let graded = try await pipeline.gradeOneShot(pixelBuffer: photoBuffer)
+let graded = try await pipeline.renderStill(pixelBuffer: photoBuffer)
 ⋮----
 let snap = await session.device?.lastSnapshot
 ⋮----
@@ -924,7 +924,26 @@ public var blackG: Double
 public var blackB: Double
 public var gamma: Double
 ⋮----
+public var blackPointR: Double
+public var blackPointG: Double
+public var blackPointB: Double
+public var blackPointEnabled: Bool
+⋮----
+public var wbChromaR: Double
+public var wbChromaG: Double
+public var wbChromaB: Double
+public var wbChromaEnabled: Bool
+⋮----
+public var whitePointLevel: Double
+public var whitePointEnabled: Bool
+⋮----
 public static let identity = ProcessingParameters()
+⋮----
+private enum CodingKeys: String, CodingKey {
+⋮----
+public init(from decoder: any Decoder) throws {
+let c = try decoder.container(keyedBy: CodingKeys.self)
+let d = ProcessingParameters.identity
 ```
 
 ## File: CameraKit/Sources/CameraKit/CaptureDelegate.swift
@@ -1173,6 +1192,12 @@ static let centerPatchTrimRatio: Double = 0.075
 ⋮----
 static let blackBalanceOverscan: Double = 1.5
 ⋮----
+static let whitePointTargetDisplay: Double = 250.0 / 255.0
+⋮----
+static let blackPointSigmaK: Double = 1.5
+⋮----
+static let blackPointSelectSigmaK: Double = 3.0
+⋮----
 static let wbGrayWorldLogCap: Float = 0.25
 ⋮----
 static let frameLatencyBudgetMs: Int = 33
@@ -1367,7 +1392,28 @@ var blackG: Float
 var blackB: Float
 var gamma: Float
 ⋮----
+var aR: Float
+var aG: Float
+var aB: Float
+var bR: Float
+var bG: Float
+var bB: Float
+var transferFn: UInt32
+⋮----
+var normalizeEnabled: UInt32
+⋮----
 init(_ p: ProcessingParameters) {
+⋮----
+let bpR = p.blackPointEnabled ? p.blackPointR : 0.0
+let bpG = p.blackPointEnabled ? p.blackPointG : 0.0
+let bpB = p.blackPointEnabled ? p.blackPointB : 0.0
+let chromaR = p.wbChromaEnabled ? p.wbChromaR : 1.0
+let chromaG = p.wbChromaEnabled ? p.wbChromaG : 1.0
+let chromaB = p.wbChromaEnabled ? p.wbChromaB : 1.0
+let level = p.whitePointEnabled ? p.whitePointLevel : 1.0
+let gainR = chromaR * level
+let gainG = chromaG * level
+let gainB = chromaB * level
 ⋮----
 static let identity = ColorUniform(.identity)
 ⋮----
@@ -1479,7 +1525,19 @@ let library: MTLLibrary
 let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
 let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
 ⋮----
-func encode(sampleBuffer: CMSampleBuffer) throws {
+private func encodeGradedCore(
+⋮----
+let decode = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+var cropLocal = cropSnapshot
+⋮----
+let grade = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+var colorLocal = colorSnapshot
+⋮----
+let pack = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+func renderFrame(sampleBuffer: CMSampleBuffer) throws {
 ⋮----
 let yTexture: MTLTexture
 let cbcrTexture: MTLTexture
@@ -1494,20 +1552,10 @@ let commandBuffer = commandQueue.makeCommandBuffer()!
 let naturalTexI = naturalPair.texture
 let processedTexI = processedPair.texture
 ⋮----
-let pass1 = commandBuffer.makeComputeCommandEncoder()!
-⋮----
-var cropLocal = cropSnapshot
-⋮----
 let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
 let threadGroups = MTLSize(
 ⋮----
-let pass2 = commandBuffer.makeComputeCommandEncoder()!
-⋮----
-var colorLocal = colorSnapshot
-⋮----
-var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-⋮----
-let pass7p = commandBuffer.makeComputeCommandEncoder()!
+let processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
 ⋮----
 let blit = commandBuffer.makeBlitCommandEncoder()!
 let sz = MTLSize(
@@ -1550,7 +1598,7 @@ let frameMeta =
 let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
 var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
 ⋮----
-func gradeOneShot(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
+func renderStill(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
 ⋮----
 let yTex = try texturePool.makeYTexture(from: pixelBuffer)
 let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
@@ -1563,16 +1611,6 @@ let out = try texturePool.dequeueEightBitPoolTexture(
 let cb = commandQueue.makeCommandBuffer()!
 let tg = MTLSize(width: 16, height: 16, depth: 1)
 let groups = MTLSize(
-⋮----
-let p1 = cb.makeComputeCommandEncoder()!
-⋮----
-var cropLocal = crop
-⋮----
-let p2 = cb.makeComputeCommandEncoder()!
-⋮----
-var colorLocal = color
-⋮----
-let p3 = cb.makeComputeCommandEncoder()!
 ⋮----
 func drainLastBuffer() {
 ⋮----
@@ -1643,7 +1681,7 @@ func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
 ⋮----
 func setColorUniformsForTest(_ params: ProcessingParameters) {
 ⋮----
-func encodePass2Only() async throws {
+func encodeGradeOnly() async throws {
 ⋮----
 var color: ColorUniform = uniforms.withLock { $0.color }
 ```

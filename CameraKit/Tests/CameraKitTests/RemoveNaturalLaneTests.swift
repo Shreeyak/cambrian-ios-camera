@@ -7,7 +7,7 @@
 // The calibration-independence requirement (WB/BB still sample the preserved
 // internal 16F natural texture) is exercised on-device by Stage04Tests /
 // Stage11Tests via `setLatestNaturalForTest` + the calibration dispatch. The
-// natural still-capture survival (ISP one-shot + gradeOneShot) is covered by
+// natural still-capture survival (ISP one-shot + renderStill) is covered by
 // CaptureNaturalPictureTests (encode path) and on-device HITL.
 import Foundation
 import Testing

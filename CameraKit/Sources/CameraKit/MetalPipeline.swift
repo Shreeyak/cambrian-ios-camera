@@ -18,6 +18,23 @@ struct ColorUniform: Hashable {
     var blackG: Float
     var blackB: Float
     var gamma: Float
+    // linear-normalization-stage: fused per-channel affine (linear light), applied
+    // pre-grade. Field order MUST match struct ColorUniform in ColorShaders.metal
+    // exactly — setBytes copies `MemoryLayout<ColorUniform>.stride` bytes verbatim.
+    var aR: Float
+    var aG: Float
+    var aB: Float
+    var bR: Float
+    var bG: Float
+    var bB: Float
+    var transferFn: UInt32
+    /// Master gate for the linear-light normalization block.
+    ///
+    /// 0 ⇒ skip linearize→affine→re-encode entirely (off-path stays byte-identical
+    /// to the legacy grade — the half-float sRGB round-trip is NOT bit-exact, and
+    /// BT.601 can emit out-of-gamut values a clamp would alter). 1 ⇒ apply. Set iff
+    /// any normalization toggle is on.
+    var normalizeEnabled: UInt32
 
     init(_ p: ProcessingParameters) {
         brightness = Float(p.brightness)
@@ -27,6 +44,40 @@ struct ColorUniform: Hashable {
         blackG = Float(p.blackG)
         blackB = Float(p.blackB)
         gamma = Float(p.gamma)
+        // linear-normalization-stage §2.2 — fuse the per-channel normalization into
+        // ONE affine evaluated in LINEAR light (the shader undoes gamma first):
+        //
+        //   normalized = gain · (x − blackPoint)   ⇒   out = a·x + b
+        //     a = gain = wbChroma · whitePointLevel   (per channel; level is scalar)
+        //     b = −a · blackPoint                     (black subtracted FIRST, then gain)
+        //
+        // Each contributing op is gated by its own toggle (identity value when off):
+        // blackPoint → 0, wbChroma → 1, whitePointLevel → 1. All quantities are in
+        // LINEAR light. WB-mode gating (chroma identity in auto WB) is applied
+        // upstream by CameraEngine, so the stored coefficients are already effective.
+        let bpR = p.blackPointEnabled ? p.blackPointR : 0.0
+        let bpG = p.blackPointEnabled ? p.blackPointG : 0.0
+        let bpB = p.blackPointEnabled ? p.blackPointB : 0.0
+        let chromaR = p.wbChromaEnabled ? p.wbChromaR : 1.0
+        let chromaG = p.wbChromaEnabled ? p.wbChromaG : 1.0
+        let chromaB = p.wbChromaEnabled ? p.wbChromaB : 1.0
+        let level = p.whitePointEnabled ? p.whitePointLevel : 1.0
+        let gainR = chromaR * level
+        let gainG = chromaG * level
+        let gainB = chromaB * level
+        aR = Float(gainR)
+        aG = Float(gainG)
+        aB = Float(gainB)
+        bR = Float(-gainR * bpR)
+        bG = Float(-gainG * bpG)
+        bB = Float(-gainB * bpB)
+        // sRGB only for now; the per-frame buffer-attachment transfer-function read
+        // (kCVImageBufferTransferFunctionKey) lands with §2.1's Swift side.
+        transferFn = 0
+        // Gate: run the normalization block only when an op is actually active, so
+        // the off-path stays byte-identical to the legacy grade (§2.3).
+        normalizeEnabled =
+            (p.blackPointEnabled || p.wbChromaEnabled || p.whitePointEnabled) ? 1 : 0
     }
 
     static let identity = ColorUniform(.identity)
@@ -454,7 +505,66 @@ final class MetalPipeline: @unchecked Sendable {
     ///
     /// Must be called on the `delivery` DispatchQueue (ADR-02).
     /// Frames that cannot be processed are silently dropped.
-    func encode(sampleBuffer: CMSampleBuffer) throws {
+    /// Shared graded core — encodes `decode → grade → pack` into `commandBuffer`.
+    ///
+    /// Role names (linear-normalization-stage §3.0, replacing the historical
+    /// Pass-1 / Pass-2 / Pass-7p numbers):
+    /// - **decode**: YUV→RGB + crop (`yuvToRgba`) → `natural`.
+    /// - **grade**: color transform (`colorTransform`) `natural` → `processed`.
+    ///   The single insertion point for the linear-light normalization (§2).
+    /// - **pack**: RGBA16F→BGRA8 (`rgba16fToBgra8`) `processed` → `packed`,
+    ///   encoded only when `packed` is non-nil — the streaming path skips it on
+    ///   pool exhaustion; the still path always supplies a target.
+    ///
+    /// Called by both `renderFrame` (streaming) and `renderStill` (one-shot) so
+    /// the grade — and the normalization folded into it — lives in exactly one
+    /// place. Encodes into the caller's command buffer; the caller owns pool
+    /// dequeue, commit, and any post-core passes (tracker / NV12 / completion).
+    private func encodeGradedCore(
+        into commandBuffer: MTLCommandBuffer,
+        y yTexture: MTLTexture,
+        cbcr cbcrTexture: MTLTexture,
+        natural naturalTex: MTLTexture,
+        processed processedTex: MTLTexture,
+        packed packedTex: MTLTexture?,
+        color colorSnapshot: ColorUniform,
+        crop cropSnapshot: CropUniform,
+        threadGroups: MTLSize,
+        threadGroupSize: MTLSize
+    ) {
+        // decode — YUV → RGBA into `natural`, with the crop uniform.
+        let decode = commandBuffer.makeComputeCommandEncoder()!
+        decode.setComputePipelineState(yuvToRgbaPSO)
+        decode.setTexture(yTexture, index: 0)
+        decode.setTexture(cbcrTexture, index: 1)
+        decode.setTexture(naturalTex, index: 2)
+        var cropLocal = cropSnapshot  // setBytes needs a mutable address
+        decode.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
+        decode.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        decode.endEncoding()
+
+        // grade — color transform `natural` → `processed`. Normalization (§2)
+        // folds into this kernel: linearize → affine → re-encode → grade.
+        let grade = commandBuffer.makeComputeCommandEncoder()!
+        grade.setComputePipelineState(colorTransformPSO)
+        grade.setTexture(naturalTex, index: 0)
+        grade.setTexture(processedTex, index: 1)
+        var colorLocal = colorSnapshot
+        grade.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
+        grade.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        grade.endEncoding()
+
+        // pack — RGBA16F → BGRA8 `processed` → `packed`, only when a target is supplied.
+        guard let packedTex else { return }
+        let pack = commandBuffer.makeComputeCommandEncoder()!
+        pack.setComputePipelineState(rgba16fToBgra8PSO)
+        pack.setTexture(processedTex, index: 0)
+        pack.setTexture(packedTex, index: 1)
+        pack.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        pack.endEncoding()
+    }
+
+    func renderFrame(sampleBuffer: CMSampleBuffer) throws {
         // 1. Unwrap the pixel buffer; drop frame if unavailable.
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
@@ -509,55 +619,35 @@ final class MetalPipeline: @unchecked Sendable {
         let naturalTexI = naturalPair.texture
         let processedTexI = processedPair.texture
 
-        // 6. Pass 1: YUV → RGBA into naturalTexI, with crop uniform.
-        let pass1 = commandBuffer.makeComputeCommandEncoder()!
-        pass1.setComputePipelineState(yuvToRgbaPSO)
-        pass1.setTexture(yTexture, index: 0)
-        pass1.setTexture(cbcrTexture, index: 1)
-        pass1.setTexture(naturalTexI, index: 2)
-        var cropLocal = cropSnapshot  // setBytes needs a mutable address
-        pass1.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
+        // Threadgroup config for the pointwise core passes (16×16 tiles over outputSize).
         let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
         let threadGroups = MTLSize(
             width: (naturalTexI.width + 15) / 16,
             height: (naturalTexI.height + 15) / 16,
             depth: 1
         )
-        pass1.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-        pass1.endEncoding()
 
-        // 7. Pass 2: color transform naturalTexI → processedTexI with ColorUniform.
-        let pass2 = commandBuffer.makeComputeCommandEncoder()!
-        pass2.setComputePipelineState(colorTransformPSO)
-        pass2.setTexture(naturalTexI, index: 0)
-        pass2.setTexture(processedTexI, index: 1)
-        var colorLocal = colorSnapshot
-        pass2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
-        pass2.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-        pass2.endEncoding()
-
-        // Pass 7p: RGBA16F → BGRA8 conversion for the processed lane-buffer mailbox.
-        // Runs before Pass-4 (tracker) so both tracker paths (Lanczos and blit) can
-        // source from this BGRA8 texture (bgra8→bgra8 — sidesteps any rgba16f→bgra8
-        // MPS format-compat concern and unifies both paths on one source).
-        //
-        // remove-natural-lane: the per-frame natural Pass-7n conversion was cut — the
-        // streaming natural lane is gone. The internal 16F natural texture (Pass-1
+        // Dequeue the BGRA8 "pack" target for the processed lane-buffer mailbox.
+        // Skipped on pool exhaustion (rare) — the completion handler then falls back
+        // to the 16F processed buffer. The pack runs (inside the core) before Pass-4
+        // (tracker) so both tracker paths (Lanczos and blit) can source the BGRA8
+        // result (bgra8→bgra8, sidestepping any rgba16f→bgra8 MPS format-compat
+        // concern). remove-natural-lane: the per-frame natural pack was cut — the
+        // streaming natural lane is gone. The internal 16F natural texture (decode
         // output, `_latestNaturalTex16F`) is preserved for calibration; the natural
-        // *still* (`captureNaturalPicture`) converts on demand via `gradeOneShot`.
-        var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-        if let pair = try? texturePool.dequeueEightBitPoolTexture(
-            pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height
-        ) {
-            let pass7p = commandBuffer.makeComputeCommandEncoder()!
-            pass7p.setComputePipelineState(rgba16fToBgra8PSO)
-            pass7p.setTexture(processedTexI, index: 0)
-            pass7p.setTexture(pair.texture, index: 1)
-            pass7p.dispatchThreadgroups(
-                threadGroups, threadsPerThreadgroup: threadGroupSize)
-            pass7p.endEncoding()
-            processedEightBitPair = pair
-        }
+        // *still* (`captureNaturalPicture`) converts on demand via `renderStill`.
+        let processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
+            try? texturePool.dequeueEightBitPoolTexture(
+                pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height)
+
+        // 6–7. Shared graded core: decode → grade (+ normalization) → pack.
+        encodeGradedCore(
+            into: commandBuffer,
+            y: yTexture, cbcr: cbcrTexture,
+            natural: naturalTexI, processed: processedTexI,
+            packed: processedEightBitPair?.texture,
+            color: colorSnapshot, crop: cropSnapshot,
+            threadGroups: threadGroups, threadGroupSize: threadGroupSize)
 
         // 8. Pass 4: tracker resample — when subscribed and BGRA8 processed is available.
         //    Sources the GRADED (Pass-2) image via the BGRA8 processed texture produced
@@ -698,12 +788,12 @@ final class MetalPipeline: @unchecked Sendable {
                     stream: .tracker)
             }
             // Update lane mailboxes. The processed lane delivers BGRA8: the buffer
-            // mailbox (via Pass-7p) and the BGRA8 texture mailbox (sharing the
-            // buffer's IOSurface); tracker via the fused Pass-4 pool. The natural
-            // 16F texture mailbox is kept as an internal compute intermediate for
-            // calibration/diagnostic sampling — never delivered (remove-natural-lane).
-            // `captureImage` reads the processed BGRA8 buffer mailbox;
-            // `captureNaturalPicture` converts on demand via `gradeOneShot`.
+            // mailbox (via the core's pack step) and the BGRA8 texture mailbox
+            // (sharing the buffer's IOSurface); tracker via the fused Pass-4 pool.
+            // The natural 16F texture mailbox is kept as an internal compute
+            // intermediate for calibration/diagnostic sampling — never delivered
+            // (remove-natural-lane). `captureImage` reads the processed BGRA8 buffer
+            // mailbox; `captureNaturalPicture` converts on demand via `renderStill`.
             self._latestNaturalTex16F.store(naturalTexI)
             if logFirstAfterGate {
                 CameraKitLog.notice(
@@ -749,9 +839,10 @@ final class MetalPipeline: @unchecked Sendable {
     /// graded preview. Input dims MUST equal `captureSize`; throws
     /// `MetalError.unsupportedFormat` otherwise (1:1 crop mapping).
     /// Dequeues from the same `naturalPool`/`processedPool`/`eightBitNaturalPool` as
-    /// the live `encode(sampleBuffer:)` path, so under an active capture session it
-    /// can throw on transient pool exhaustion.
-    func gradeOneShot(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
+    /// the live `renderFrame(sampleBuffer:)` path, so under an active capture session
+    /// it can throw on transient pool exhaustion. Shares the `encodeGradedCore`
+    /// decode → grade → pack with `renderFrame` (§3.0).
+    func renderStill(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
         guard CVPixelBufferGetWidth(pixelBuffer) == captureSize.width,
             CVPixelBufferGetHeight(pixelBuffer) == captureSize.height
         else {
@@ -774,31 +865,15 @@ final class MetalPipeline: @unchecked Sendable {
             height: (outputSize.height + 15) / 16,
             depth: 1)
 
-        let p1 = cb.makeComputeCommandEncoder()!  // Pass-1: YUV→RGB + crop
-        p1.setComputePipelineState(yuvToRgbaPSO)
-        p1.setTexture(yTex, index: 0)
-        p1.setTexture(cbcrTex, index: 1)
-        p1.setTexture(nat.texture, index: 2)
-        var cropLocal = crop
-        p1.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
-        p1.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        p1.endEncoding()
-
-        let p2 = cb.makeComputeCommandEncoder()!  // Pass-2: grade
-        p2.setComputePipelineState(colorTransformPSO)
-        p2.setTexture(nat.texture, index: 0)
-        p2.setTexture(proc.texture, index: 1)
-        var colorLocal = color
-        p2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
-        p2.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        p2.endEncoding()
-
-        let p3 = cb.makeComputeCommandEncoder()!  // convert RGBA16F→BGRA8
-        p3.setComputePipelineState(rgba16fToBgra8PSO)
-        p3.setTexture(proc.texture, index: 0)
-        p3.setTexture(out.texture, index: 1)
-        p3.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        p3.endEncoding()
+        // Shared graded core: decode → grade (+ normalization) → pack. The still
+        // always supplies a pack target (`out`).
+        encodeGradedCore(
+            into: cb,
+            y: yTex, cbcr: cbcrTex,
+            natural: nat.texture, processed: proc.texture,
+            packed: out.texture,
+            color: color, crop: crop,
+            threadGroups: groups, threadGroupSize: tg)
 
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             cb.addCompletedHandler { cb in
@@ -1196,10 +1271,10 @@ extension MetalPipeline {
         }
     }
 
-    // Test-only: dispatches Pass 2 (color transform) over the latest natural texture,
-    // awaits scheduled, and returns. Use after installing natural + processed
-    // textures via `setLatestNaturalForTest` / `setLatestProcessedForTest`.
-    func encodePass2Only() async throws {
+    // Test-only: dispatches the grade (color transform) over the latest natural
+    // texture, awaits scheduled, and returns. Use after installing natural +
+    // processed textures via `setLatestNaturalForTest` / `setLatestProcessedForTest`.
+    func encodeGradeOnly() async throws {
         guard let natTex = latestNaturalTex16F, let procTex = latestProcessedTex16F else {
             throw MetalError.noFrameAvailable
         }

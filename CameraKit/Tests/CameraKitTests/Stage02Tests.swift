@@ -40,12 +40,12 @@ struct Stage02Tests {
         let sampleBuffer = try makeSyntheticYUVSampleBuffer(width: 320, height: 240)
 
         // Gate open → encode → commit fires.
-        try pipeline.encode(sampleBuffer: sampleBuffer)
+        try pipeline.renderFrame(sampleBuffer: sampleBuffer)
         #expect(pipeline.commitCount == 1, "Expected 1 commit with gate open")
 
         // Gate closed → encode → commit must NOT fire (gate-before-commit, ADR-09).
         pipeline.setGateForTest(false)
-        try pipeline.encode(sampleBuffer: sampleBuffer)
+        try pipeline.renderFrame(sampleBuffer: sampleBuffer)
         #expect(
             pipeline.commitCount == 1,
             "commitCount must not increase with gate closed — gate-before-commit invariant violated")
@@ -76,7 +76,7 @@ struct Stage02Tests {
 
         // Encode one frame with gate open → buffer is committed → lastCommandBuffer set.
         let sampleBuffer = try makeSyntheticYUVSampleBuffer(width: 320, height: 240)
-        try pipeline.encode(sampleBuffer: sampleBuffer)
+        try pipeline.renderFrame(sampleBuffer: sampleBuffer)
         #expect(
             pipeline.lastCommandBuffer != nil,
             "lastCommandBuffer must be non-nil after a committed frame")

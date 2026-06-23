@@ -35,7 +35,7 @@ struct Stage04Tests {
             pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
         pipeline.setLatestProcessedForTest(buffer: pBuf, texture: pTex)
 
-        try await pipeline.encodePass2Only()
+        try await pipeline.encodeGradeOnly()
 
         // Read processedTex.
         let processedBuf = try #require(pipeline.latestProcessedBufferForTest)
@@ -49,7 +49,7 @@ struct Stage04Tests {
         var bright = ProcessingParameters.identity
         bright.brightness = 0.2
         pipeline.uniforms.withLock { $0.color = ColorUniform(bright) }
-        try await pipeline.encodePass2Only()
+        try await pipeline.encodeGradeOnly()
         let processedBuf2 = try #require(pipeline.latestProcessedBufferForTest)
         let (br, _, _, _) = try sampleCenterPixel(processedBuf2)
         let expected = Float(pow(0.5, 1.0 / 1.2))
@@ -83,7 +83,7 @@ struct Stage04Tests {
             var params = ProcessingParameters.identity
             params.contrast = contrast
             pipeline.uniforms.withLock { $0.color = ColorUniform(params) }
-            try await pipeline.encodePass2Only()
+            try await pipeline.encodeGradeOnly()
             let buf = try #require(pipeline.latestProcessedBufferForTest)
             return try sampleCenterPixel(buf).0
         }
@@ -265,6 +265,81 @@ struct Stage04Tests {
         #expect(rebuilt.cropOrigin.y == 0)
     }
 
+    // MARK: - Test 1c — linear-normalization-stage: fused affine in linear light
+
+    /// The normalization block applies `out = a·x + b` in LINEAR light (gamma
+    /// undone first), gated by `normalizeEnabled`. Drive a known gamma input
+    /// through `colorTransform` with a known affine and assert the output matches
+    /// an independent Swift reference (linearize → affine → clamp[0,1] → re-encode),
+    /// grade held at identity.
+    @Test func normalizationAffineInLinearLight() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 64, height: 64)
+        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+
+        let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
+        let input: Float = 0.5  // gamma-encoded input
+        try fillBufferUniform(nBuf, r: input, g: input, b: input, a: 1.0)
+        pipeline.setLatestNaturalForTest(texture: nTex)
+
+        let (pBuf, pTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+        pipeline.setLatestProcessedForTest(buffer: pBuf, texture: pTex)
+
+        // a = chroma·level = 1·2 = 2 (whitePoint); b = −a·bp = −2·0.05 = −0.1 (blackPoint).
+        var params = ProcessingParameters.identity
+        params.whitePointEnabled = true
+        params.whitePointLevel = 2.0
+        params.blackPointEnabled = true
+        params.blackPointR = 0.05
+        params.blackPointG = 0.05
+        params.blackPointB = 0.05
+        pipeline.uniforms.withLock { $0.color = ColorUniform(params) }
+        try await pipeline.encodeGradeOnly()
+
+        let buf = try #require(pipeline.latestProcessedBufferForTest)
+        let (r, _, _, _) = try sampleCenterPixel(buf)
+
+        // Independent reference: linearize → a·x+b → clamp[0,1] → re-encode.
+        let lin = srgbToLinearRef(input)
+        let affined = min(max(2.0 * lin - 0.1, 0.0), 1.0)
+        let expected = srgbEncodeRef(affined)
+        #expect(abs(r - expected) < 3e-3, "normalized R \(r) != reference \(expected)")
+    }
+
+    /// `normalizeEnabled` with an identity affine (a=1, b=0) must round-trip the
+    /// input — confirming the shader's piecewise sRGB linearize/encode helpers are
+    /// true inverses on-device. A `pow(2.2)` shortcut would fail this near black,
+    /// so the input is deliberately in the near-black region.
+    @Test func normalizationSrgbRoundTripIsIdentity() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 64, height: 64)
+        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+
+        let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
+        let input: Float = 0.03  // near-black: piecewise sRGB linear segment matters here
+        try fillBufferUniform(nBuf, r: input, g: input, b: input, a: 1.0)
+        pipeline.setLatestNaturalForTest(texture: nTex)
+
+        let (pBuf, pTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+            pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+        pipeline.setLatestProcessedForTest(buffer: pBuf, texture: pTex)
+
+        // a=1, b=0, but normalizeEnabled=1 (wbChroma on with identity gains).
+        var params = ProcessingParameters.identity
+        params.wbChromaEnabled = true  // gains default 1.0 → a=1, b=0
+        pipeline.uniforms.withLock { $0.color = ColorUniform(params) }
+        let cu = pipeline.uniforms.withLock { $0.color }
+        #expect(cu.normalizeEnabled == 1 && cu.aR == 1 && cu.bR == 0, "expected gated identity affine")
+
+        try await pipeline.encodeGradeOnly()
+        let buf = try #require(pipeline.latestProcessedBufferForTest)
+        let (r, _, _, _) = try sampleCenterPixel(buf)
+        #expect(abs(r - input) < 2e-3, "sRGB round-trip not identity: \(r) vs \(input)")
+    }
+
     // MARK: - Helpers
 
     /// Writes a uniform `base` fill, then overwrites a fraction of pixels
@@ -326,5 +401,19 @@ struct Stage04Tests {
 
     private func unpackHalf(_ bits: UInt16) -> Float {
         Float(Float16(bitPattern: bits))
+    }
+
+    // MARK: - sRGB reference (mirrors ColorShaders.metal srgbToLinear / linearToSrgb)
+
+    /// gamma → linear (true piecewise sRGB, computed in Double for reference precision).
+    private func srgbToLinearRef(_ c: Float) -> Float {
+        let x = Double(c)
+        return Float(x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4))
+    }
+
+    /// linear → gamma (true piecewise sRGB, computed in Double for reference precision).
+    private func srgbEncodeRef(_ c: Float) -> Float {
+        let x = Double(c)
+        return Float(x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0 / 2.4) - 0.055)
     }
 }
