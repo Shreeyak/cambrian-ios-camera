@@ -19,13 +19,13 @@ Read [Overview](guides/01-overview.md) then [Getting started](guides/02-getting-
 
 ## SECTION: GUIDES
 
-- [Overview](guides/01-overview.md) — What CameraKit is; the engine as an actor; the dual-lane model; the lifecycle model.
+- [Overview](guides/01-overview.md) — What CameraKit is; the engine as an actor; the lane model; the lifecycle model.
 - [Getting started](guides/02-getting-started.md) — Install, permissions, and the construct → open → preview → capture → close order of operations.
 - [Lifecycle](guides/03-lifecycle.md) — Forwarding app lifecycle phases to the engine; what each phase reconciles to.
-- [Preview](guides/04-preview.md) — The three preview lanes and how to render them in any UI framework.
-- [Capturing stills and video](guides/05-capturing-stills-and-video.md) — Processed vs natural stills, recording, output paths, and saving to Photos.
+- [Preview](guides/04-preview.md) — The processed and tracker preview lanes and how to render them in any UI framework.
+- [Capturing stills and video](guides/05-capturing-stills-and-video.md) — Two ways to capture a graded still, recording, output paths, and saving to Photos.
 - [Controlling the camera](guides/06-controlling-the-camera.md) — Exposure, focus, white balance, zoom, resolution, and region-of-interest crop, bounded by capabilities.
-- [Image processing](guides/07-image-processing.md) — GPU color adjustments on the processed lane.
+- [Image processing](guides/07-image-processing.md) — GPU color adjustments applied to all delivered color output.
 - [Calibration](guides/08-calibration.md) — White- and black-balance calibration and reading the result.
 - [Observing state and errors](guides/09-observing-state-and-errors.md) — The event streams, session state, errors, and automatic recovery.
 - [Advanced: zero-copy consumers](guides/10-advanced-zero-copy-consumers.md) — Opt-in zero-copy frame consumption from Swift or native code.
@@ -46,7 +46,7 @@ Keep the camera correct as the app moves between foreground, inactive, and backg
 
 #### What it does
 
-Display the live camera feed; choose the natural, processed, or tracker lane.
+Display the live camera feed; choose the processed or tracker lane.
 
 #### Where it's documented
 
@@ -56,7 +56,7 @@ Display the live camera feed; choose the natural, processed, or tracker lane.
 
 #### What it does
 
-Capture a photo from either the processed lane or the natural lane.
+Capture a graded photo — either a snapshot of the live stream or a fresh one-shot ISP capture.
 
 #### Where it's documented
 
@@ -96,7 +96,7 @@ Select the capture resolution and apply a true sensor-region crop, expressed in 
 
 #### What it does
 
-Adjust brightness, contrast, saturation, black level, and gamma on the processed lane.
+Adjust brightness, contrast, saturation, black level, and gamma applied to all delivered color output.
 
 #### Where it's documented
 
@@ -140,6 +140,6 @@ reference. Start at [reference/api-index.md](reference/api-index.md).
 ## SECTION: CONVENTIONS
 
 - The engine is an actor — every call is `async` and must be `await`ed.
-- Dual lanes: image processing affects only the processed lane, never the natural lane.
+- Image processing applies to all delivered color output — the processed stream, the tracker lane, and both still captures.
 - Event streams do not replay — subscribe before or around `open()`.
 - `SessionCapabilities`, returned by `open()`, bounds every setting and crop.

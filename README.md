@@ -20,7 +20,7 @@ let package = Package(
     name: "MyApp",
     platforms: [.iOS(.v26)],
     dependencies: [
-        .package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "1.3.0"),
+        .package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "1.5.0"),
     ],
     targets: [
         .target(
@@ -70,7 +70,7 @@ dependencies:
       url: https://github.com/Shreeyak/cambrian-ios-camera.git
       path: flutter        # ← important: plugin is at flutter/, not the repo root
       ref: main            # ← the plugin lives on main, so this always resolves
-      # ref: v1.3.0        # ← or pin a fixed version instead. The tag must be cut
+      # ref: v1.5.0        # ← or pin a fixed version instead. The tag must be cut
       #                       from main (the old v1.0.0/v1.0.1 tags predate the
       #                       Flutter plugin and won't resolve it).
 ```

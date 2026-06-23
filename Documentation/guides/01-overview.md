@@ -23,32 +23,35 @@ The engine has no `start()` or `stop()`. You declare the host's visibility with
 `CameraEngine.setLifecyclePhase(_:)` and the engine reconciles the hardware —
 see [03-lifecycle](03-lifecycle.md).
 
-## The dual-lane model
+## The lane model
 
-Every frame is produced in two lanes, plus a low-resolution tracker lane:
+Every streamed frame is produced in two lanes:
 
-- **Natural lane** — the camera image with no color processing applied.
-- **Processed lane** — the same frame after CameraKit's GPU color pipeline
-  (brightness, contrast, saturation, black level, gamma).
-- **Tracker lane** — a processed image for lightweight analysis, optionally
+- **Processed lane** — the camera image after CameraKit's GPU color pipeline
+  (brightness, contrast, saturation, black level, gamma). This is what the
+  preview shows.
+- **Tracker lane** — the same processed image for lightweight analysis, optionally
   downscaled. Its height is consumer-configurable via
   `OpenConfiguration.trackerHeight` (the width follows the processed lane's
   aspect ratio). When the tracker height equals the primary output height,
   no resampling is performed (1:1 copy). Otherwise CameraKit uses an
   anti-aliased MPS Lanczos downscale. See [06-controlling-the-camera](06-controlling-the-camera.md).
 
-The lane you choose determines what you get, and this distinction recurs across
-the API:
+(There is no streamed "natural" lane. An earlier un-graded streaming lane was
+removed; the pre-grade image now exists only internally, to seed white- and
+black-balance calibration.)
+
+This distinction recurs across the API:
 
 - Preview: `CameraEngine.currentProcessedTexture()` is the processed lane;
-  `CameraEngine.currentTrackerTexture()` is the tracker lane. (The streaming
-  natural preview lane was removed; only the processed and tracker lanes stream.)
-- Still capture: `CameraEngine.captureNaturalPicture(outputURL:photosDestination:)`
-  returns a natural-lane still (produced on demand via a one-shot ISP capture);
-  `CameraEngine.captureImage(outputURL:photosDestination:)` returns the
-  processed lane.
-- Processing: `CameraEngine.setProcessingParams(_:)` affects **only** the
-  processed lane.
+  `CameraEngine.currentTrackerTexture()` is the tracker lane.
+- Still capture: both `CameraEngine.captureImage(outputURL:photosDestination:)`
+  and `CameraEngine.captureNaturalPicture(outputURL:photosDestination:)` return
+  a **graded** still; they differ only in source — `captureImage` snapshots the
+  live processed stream, `captureNaturalPicture` takes a fresh one-shot ISP
+  capture. See [05-capturing-stills-and-video](05-capturing-stills-and-video.md).
+- Processing: `CameraEngine.setProcessingParams(_:)` affects all delivered
+  color output — the processed stream, the tracker lane, and both stills.
 
 ## The lifecycle model
 

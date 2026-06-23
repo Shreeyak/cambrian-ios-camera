@@ -4,25 +4,33 @@ Producing photo and video files — and which lane each one captures.
 
 Assumes you have read <doc:01-overview>.
 
-## Stills: processed versus natural
+## Stills: captureImage vs captureNaturalPicture
 
-Two methods capture a still, differing only in lane:
+Two methods capture a still. **Both apply the current ``ProcessingParameters``**
+(brightness, contrast, saturation, black level, gamma) — they differ in the
+*source* frame, not in whether processing is applied:
 
-- ``CameraEngine/captureImage(outputURL:photosDestination:)`` captures the
-  **processed** lane (color pipeline applied).
-- ``CameraEngine/captureNaturalPicture(outputURL:photosDestination:)`` captures
-  the **natural** lane (unprocessed).
+- ``CameraEngine/captureImage(outputURL:photosDestination:)`` snapshots the
+  latest **processed streaming frame** — the same pixels the preview shows. It
+  works even while the session is paused (it returns the last delivered frame).
+- ``CameraEngine/captureNaturalPicture(outputURL:photosDestination:)`` triggers a
+  **fresh one-shot capture from the camera's image sensor/ISP** — a dedicated
+  photo, not a grab of the live stream — then runs it through the same crop and
+  color pipeline. It requires a **running session** and throws if the session is
+  paused.
+
+> The name `captureNaturalPicture` is historical: "natural" means it takes a
+> dedicated ISP capture, **not** that it skips processing. Its output is graded
+> exactly like ``captureImage``. Set ``CameraEngine/setProcessingParams(_:)``
+> before capturing to control the look of either one.
 
 Both return a ``StillCaptureOutput`` whose ``StillCaptureOutput/filePath`` is the
 written file.
 
 ```swift
-let output = try await engine.captureImage()        // processed lane
+let output = try await engine.captureImage()        // snapshot of the live preview
 // output.filePath is the saved image.
 ```
-
-If a color adjustment is missing from a captured image, you called
-`captureNaturalPicture` — that lane is intentionally unprocessed.
 
 ## Output paths
 

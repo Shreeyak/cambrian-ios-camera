@@ -21,12 +21,15 @@ params.contrast = 1.2
 await engine.setProcessingParams(params)
 ```
 
-## Processed lane only
+## What these adjustments apply to
 
-Processing affects **only** the processed lane. The natural still
-(`CameraEngine.captureNaturalPicture(outputURL:photosDestination:)`) is
-captured from the un-graded sensor image. To show or capture adjustments, use
-the processed lane ([04-preview](04-preview.md), [05-capturing-stills-and-video](05-capturing-stills-and-video.md)).
+Processing applies to all delivered color output: the processed (preview)
+stream, the tracker lane, and **both** still-capture methods.
+`CameraEngine.captureImage(outputURL:photosDestination:)` and
+`CameraEngine.captureNaturalPicture(outputURL:photosDestination:)` run the
+same color pipeline (see [05-capturing-stills-and-video](05-capturing-stills-and-video.md)), so both reflect
+the current parameters. There is no un-graded delivery path — the pre-grade
+image exists only internally, to seed white- and black-balance calibration.
 
 ## The identity baseline
 

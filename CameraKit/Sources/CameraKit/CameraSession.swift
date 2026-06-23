@@ -297,6 +297,17 @@ final class CameraSession: @unchecked Sendable {
             // raw read of the sensor's ISP-processed output without geometric
             // post-processing — material sharpness gain on stills.
             connection.preferredVideoStabilizationMode = .off
+
+            // Horizontal (left-right) mirror. On an AVCaptureVideoDataOutput
+            // connection isVideoMirrored flips the delivered pixel buffers
+            // themselves (not a display-only transform), so preview, every
+            // lane, and recording all inherit the flip from this single point.
+            // Must clear the auto-adjust flag first, else the assignment is
+            // ignored.
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = true
+            }
         }
 
         // Match landscape-right rotation on the photo output connection (ADR-17).
@@ -308,6 +319,13 @@ final class CameraSession: @unchecked Sendable {
         {
             pc.videoRotationAngle = Constants.captureOrientationAngleDeg  // ADR-17
         }
+
+        // NOTE: the photo-output connection is deliberately NOT mirrored.
+        // AVCapturePhotoOutput does not apply isVideoMirrored to the raw
+        // `photo.pixelBuffer` (it would only tag orientation metadata), so
+        // setting it had no effect. captureNaturalPicture therefore reflects the
+        // un-mirrored ISP geometry — distinct from the mirrored preview /
+        // captureImage. (The video-data-output mirror above still applies.)
 
         return (device: liveDevice, captureSize: chosenSize)
     }

@@ -4,13 +4,13 @@ Displaying the live camera feed, and choosing which lane to show.
 
 Assumes you have read <doc:01-overview>.
 
-## The three preview lanes
+## The preview lanes
 
-CameraKit exposes the current frame in three lanes (see the dual-lane model in
+CameraKit streams the current frame in two lanes (see the lane model in
 <doc:01-overview>):
 
-- **Natural** — the unprocessed camera image.
-- **Processed** — after the GPU color pipeline (<doc:07-image-processing>).
+- **Processed** — the camera image after the GPU color pipeline
+  (<doc:07-image-processing>). This is the lane most previews show.
 - **Tracker** — a downscaled processed image for lightweight analysis.
 
 Choose the lane that matches what the user should see. A camera UI that applies
@@ -27,9 +27,10 @@ loop without `await`:
 | Core Video | ``CameraEngine/currentPixelBuffer(stream:)`` | `CVPixelBuffer?` |
 
 ``StreamId`` selects the lane for the pixel-buffer path: ``StreamId/primary``
-(the processed lane) or ``StreamId/tracker``. (remove-natural-lane: the streaming
-natural lane was removed; ``CameraEngine/captureNaturalPicture(outputURL:photosDestination:)``
-still produces a natural still on demand.)
+(the processed lane) or ``StreamId/tracker``. (The streaming natural lane was
+removed; ``CameraEngine/captureNaturalPicture(outputURL:photosDestination:)``
+still captures a one-shot still on demand — graded like ``captureImage``; see
+<doc:05-capturing-stills-and-video>.)
 
 ## Rendering with Metal
 

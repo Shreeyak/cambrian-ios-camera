@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'cambrian_ios_camera'
-  s.version          = '1.0.0'
+  s.version          = '1.5.0'
   s.summary          = 'Flutter plugin wrapping CameraKit for iOS-only camera access.'
   s.description      = s.summary
   s.homepage         = 'https://github.com/Shreeyak/cambrian-ios-camera'
