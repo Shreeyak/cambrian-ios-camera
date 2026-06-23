@@ -385,7 +385,7 @@ public struct CameraView: View {
                 }
             }
 
-            // Black balance row — two actions.
+            // Black balance row — two actions (legacy; superseded by Black Point).
             VStack(alignment: .leading, spacing: 6) {
                 Text("Black Balance").foregroundStyle(.white.opacity(0.7)).font(.caption)
                 HStack(spacing: 8) {
@@ -394,6 +394,15 @@ public struct CameraView: View {
                     Button("Reset") { viewModel.calibration.resetBlackBalance() }
                         .buttonStyle(.bordered)
                 }
+            }
+
+            // Black point row (linear-normalization-stage) — point at a dark field
+            // and tap; the engine derives the linear black point (mean + k·σ) and
+            // enables it. The background should snap to solid black.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Black Point").foregroundStyle(.white.opacity(0.7)).font(.caption)
+                Button("Calibrate") { viewModel.calibration.calibrateBP() }
+                    .buttonStyle(.borderedProminent)
             }
 
             Divider().background(.white.opacity(0.5))

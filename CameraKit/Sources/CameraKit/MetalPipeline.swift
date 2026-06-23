@@ -1070,6 +1070,57 @@ final class MetalPipeline: @unchecked Sendable {
         return try await dispatchCenterPatch(on: naturalTex)
     }
 
+    /// Reads the full **natural** (pre-grade) frame back to the CPU as
+    /// gamma-encoded RGB, for one-shot black-point calibration stats.
+    ///
+    /// Blits the latest natural texture into a shared buffer, awaits completion,
+    /// and unpacks RGBA16F → `[SIMD3<Float>]` (RGB; alpha dropped). This is the
+    /// full-frame sample `CalibrationCompute.blackPointOffsets` needs for the
+    /// patch-seeded value mask — done on the CPU because calibration is a
+    /// one-shot button press, not a per-frame path (design D8a). The returned
+    /// values are gamma-encoded; the stats helper linearizes them.
+    ///
+    /// Single-writer invariant (delivery queue) + Metal command-buffer ordering
+    /// make the read race-free, as for `dispatchCenterPatchOnNatural`.
+    func readbackNaturalRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+        guard let natTex = latestNaturalTex16F else { throw MetalError.noFrameAvailable }
+        let w = natTex.width
+        let h = natTex.height
+        let bytesPerRow = w * 4 * MemoryLayout<UInt16>.size  // RGBA16F = 8 B/px
+        let length = bytesPerRow * h
+        guard
+            let buf = commandQueue.device.makeBuffer(length: length, options: .storageModeShared)
+        else { throw MetalError.textureAllocationFailed }
+        guard let cb = commandQueue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder()
+        else { throw MetalError.commandBufferFailed(code: -4) }
+        blit.copy(
+            from: natTex, sourceSlice: 0, sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: w, height: h, depth: 1),
+            to: buf, destinationOffset: 0,
+            destinationBytesPerRow: bytesPerRow, destinationBytesPerImage: length)
+        blit.endEncoding()
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            cb.addCompletedHandler { cb in
+                cb.status == .error
+                    ? c.resume(
+                        throwing: MetalError.commandBufferFailed(
+                            code: (cb.error as NSError?)?.code ?? -1))
+                    : c.resume()
+            }
+            cb.commit()
+        }
+        let half = buf.contents().bindMemory(to: UInt16.self, capacity: w * h * 4)
+        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: w * h)
+        for i in 0..<(w * h) {
+            pixels[i] = SIMD3<Float>(
+                Float(Float16(bitPattern: half[i * 4 + 0])),
+                Float(Float16(bitPattern: half[i * 4 + 1])),
+                Float(Float16(bitPattern: half[i * 4 + 2])))
+        }
+        return (pixels, w, h)
+    }
+
     /// BB calibration entry point — samples a one-shot scratch render of
     /// **current BCSG with BB zeroed**.
     ///

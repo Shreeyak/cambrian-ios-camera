@@ -166,6 +166,7 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
     var recordedDeltas: [CameraSettings] = []
     var calibrateWBCount: Int = 0
     var calibrateBBCount: Int = 0
+    var calibrateBPCount: Int = 0
     private var processingSnapshot: ProcessingParameters?
 
     init(
@@ -207,6 +208,20 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
         processingSnapshot = snap
         return CalibrationResult(
             before: canonicalSample, after: canonicalSample,
+            converged: true, iterations: 1)
+    }
+
+    func calibrateBlackPoint() async throws -> CalibrationResult {
+        calibrateBPCount += 1
+        // Mimic the engine: write a linear black point + enable it.
+        var snap = processingSnapshot ?? .identity
+        snap.blackPointR = CalibrationCompute.srgbToLinear(canonicalSample.r)
+        snap.blackPointG = CalibrationCompute.srgbToLinear(canonicalSample.g)
+        snap.blackPointB = CalibrationCompute.srgbToLinear(canonicalSample.b)
+        snap.blackPointEnabled = true
+        processingSnapshot = snap
+        return CalibrationResult(
+            before: canonicalSample, after: RgbSample(r: 0, g: 0, b: 0),
             converged: true, iterations: 1)
     }
 

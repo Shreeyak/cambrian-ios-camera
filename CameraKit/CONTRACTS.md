@@ -496,6 +496,16 @@ var next = prior
 ⋮----
 let afterSample = try await sampleCenterPatchForBBCalibration()
 ⋮----
+public func calibrateBlackPoint() async throws -> CalibrationResult {
+⋮----
+let before = try await pipeline.dispatchCenterPatchOnNatural()
+⋮----
+let rb = try await pipeline.readbackNaturalRGB()
+⋮----
+let off = CalibrationCompute.blackPointOffsets(
+⋮----
+let after = try await pipeline.dispatchCenterPatch()
+⋮----
 public nonisolated func getPersistedProcessingParameters() -> ProcessingParameters? {
 ⋮----
 public func captureImage(
@@ -1678,6 +1688,16 @@ let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
 func dispatchCenterPatch() async throws -> RgbSample {
 ⋮----
 func dispatchCenterPatchOnNatural() async throws -> RgbSample {
+⋮----
+func readbackNaturalRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+⋮----
+let w = natTex.width
+let h = natTex.height
+let bytesPerRow = w * 4 * MemoryLayout<UInt16>.size
+let length = bytesPerRow * h
+⋮----
+let half = buf.contents().bindMemory(to: UInt16.self, capacity: w * h * 4)
+var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: w * h)
 ⋮----
 func dispatchBBCalibrationSample() async throws -> RgbSample {
 ⋮----

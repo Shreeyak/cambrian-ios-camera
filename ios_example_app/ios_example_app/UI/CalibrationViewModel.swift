@@ -23,6 +23,10 @@ private let wbCompletedDisplayMs: Int = 1500
 protocol CalibrationEngineProtocol: Sendable {
     func calibrateWhiteBalance() async throws -> CalibrationResult
     func calibrateBlackBalance() async throws -> CalibrationResult
+    /// linear-normalization-stage: the new linear, pre-grade black point that
+    /// replaces black balance. The clean-break removal of `calibrateBlackBalance`
+    /// lands once this is validated on device.
+    func calibrateBlackPoint() async throws -> CalibrationResult
     func updateSettings(_ settings: CameraSettings) async throws
     func currentProcessingParametersSnapshot() async -> ProcessingParameters?
 }
@@ -130,16 +134,38 @@ final class CalibrationViewModel {
         }
     }
 
-    /// Triggers BB calibration via the engine's `calibrateBlackBalance()`.
+    /// Triggers BB calibration via the engine's `calibrateBlackBalance()` (legacy).
     ///
     /// Resyncs the local `ProcessingViewModel` mirror from the engine's
-    /// authoritative snapshot. Phase-2 §2b.
+    /// authoritative snapshot. Phase-2 §2b. Superseded by `calibrateBP()` below;
+    /// removed in the clean break once the black point is validated on device.
     func calibrateBB() {
         let engine = self.engine
         let processingVM = self.processingVM
         Task {
             do {
                 _ = try await engine.calibrateBlackBalance()
+                if let snap = await engine.currentProcessingParametersSnapshot() {
+                    await MainActor.run { processingVM.refreshFromEngineSnapshot(snap) }
+                }
+            } catch {
+                // Errors surface through errorStream → ErrorPresenterViewModel.
+            }
+        }
+    }
+
+    /// Triggers black-point calibration via the engine's `calibrateBlackPoint()`.
+    ///
+    /// linear-normalization-stage: the new linear, pre-grade black point (replaces
+    /// black balance). Point the camera at a dark field, then tap — the engine
+    /// reads back the frame, derives `mean + k·σ` per channel in linear light,
+    /// applies + enables the black point. Resyncs the `ProcessingViewModel` mirror.
+    func calibrateBP() {
+        let engine = self.engine
+        let processingVM = self.processingVM
+        Task {
+            do {
+                _ = try await engine.calibrateBlackPoint()
                 if let snap = await engine.currentProcessingParametersSnapshot() {
                     await MainActor.run { processingVM.refreshFromEngineSnapshot(snap) }
                 }

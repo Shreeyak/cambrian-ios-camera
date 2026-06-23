@@ -1480,6 +1480,47 @@ public actor CameraEngine {
         return try await task.value
     }
 
+    /// Calibrates the linear black point from a dark-field readback (linear-normalization-stage).
+    ///
+    /// Reads back the full natural (pre-grade) frame, derives per-channel **linear**
+    /// offsets via `CalibrationCompute.blackPointOffsets` (patch-seeded value mask,
+    /// `mean + k·σ` in linear light), writes them into
+    /// `ProcessingParameters.blackPoint{R,G,B}`, and enables the black point. The
+    /// shader folds the offset into the normalization affine pre-grade.
+    ///
+    /// `before` is the raw natural center patch (the dark field as captured);
+    /// `after` is the post-normalization processed center patch (background → ~0).
+    /// Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
+    public func calibrateBlackPoint() async throws -> CalibrationResult {
+        if calibrationTask != nil { throw EngineError.calibrationInProgress }
+        let task = Task<CalibrationResult, Error> { [self] in
+            guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+            let before = try await pipeline.dispatchCenterPatchOnNatural()
+            try Task.checkCancellation()
+            let rb = try await pipeline.readbackNaturalRGB()
+            try Task.checkCancellation()
+            let off = CalibrationCompute.blackPointOffsets(
+                pixels: rb.pixels, width: rb.width, height: rb.height,
+                patch: Constants.centerPatchSizePx)
+            let prior = currentProcessing ?? .identity
+            var next = prior
+            next.blackPointR = off.r
+            next.blackPointG = off.g
+            next.blackPointB = off.b
+            next.blackPointEnabled = true
+            await setProcessingParams(next)
+            try Task.checkCancellation()
+            // `after`: the live processed patch now reflects the new black point
+            // (the next encode reads the updated ColorUniform). One-frame-stale at
+            // worst — the authoritative check is the visual preview.
+            let after = try await pipeline.dispatchCenterPatch()
+            return CalibrationResult(before: before, after: after, converged: true, iterations: 1)
+        }
+        calibrationTask = task
+        defer { calibrationTask = nil }
+        return try await task.value
+    }
+
     /// Stage 04: returns the persisted ProcessingParameters without requiring
     /// an active session. Implementation per architecture/07-settings.md
     /// §Load path: "static / nonisolated accessor so the UI can pre-populate
