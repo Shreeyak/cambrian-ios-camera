@@ -117,4 +117,99 @@ public enum CalibrationCompute {
         return (sample.r * k, sample.g * k, sample.b * k)
     }
 
+    // MARK: - linear-normalization-stage: statistical black point
+
+    /// sRGB EOTF (gamma → linear) — the TRUE piecewise curve (IEC 61966-2-1).
+    ///
+    /// This MUST match `ColorShaders.metal`'s `srgbToLinear` exactly: the black
+    /// point is *derived* here in linear light and *applied* there in linear
+    /// light, so a curve mismatch would make calibrated black land at the wrong
+    /// value and not come out solid. The piecewise (not `pow(2.2)`) form matters
+    /// because the black point lives in the near-black region where they diverge.
+    /// Pinned to the shader by the `normalizationSrgbRoundTripIsIdentity` device
+    /// test (which round-trips through the shader helpers).
+    static func srgbToLinear(_ c: Double) -> Double {
+        c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+
+    /// Derives the per-channel **linear** black-point offset from a dark-field readback.
+    ///
+    /// Implements the patch-seeded value mask (design D8), all statistics in
+    /// LINEAR light:
+    ///   1. Seed `patchMean`/`patchσ` per channel from the center patch.
+    ///   2. Grow the sample to every frame pixel whose channel value lies within
+    ///      `patchMean ± blackPointSelectSigmaK·patchσ` (excludes brighter objects).
+    ///   3. `offset = mean + blackPointSigmaK·σ` over that masked set — a gentle,
+    ///      noise-adaptive crush (k = 1.5 leaves ~the top 7% of the noise band).
+    ///
+    /// The result is subtracted from linearized pixels by the shader affine
+    /// (`b = −a·blackPoint`), so it is returned in the same linear space.
+    ///
+    /// - Parameters:
+    ///   - pixels: row-major gamma-encoded RGB, one entry per pixel.
+    ///   - width, height: frame dimensions (`pixels.count == width * height`).
+    ///   - patch: center-patch side length in pixels (the seed region).
+    public static func blackPointOffsets(
+        pixels: [SIMD3<Float>], width: Int, height: Int, patch: Int
+    ) -> (r: Double, g: Double, b: Double) {
+        guard width > 0, height > 0, pixels.count == width * height else {
+            return (0, 0, 0)
+        }
+        // Linearize once (gamma → linear), per channel.
+        let lin = pixels.map {
+            SIMD3<Double>(
+                srgbToLinear(Double($0.x)),
+                srgbToLinear(Double($0.y)),
+                srgbToLinear(Double($0.z)))
+        }
+        // 1. Seed region: the centered `patch × patch` window, per channel.
+        let half = patch / 2
+        let cx = width / 2
+        let cy = height / 2
+        let x0 = max(0, cx - half)
+        let x1 = min(width, cx + half)
+        let y0 = max(0, cy - half)
+        let y1 = min(height, cy + half)
+        var patchVals: [[Double]] = [[], [], []]
+        for y in y0..<y1 {
+            for x in x0..<x1 {
+                let p = lin[y * width + x]
+                patchVals[0].append(p.x)
+                patchVals[1].append(p.y)
+                patchVals[2].append(p.z)
+            }
+        }
+        let kSel = Constants.blackPointSelectSigmaK
+        let kSig = Constants.blackPointSigmaK
+
+        func meanStd(_ a: [Double]) -> (mean: Double, std: Double) {
+            guard !a.isEmpty else { return (0, 0) }
+            let m = a.reduce(0, +) / Double(a.count)
+            let varc = a.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(a.count)
+            return (m, varc.squareRoot())
+        }
+
+        // 2. Per channel: value-mask the full frame off the patch seed, then mean + k·σ.
+        func offset(_ channel: KeyPath<SIMD3<Double>, Double>, seed: [Double]) -> Double {
+            let (pm, ps) = meanStd(seed)
+            let lo = pm - kSel * ps
+            let hi = pm + kSel * ps
+            var masked: [Double] = []
+            masked.reserveCapacity(lin.count)
+            for p in lin {
+                let v = p[keyPath: channel]
+                if v >= lo && v <= hi { masked.append(v) }
+            }
+            // Degenerate fields (e.g. patchσ ≈ 0) can mask out everything but the
+            // seed — fall back to the seed so the offset is still defined.
+            let (m, s) = meanStd(masked.isEmpty ? seed : masked)
+            return m + kSig * s
+        }
+        return (
+            offset(\.x, seed: patchVals[0]),
+            offset(\.y, seed: patchVals[1]),
+            offset(\.z, seed: patchVals[2])
+        )
+    }
+
 }

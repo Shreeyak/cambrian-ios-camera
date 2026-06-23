@@ -100,6 +100,39 @@ let cappedLog = max(-cap, min(cap, logR))
 ⋮----
 public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
 let k = Constants.blackBalanceOverscan
+⋮----
+static func srgbToLinear(_ c: Double) -> Double {
+⋮----
+public static func blackPointOffsets(
+⋮----
+let lin = pixels.map {
+⋮----
+let half = patch / 2
+let cx = width / 2
+let cy = height / 2
+let x0 = max(0, cx - half)
+let x1 = min(width, cx + half)
+let y0 = max(0, cy - half)
+let y1 = min(height, cy + half)
+var patchVals: [[Double]] = [[], [], []]
+⋮----
+let p = lin[y * width + x]
+⋮----
+let kSel = Constants.blackPointSelectSigmaK
+let kSig = Constants.blackPointSigmaK
+⋮----
+func meanStd(_ a: [Double]) -> (mean: Double, std: Double) {
+⋮----
+let m = a.reduce(0, +) / Double(a.count)
+let varc = a.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(a.count)
+⋮----
+func offset(_ channel: KeyPath<SIMD3<Double>, Double>, seed: [Double]) -> Double {
+⋮----
+let lo = pm - kSel * ps
+let hi = pm + kSel * ps
+var masked: [Double] = []
+⋮----
+let v = p[keyPath: channel]
 ```
 
 ## File: CameraKit/Sources/CameraKit/CalibrationResult.swift

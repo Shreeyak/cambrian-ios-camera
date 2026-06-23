@@ -92,6 +92,65 @@ struct Stage11CalibrationComputeTests {
         #expect(abs(offsets.g - 0.03 * k) < 1e-9)
         #expect(abs(offsets.b - 0.05 * k) < 1e-9)
     }
+
+    // MARK: - linear-normalization-stage: statistical black point
+
+    @Test("black point: uniform dark field → offset = linearized value (σ = 0, no margin)")
+    func blackPointUniformField() {
+        let w = 128, h = 128
+        let g: Float = 0.03  // gamma-encoded
+        let pixels = [SIMD3<Float>](repeating: SIMD3<Float>(g, g, g), count: w * h)
+        let off = CalibrationCompute.blackPointOffsets(
+            pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
+        // Uniform ⇒ σ = 0 ⇒ offset = mean = linearized value.
+        let expected = CalibrationCompute.srgbToLinear(Double(g))
+        #expect(abs(off.r - expected) < 1e-9)
+        #expect(abs(off.g - expected) < 1e-9)
+        #expect(abs(off.b - expected) < 1e-9)
+    }
+
+    @Test("black point: bright outliers outside the patch are excluded by the value mask")
+    func blackPointRejectsOutliers() {
+        let w = 128, h = 128
+        let bg: Float = 0.03
+        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(bg, bg, bg), count: w * h)
+        // Bright outliers ONLY outside the center patch (the patch is clean
+        // background during a dark-field calibration). With a clean seed the band
+        // is tight around `bg`, so the off-patch outliers fall outside and are
+        // dropped — the offset must stay at the background, not be pulled up.
+        let half = Constants.centerPatchSizePx / 2
+        let cx = w / 2, cy = h / 2
+        for y in 0..<h {
+            for x in 0..<w {
+                let inPatch = abs(x - cx) < half && abs(y - cy) < half
+                if !inPatch && (y * w + x) % 7 == 0 {
+                    pixels[y * w + x] = SIMD3<Float>(0.8, 0.8, 0.8)
+                }
+            }
+        }
+        let off = CalibrationCompute.blackPointOffsets(
+            pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
+        let expected = CalibrationCompute.srgbToLinear(Double(bg))
+        #expect(abs(off.r - expected) < 1e-6, "outliers leaked into the offset: \(off.r)")
+    }
+
+    @Test("black point: offset = mean + k·σ over the masked set")
+    func blackPointSigmaMargin() {
+        let w = 128, h = 128
+        // Balanced two-level background (0.02 / 0.04 gamma) so σ > 0.
+        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(0.02, 0.02, 0.02), count: w * h)
+        for i in 0..<pixels.count where i % 2 == 0 {
+            pixels[i] = SIMD3<Float>(0.04, 0.04, 0.04)
+        }
+        let off = CalibrationCompute.blackPointOffsets(
+            pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
+        let l02 = CalibrationCompute.srgbToLinear(0.02)
+        let l04 = CalibrationCompute.srgbToLinear(0.04)
+        let mean = (l02 + l04) / 2
+        let sigma = abs(l04 - l02) / 2  // population std of a balanced two-level set
+        let expected = mean + Constants.blackPointSigmaK * sigma
+        #expect(abs(off.r - expected) < 1e-6, "offset \(off.r) != mean+kσ \(expected)")
+    }
 }
 
 

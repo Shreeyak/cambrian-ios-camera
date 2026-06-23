@@ -100,6 +100,15 @@ measured noise. **Behavioral migration is complete (no compat toggle for the old
 *Note the semantic shift:* old offset `= 1.5 · mean`; new offset `= mean + 1.5 · σ`. The reused
 value 1.5 plays an entirely different (and now statistically meaningful) role.
 
+### D8a. Black-point statistics on CPU over a readback (not a GPU reduction)
+Calibration is a one-shot button press, not a per-frame path, so the patch-seed + value-mask +
+mean/σ are computed in plain Swift (`CalibrationCompute.blackPointOffsets`) over a full-frame
+readback of the linearized natural tap — not a GPU reduction kernel. Full-frame readback at 1440²
+RGBA16F (~16 MB) is trivial for a one-shot op, and the stats become unit-testable Swift instead of
+unverifiable shader reductions (advisor, 2026-06-23). The linearize used in calibration
+(`CalibrationCompute.srgbToLinear`) MUST match the shader's `srgbToLinear` (pinned by the round-trip
+device test) so calibration and application agree.
+
 ### D8. Black-point calibration: patch-seeded value-mask
 Calibration seeds from the 96² center patch to learn the "black signature" (`patchMean`, `patchσ`),
 then grows the sample to every frame pixel within `patchMean ± k_select·patchσ`
