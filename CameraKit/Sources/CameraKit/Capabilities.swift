@@ -139,13 +139,26 @@ public struct OpenConfiguration: Sendable, Hashable {
     /// rounded down to an even value.
     public var trackerHeight: Int?
 
+    /// Capture-buffer rotation in degrees, applied to the video/photo connections
+    /// via `videoRotationAngle` (ADR-17).
+    ///
+    /// This rotates the *delivered pixel buffers* themselves, so every lane
+    /// (preview, processed, tracker) and stills inherit it consistently. Valid
+    /// values are `0` / `90` / `180` / `270`; an unsupported angle throws at
+    /// `open()`. Defaults to `Constants.captureOrientationAngleDeg` (`0`, the
+    /// package's landscape-right convention) — leave it unset and existing
+    /// consumers are unaffected. A host that locks its UI to landscape-left, for
+    /// example, passes `180` so the delivered frame reads upright.
+    public var captureOrientationAngleDeg: CGFloat
+
     public init(
         cameraId: String? = nil,
         captureResolution: Size? = nil,
         cropRegion: Rect? = nil,
         cropEnabled: Bool = false,
         initialSettings: CameraSettings? = nil,
-        trackerHeight: Int? = nil
+        trackerHeight: Int? = nil,
+        captureOrientationAngleDeg: CGFloat = 0  // Constants.captureOrientationAngleDeg (internal); 0 = landscape-right
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
@@ -153,6 +166,7 @@ public struct OpenConfiguration: Sendable, Hashable {
         self.cropEnabled = cropEnabled
         self.initialSettings = initialSettings
         self.trackerHeight = trackerHeight
+        self.captureOrientationAngleDeg = captureOrientationAngleDeg
     }
 }
 

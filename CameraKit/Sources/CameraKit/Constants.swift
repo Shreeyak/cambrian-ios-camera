@@ -56,13 +56,14 @@ enum Constants {
     /// a deliberately gentle crush that preserves dim signal (fluorescence).
     static let blackPointSigmaK: Double = 1.5
 
-    /// Black-point sample-collection width as a σ-multiplier of the **seed patch**.
+    /// Black-point near-black sample threshold in **gamma/display** space (0…1).
     ///
-    /// The 96² center patch yields `patchMean`/`patchσ`; every frame pixel within
-    /// `patchMean ± k_select · patchσ` (per channel) is counted as background for
-    /// the `mean`/`σ` statistic. `k_select = 3.0` ≈ 99.7% of the background noise,
-    /// while excluding brighter objects in frame (design D8).
-    static let blackPointSelectSigmaK: Double = 3.0
+    /// Only patch pixels whose (gamma) channel value is below this are counted as
+    /// "black" for the black-point statistic — a stray bright or colored pixel in
+    /// the 96² patch can't inflate the black level (which over-crushed and tinted
+    /// the image). `0.3` ≈ 76/255: comfortably above a real dark field yet well
+    /// below any mid-tone. Build-time tunable (design D8, revised 2026-06-23).
+    static let blackPointMaxSampleGamma: Double = 0.3
     /// Per-step log2-space cap retained on `CalibrationCompute.grayWorldGains`
     /// for unit-test stability. `calibrateWB` itself no longer iterates —
     /// the helper is kept as a pure utility but isn't in the live path.

@@ -1084,6 +1084,23 @@ final class MetalPipeline: @unchecked Sendable {
     /// make the read race-free, as for `dispatchCenterPatchOnNatural`.
     func readbackNaturalRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
         guard let natTex = latestNaturalTex16F else { throw MetalError.noFrameAvailable }
+        return try await readbackRGBA16F(from: natTex)
+    }
+
+    /// Reads back the full processed (post-grade) frame as RGB floats.
+    ///
+    /// Same shape as `readbackNaturalRGB` but sources the graded lane, so the
+    /// black-point debug thumbnail can be rendered WYSIWYG with the on-screen
+    /// preview (which shows the processed lane) while the calibration *math*
+    /// still runs on the raw natural lane.
+    func readbackProcessedRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+        guard let procTex = latestProcessedTex16F else { throw MetalError.noFrameAvailable }
+        return try await readbackRGBA16F(from: procTex)
+    }
+
+    private func readbackRGBA16F(
+        from natTex: MTLTexture
+    ) async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
         let w = natTex.width
         let h = natTex.height
         let bytesPerRow = w * 4 * MemoryLayout<UInt16>.size  // RGBA16F = 8 B/px

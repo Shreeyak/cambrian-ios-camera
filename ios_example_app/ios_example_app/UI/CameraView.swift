@@ -1,5 +1,6 @@
 import CameraKit
 import MetalKit
+import MetalPerformanceShaders
 import SwiftUI
 
 /// Public SwiftUI view that renders the camera preview, controls, and overlays.
@@ -101,21 +102,20 @@ public struct CameraView: View {
         }
     }
 
-    // MARK: - Preview area (split natural / processed)
+    // MARK: - Preview area (single primary lane)
 
+    /// Single full-screen preview of the **primary** (processed) lane. The natural
+    /// half was removed — CameraKit delivers one streamed lane now, so the demo
+    /// shows one preview. The MTKView renders the frame aspect-fit + centered
+    /// (see `MTKViewRepresentable`), so the on-screen image is WYSIWYG: the texture
+    /// center maps to the preview center, where the calibration reticle sits and
+    /// where calibration samples its patch.
     private var previewArea: some View {
-        HStack(spacing: 0) {
-            MTKViewRepresentable(
-                textureAccessor: { viewModel.display.naturalTex },
-                label: "natural",
-                isPaused: scenePhase != .active
-            )
-            MTKViewRepresentable(
-                textureAccessor: { viewModel.display.processedTex },
-                label: "processed",
-                isPaused: scenePhase != .active
-            )
-        }
+        MTKViewRepresentable(
+            textureAccessor: { viewModel.display.processedTex },
+            label: "processed",
+            isPaused: scenePhase != .active
+        )
         .background(Color.black)
         .ignoresSafeArea()
     }
@@ -288,20 +288,27 @@ public struct CameraView: View {
     /// After the Bug-6/9 fix (`sessionPreset = .inputPriority`) the texture
     /// fills the lane proportionally, so center-of-lane ≈ center-of-texture.
     @ViewBuilder
+    /// Yellow reticle marking EXACTLY the region calibration samples.
+    ///
+    /// The preview shows the frame aspect-fit + centered, so the texture center =
+    /// preview center. The sampled patch is the centered `calibrationPatchSizePx`
+    /// square of the texture, so the reticle is a centered square of side
+    /// `patchPx × aspectFitScale` — what you see in the box is what's sampled.
     private func calibrationReticleLayer() -> some View {
-        if sidebarVisible {
-            HStack(spacing: 0) {
-                Color.clear
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color.yellow, lineWidth: 1.5)
-                        .frame(width: 80, height: 80)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { geo in
+            if sidebarVisible, let tex = viewModel.display.processedTex {
+                let scale = min(
+                    geo.size.width / CGFloat(tex.width),
+                    geo.size.height / CGFloat(tex.height))
+                let side = CGFloat(CameraEngine.calibrationPatchSizePx) * scale
+                RoundedRectangle(cornerRadius: 2)
+                    .stroke(Color.yellow, lineWidth: 1.5)
+                    .frame(width: side, height: side)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
             }
-            .allowsHitTesting(false)
-            .ignoresSafeArea()
         }
+        .allowsHitTesting(false)
+        .ignoresSafeArea()
     }
 
     // MARK: - Calibration sidebar
@@ -401,8 +408,22 @@ public struct CameraView: View {
             // enables it. The background should snap to solid black.
             VStack(alignment: .leading, spacing: 6) {
                 Text("Black Point").foregroundStyle(.white.opacity(0.7)).font(.caption)
-                Button("Calibrate") { viewModel.calibration.calibrateBP() }
-                    .buttonStyle(.borderedProminent)
+                if viewModel.calibration.bpCalibrating {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small).tint(.white)
+                        Text("Calibrating…").foregroundStyle(.white).font(.caption)
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        Button("Calibrate") { viewModel.calibration.calibrateBP() }
+                            .buttonStyle(.borderedProminent)
+                        Button("Clear") { viewModel.calibration.clearBP() }
+                            .buttonStyle(.bordered)
+                    }
+                }
+                if let dbg = viewModel.calibration.lastBlackPointDebug {
+                    blackPointDebugPanel(dbg)
+                }
             }
 
             Divider().background(.white.opacity(0.5))
@@ -454,6 +475,75 @@ public struct CameraView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .disabled(!enablement.isCalibrateEnabled)
         .opacity(enablement.isCalibrateEnabled ? 1.0 : 0.4)
+    }
+
+    /// Black-point diagnostics: the sampled patch (magnified, no interpolation) +
+    /// per-channel stats. `kept 0/…` with a high γ-max means the surface was too
+    /// bright to black-point.
+    @ViewBuilder
+    private func blackPointDebugPanel(_ d: BlackPointDebug) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            // Context view: the sampled patch shown in its surroundings, oriented
+            // to match the live preview, with the exact sampled region outlined in
+            // yellow at the center — so the operator can confirm where (and in what
+            // orientation) the sample was taken vs the on-screen reticle.
+            if d.contextSide > 0, let ctx = contextCGImage(d) {
+                let frac = CGFloat(d.side) / CGFloat(d.contextSide)
+                ZStack {
+                    Image(decorative: ctx, scale: 1.0)
+                        .interpolation(.none)
+                        .resizable()
+                        .frame(width: 120, height: 120)
+                    Rectangle()
+                        .stroke(Color.yellow, lineWidth: 1)
+                        .frame(width: 120 * frac, height: 120 * frac)
+                }
+                .border(.white.opacity(0.3))
+            } else if let img = patchCGImage(d) {
+                Image(decorative: img, scale: 1.0)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 72, height: 72)
+                    .border(.white.opacity(0.3))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("kept \(d.keptCount)/\(d.totalCount)")
+                Text(bpLine("R", d.r))
+                Text(bpLine("G", d.g))
+                Text(bpLine("B", d.b))
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.85))
+        }
+    }
+
+    private func bpLine(_ name: String, _ s: BlackPointChannelStats) -> String {
+        String(
+            format: "%@ off %.4f  γ[%.2f–%.2f]",
+            name, s.offsetLinear, s.minGamma, s.maxGamma)
+    }
+
+    private func patchCGImage(_ d: BlackPointDebug) -> CGImage? {
+        guard d.side > 0, d.patchRGBA.count == d.side * d.side * 4 else { return nil }
+        guard let provider = CGDataProvider(data: Data(d.patchRGBA) as CFData) else { return nil }
+        return CGImage(
+            width: d.side, height: d.side,
+            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: d.side * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+
+    private func contextCGImage(_ d: BlackPointDebug) -> CGImage? {
+        let n = d.contextSide
+        guard n > 0, d.contextRGBA.count == n * n * 4 else { return nil }
+        guard let provider = CGDataProvider(data: Data(d.contextRGBA) as CFData) else { return nil }
+        return CGImage(
+            width: n, height: n,
+            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     private func sliderRow(
@@ -644,6 +734,40 @@ struct SliderRebinding: View {
     }
 }
 
+/// A slider that snaps to a fixed list of discrete values (e.g. log-spaced
+/// exposure times) instead of a continuous range.
+///
+/// The slider drives an integer index `0...values.count-1` (step 1); each detent
+/// forwards the corresponding `values[index]` through `onChange`. Same
+/// local-state ownership as `SliderRebinding` to avoid mid-drag write-back
+/// oscillation. The initial position snaps to the value nearest `initial`.
+struct DiscreteSliderRebinding: View {
+
+    let values: [Double]
+    let onChange: (Double) -> Void
+    @State private var index: Double
+
+    init(initial: Double, values: [Double], onChange: @escaping (Double) -> Void) {
+        self.values = values
+        self.onChange = onChange
+        let nearest =
+            values.enumerated()
+            .min(by: { abs($0.element - initial) < abs($1.element - initial) })?
+            .offset ?? 0
+        _index = State(initialValue: Double(nearest))
+    }
+
+    var body: some View {
+        let maxIndex = Double(max(values.count - 1, 1))
+        Slider(value: $index, in: 0...maxIndex, step: 1)
+            .onChange(of: index) { _, new in
+                let i = Int(new.rounded())
+                guard values.indices.contains(i) else { return }
+                onChange(values[i])
+            }
+    }
+}
+
 // MARK: - MTKViewRepresentable + Coordinator (preview rendering — unchanged from Stage 10)
 
 /// Internal `UIViewRepresentable` wrapping `MTKView` for the SwiftUI hierarchy.
@@ -699,11 +823,19 @@ struct MTKViewRepresentable: UIViewRepresentable {
     }
 }
 
-/// Drives the `MTKView` draw loop and blits the texture returned by the accessor.
+/// Drives the `MTKView` draw loop and composites the camera frame, aspect-fit
+/// and centered, into the drawable.
 ///
-/// Acquire drawable → unconditional clear-pass → conditional blit → always present
-/// (invariant: never return between drawable acquire and present, or the layer
-/// shows uninitialized GPU memory — green artifacts).
+/// Per frame: acquire drawable → clear it to black (the letterbox) → resize the
+/// frame into `fittedTexture` (MPS) → place that, centered, into the drawable
+/// (blit) → present. Two invariants:
+/// - **Never return between drawable acquire and present**, or the layer shows
+///   uninitialized GPU memory (green artifacts).
+/// - **Scale and placement are separate steps.** MPS only resizes (the fitted
+///   texture is filled edge-to-edge, so the scaler needs no translate/clip math);
+///   the blit's destination origin is the only thing that positions the image.
+///   Keeping these apart avoids subtle compositing bugs where a single combined
+///   transform silently mis-centers the frame.
 final class MTKViewCoordinator: NSObject, MTKViewDelegate {
 
     let textureAccessor: () -> MTLTexture?
@@ -711,6 +843,24 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
 
     /// Cached command queue — created once to avoid per-frame allocation at 30 fps.
     let commandQueue: MTLCommandQueue?
+
+    /// Cached MPS Lanczos scaler used purely to *resize* the camera frame to the
+    /// aspect-fit size — never to position it. Created once.
+    ///
+    /// Lanczos (not bilinear) because the preview downsamples the full-resolution
+    /// camera texture by a large factor (e.g. 4032→~1100 px); Lanczos
+    /// anti-aliases that downscale, bilinear would alias.
+    let scaler: MPSImageLanczosScale?
+
+    /// Cached intermediate texture holding the aspect-fit-scaled frame, sized
+    /// exactly to the fitted rect (`scaledW × scaledH`).
+    ///
+    /// Decouples the two concerns that make Metal preview compositing error-prone:
+    /// MPS writes the *resized* image here (filling it edge-to-edge, so there is no
+    /// translation or clip math inside the scaler), and a subsequent blit *places*
+    /// it, centered, into the drawable. Reallocated only when the fitted size
+    /// changes (i.e. on a drawable/texture dimension change), not per frame.
+    private var fittedTexture: MTLTexture?
 
     // Resume probe: uptime (ms) of the previous `draw(in:)` call. The loop is
     // paused while `scenePhase != .active`, so the first draw after a >200 ms gap
@@ -727,7 +877,9 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
     init(textureAccessor: @escaping () -> MTLTexture?, label: String = "preview") {
         self.textureAccessor = textureAccessor
         self.label = label
-        self.commandQueue = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
+        let device = MTLCreateSystemDefaultDevice()
+        self.commandQueue = device?.makeCommandQueue()
+        self.scaler = device.map { MPSImageLanczosScale(device: $0) }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -769,21 +921,55 @@ final class MTKViewCoordinator: NSObject, MTKViewDelegate {
             }
         }
 
-        if let texture, let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
-            let srcWidth = min(texture.width, drawable.texture.width)
-            let srcHeight = min(texture.height, drawable.texture.height)
-            blitEncoder.copy(
-                from: texture,
-                sourceSlice: 0,
-                sourceLevel: 0,
-                sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                sourceSize: MTLSize(width: srcWidth, height: srcHeight, depth: 1),
-                to: drawable.texture,
-                destinationSlice: 0,
-                destinationLevel: 0,
-                destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
-            )
-            blitEncoder.endEncoding()
+        // Composite the frame aspect-fit and centered into the drawable. The
+        // cleared black around it is the letterbox. Two distinct steps — resize,
+        // then place — so neither has to reason about the other's coordinates.
+        if let texture, let scaler, let device = commandQueue?.device {
+            let dW = drawable.texture.width
+            let dH = drawable.texture.height
+            let tW = texture.width
+            let tH = texture.height
+            // Aspect-fit scale (the smaller ratio leaves letterbox on the long axis).
+            let s = min(Double(dW) / Double(tW), Double(dH) / Double(tH))
+            let scaledW = max(1, Int((Double(tW) * s).rounded()))
+            let scaledH = max(1, Int((Double(tH) * s).rounded()))
+            // Centered placement offset of the fitted image within the drawable.
+            let originX = (dW - scaledW) / 2
+            let originY = (dH - scaledH) / 2
+
+            // (Re)allocate the fitted intermediate only when its size changes.
+            if fittedTexture?.width != scaledW || fittedTexture?.height != scaledH {
+                let desc = MTLTextureDescriptor.texture2DDescriptor(
+                    pixelFormat: drawable.texture.pixelFormat,
+                    width: scaledW, height: scaledH, mipmapped: false)
+                desc.usage = [.shaderRead, .shaderWrite]  // MPS writes; blit reads.
+                desc.storageMode = .private
+                fittedTexture = device.makeTexture(descriptor: desc)
+            }
+
+            if let fitted = fittedTexture {
+                // Step 1 — resize only. The destination is exactly the fitted size,
+                // so MPS fills it edge-to-edge with an identity transform (no
+                // translate, no clipRect): purely a scale.
+                scaler.encode(
+                    commandBuffer: commandBuffer,
+                    sourceTexture: texture,
+                    destinationTexture: fitted)
+
+                // Step 2 — place. Copy the fitted image into the drawable at the
+                // centered origin; the surrounding letterbox keeps the cleared black.
+                if let blit = commandBuffer.makeBlitCommandEncoder() {
+                    blit.copy(
+                        from: fitted,
+                        sourceSlice: 0, sourceLevel: 0,
+                        sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                        sourceSize: MTLSize(width: scaledW, height: scaledH, depth: 1),
+                        to: drawable.texture,
+                        destinationSlice: 0, destinationLevel: 0,
+                        destinationOrigin: MTLOrigin(x: originX, y: originY, z: 0))
+                    blit.endEncoding()
+                }
+            }
         }
 
         commandBuffer.present(drawable)
@@ -865,10 +1051,37 @@ private struct ExpandedSliderBar: View {
     let viewModel: ViewModel
     let enablement: ControlEnablement
 
+    /// Number of discrete detents on the Shutter slider.
+    private static let shutterStepCount = 20
+
+    /// Upper bound (ms) of the discrete Shutter range — capped well below the
+    /// hardware max so every detent lands in the short-exposure region we want
+    /// to experiment in.
+    private static let shutterMaxMs = 10.0
+
+    /// Log-spaced exposure detents (ms) from `minMs` to `shutterMaxMs`.
+    ///
+    /// Log spacing (not linear) because the range spans ~400× — linear steps
+    /// would cluster everything near the top and give almost no resolution at
+    /// the sub-millisecond end, which is exactly where we're sampling.
+    private static func shutterValues(minMs: Double) -> [Double] {
+        let lo = max(minMs, 0.001)
+        let hi = max(shutterMaxMs, lo)
+        let n = shutterStepCount
+        guard n > 1 else { return [lo] }
+        let ratio = hi / lo
+        return (0..<n).map { i in
+            lo * pow(ratio, Double(i) / Double(n - 1))
+        }
+    }
+
     var body: some View {
         let settings = viewModel.hardware.currentSettings
         let frame = viewModel.lastFrameResult
         let caps = viewModel.capabilities
+
+        let shutterMinMs = caps.map { Double($0.exposureDurationRangeNs.lowerBound) / 1_000_000 } ?? 0.024
+        let shutterDetents = Self.shutterValues(minMs: shutterMinMs)
 
         VStack(alignment: .leading, spacing: 10) {
             row(
@@ -883,12 +1096,13 @@ private struct ExpandedSliderBar: View {
             row(
                 label: "Shutter (ms)",
                 readback: frame?.exposureTimeNs.map {
-                    String(format: "%.1f", Double($0) / 1_000_000)
+                    String(format: "%.3f", Double($0) / 1_000_000)
                 } ?? "AUTO",
                 initial: Double(settings.exposureTimeNs ?? frame?.exposureTimeNs ?? 16_666_667)
                     / 1_000_000.0,
-                range: 1.0...100.0,
-                push: { ms in viewModel.hardware.pushShutter(ms * 1_000_000) }
+                range: shutterDetents.first!...shutterDetents.last!,
+                push: { ms in viewModel.hardware.pushShutter(ms * 1_000_000) },
+                discreteValues: shutterDetents
             )
             row(
                 label: "Focus",
@@ -917,7 +1131,8 @@ private struct ExpandedSliderBar: View {
         readback: String,
         initial: Double,
         range: ClosedRange<Double>,
-        push: @escaping (Double) -> Void
+        push: @escaping (Double) -> Void,
+        discreteValues: [Double]? = nil
     ) -> some View {
         HStack {
             Text(label).foregroundStyle(.white).frame(width: 100, alignment: .leading)
@@ -925,8 +1140,13 @@ private struct ExpandedSliderBar: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.white)
                 .frame(width: 80, alignment: .trailing)
-            SliderRebinding(initial: initial, range: range, onChange: push)
-                .frame(maxWidth: .infinity)
+            if let discreteValues {
+                DiscreteSliderRebinding(initial: initial, values: discreteValues, onChange: push)
+                    .frame(maxWidth: .infinity)
+            } else {
+                SliderRebinding(initial: initial, range: range, onChange: push)
+                    .frame(maxWidth: .infinity)
+            }
         }
     }
 }

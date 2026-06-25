@@ -6,7 +6,7 @@ that touches a device is **physical-iPad only** — no simulators on this machin
 
 | Script | Purpose |
 |--------|---------|
-| `build-launch.sh` | Build the app and install + launch it on an auto-detected paired iPad. `--release` → Release, otherwise Debug. |
+| `build-launch.sh` | Build the app and install + launch it on a paired iPad. `--release` → Release, otherwise Debug. Auto-detects the iPad by default; `--device <name-or-udid>` picks one when both project iPads are awake; `--list` shows the names/UDIDs. |
 | `build-summary.sh` | Wrap `xcodebuild build` → concise pass/fail plus structured xcsift JSON + raw log under `.build-logs/`. Fallback for XcodeBuildMCP. |
 | `test-summary.sh` | Wrap `xcodebuild test` → pass/fail, failed-case list, xcsift JSON. `--filter`/`--scheme`. Fallback for XcodeBuildMCP. |
 | `regen-contracts.sh` | Regenerate `CameraKit/CONTRACTS.md` (compressed public-API snapshot via repomix). Auto-runs on the pre-commit hook; rarely needed by hand. |

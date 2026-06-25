@@ -24,9 +24,12 @@ protocol CalibrationEngineProtocol: Sendable {
     func calibrateWhiteBalance() async throws -> CalibrationResult
     func calibrateBlackBalance() async throws -> CalibrationResult
     /// linear-normalization-stage: the new linear, pre-grade black point that
-    /// replaces black balance. The clean-break removal of `calibrateBlackBalance`
-    /// lands once this is validated on device.
-    func calibrateBlackPoint() async throws -> CalibrationResult
+    /// replaces black balance. Returns diagnostics (sampled patch + per-channel
+    /// stats) for the demo app to display. The clean-break removal of
+    /// `calibrateBlackBalance` lands once this is validated on device.
+    func calibrateBlackPoint() async throws -> BlackPointDebug
+    /// Clears the applied black point (demo "undo").
+    func clearBlackPoint() async
     func updateSettings(_ settings: CameraSettings) async throws
     func currentProcessingParametersSnapshot() async -> ProcessingParameters?
 }
@@ -78,6 +81,17 @@ final class CalibrationViewModel {
     /// in-progress / completed feedback. `.completed` auto-reverts to `.idle`
     /// after `wbCompletedDisplayMs`.
     var wbCalibrationStatus: WBCalibrationStatus = .idle
+
+    /// True while `calibrateBP()` is running — drives the Black Point button's
+    /// in-progress indicator. The black-point calibration reads back the full
+    /// frame + computes CPU stats, so it takes up to ~1 s (Debug); without this
+    /// the button looks unresponsive.
+    var bpCalibrating: Bool = false
+
+    /// Diagnostics from the most recent black-point calibration (sampled patch +
+    /// per-channel stats) — surfaced in a debug panel so the operator can see what
+    /// was measured (e.g. `keptCount == 0` ⇒ surface too bright). `nil` until first run.
+    var lastBlackPointDebug: BlackPointDebug?
 
     private let engine: any CalibrationEngineProtocol
     private let processingVM: ProcessingViewModel
@@ -163,14 +177,29 @@ final class CalibrationViewModel {
     func calibrateBP() {
         let engine = self.engine
         let processingVM = self.processingVM
-        Task {
+        Task { @MainActor in
+            self.bpCalibrating = true
+            defer { self.bpCalibrating = false }
             do {
-                _ = try await engine.calibrateBlackPoint()
+                self.lastBlackPointDebug = try await engine.calibrateBlackPoint()
                 if let snap = await engine.currentProcessingParametersSnapshot() {
-                    await MainActor.run { processingVM.refreshFromEngineSnapshot(snap) }
+                    processingVM.refreshFromEngineSnapshot(snap)
                 }
             } catch {
                 // Errors surface through errorStream → ErrorPresenterViewModel.
+            }
+        }
+    }
+
+    /// Clears the applied black point ("undo") and refreshes the mirror.
+    func clearBP() {
+        let engine = self.engine
+        let processingVM = self.processingVM
+        Task { @MainActor in
+            await engine.clearBlackPoint()
+            self.lastBlackPointDebug = nil
+            if let snap = await engine.currentProcessingParametersSnapshot() {
+                processingVM.refreshFromEngineSnapshot(snap)
             }
         }
     }

@@ -87,7 +87,8 @@ final class CameraSession: @unchecked Sendable {
     func configure(
         deliveryQueue: DispatchQueue,
         sampleBufferDelegate: AVCaptureVideoDataOutputSampleBufferDelegate,
-        requestedSize: Size? = nil
+        requestedSize: Size? = nil,
+        orientationAngleDeg: CGFloat = Constants.captureOrientationAngleDeg
     ) throws -> (device: any CaptureDeviceProviding, captureSize: Size) {
 
         // ── 1. Device discovery (D-08) ──────────────────────────────────────────────
@@ -283,8 +284,12 @@ final class CameraSession: @unchecked Sendable {
         self.device = liveDevice
 
         // ── 6. Orientation: landscape-right via videoRotationAngle (ADR-17) ─────────
+        // Angle defaults to the package convention (0°) but is overridable per
+        // open() via OpenConfiguration.captureOrientationAngleDeg, so a host that
+        // locks to a different landscape edge can rotate the delivered buffers
+        // without changing the package default for other consumers.
         if let connection = videoOutput.connection(with: .video) {
-            let angle = Constants.captureOrientationAngleDeg  // ADR-17
+            let angle = orientationAngleDeg  // ADR-17 (configurable per open)
             guard connection.isVideoRotationAngleSupported(angle) else {
                 throw EngineError.noSupportedFormat(
                     reason: "videoRotationAngle \(angle)° not supported on this device (ADR-17)")
@@ -315,9 +320,9 @@ final class CameraSession: @unchecked Sendable {
         // because photo rotation is a best-effort orientation hint, not a hard
         // pipeline requirement.
         if let pc = photoOutput.connection(with: .video),
-            pc.isVideoRotationAngleSupported(Constants.captureOrientationAngleDeg)
+            pc.isVideoRotationAngleSupported(orientationAngleDeg)
         {
-            pc.videoRotationAngle = Constants.captureOrientationAngleDeg  // ADR-17
+            pc.videoRotationAngle = orientationAngleDeg  // ADR-17 (configurable per open)
         }
 
         // NOTE: the photo-output connection is deliberately NOT mirrored.
@@ -326,6 +331,15 @@ final class CameraSession: @unchecked Sendable {
         // setting it had no effect. captureNaturalPicture therefore reflects the
         // un-mirrored ISP geometry — distinct from the mirrored preview /
         // captureImage. (The video-data-output mirror above still applies.)
+        //
+        // FUTURE: the same applies to `videoRotationAngle` set on the photo
+        // connection above — AVCapturePhotoOutput tags orientation metadata but
+        // does NOT physically rotate the raw `photo.pixelBuffer` that
+        // `captureNaturalPicture` → `renderStill` consumes. So with a non-zero
+        // `captureOrientationAngleDeg`, the natural still is delivered in native
+        // ISP orientation (e.g. upside down vs the rotated preview). Fix when
+        // needed by rotating the raw buffer in the natural-still path (Metal pass
+        // or honoring the orientation tag at readback) — or correct in post.
 
         return (device: liveDevice, captureSize: chosenSize)
     }

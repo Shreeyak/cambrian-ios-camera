@@ -56,6 +56,15 @@ final class ViewModel {
 
     // MARK: - Engine + child VMs
 
+    /// Open configuration for this demo harness.
+    ///
+    /// The app locks its UI to landscape-left (see `OrientationLock`), so it
+    /// rotates the delivered capture buffers 180° from the package's default
+    /// landscape-right convention to keep the preview/stills upright. This is a
+    /// per-open override — other CameraKit consumers (e.g. the Flutter plugin)
+    /// keep the default 0° and are unaffected.
+    private static let openConfiguration = OpenConfiguration(captureOrientationAngleDeg: 180)
+
     let engine: CameraEngine
 
     @ObservationIgnored let display: DisplayViewModel
@@ -115,7 +124,7 @@ final class ViewModel {
     ///      `sessionState` mirror in sync until the stream finishes.
     func start() async {
         do {
-            let caps = try await engine.open()
+            let caps = try await engine.open(configuration: Self.openConfiguration)
             supportedSizesCache = caps.supportedSizes
             capabilities = caps
             await display.attachAfterOpen()
@@ -185,7 +194,7 @@ final class ViewModel {
         await display.detachBeforeClose()
         await engine.close()
         do {
-            let caps = try await engine.open()
+            let caps = try await engine.open(configuration: Self.openConfiguration)
             supportedSizesCache = caps.supportedSizes
             capabilities = caps
             await display.attachAfterOpen()

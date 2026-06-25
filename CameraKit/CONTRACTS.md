@@ -65,6 +65,40 @@ let resumed = ManagedAtomic<Bool>(false)
 let resumeOnce: @Sendable () -> Void = {
 ```
 
+## File: CameraKit/Sources/CameraKit/BlackPointDebug.swift
+```swift
+public struct BlackPointChannelStats: Sendable, Hashable {
+⋮----
+public let offsetLinear: Double
+⋮----
+public let meanGamma: Double
+⋮----
+public let minGamma: Double
+⋮----
+public let maxGamma: Double
+⋮----
+public init(offsetLinear: Double, meanGamma: Double, minGamma: Double, maxGamma: Double) {
+⋮----
+public struct BlackPointDebug: Sendable {
+⋮----
+public let side: Int
+⋮----
+public let patchRGBA: [UInt8]
+⋮----
+public let keptCount: Int
+⋮----
+public let totalCount: Int
+public let r: BlackPointChannelStats
+public let g: BlackPointChannelStats
+public let b: BlackPointChannelStats
+⋮----
+public let contextRGBA: [UInt8]
+⋮----
+public let contextSide: Int
+⋮----
+public init(
+```
+
 ## File: CameraKit/Sources/CameraKit/CMTime+Nanoseconds.swift
 ```swift
 var finiteNanoseconds: Int64? {
@@ -105,8 +139,13 @@ static func srgbToLinear(_ c: Double) -> Double {
 ⋮----
 public static func blackPointOffsets(
 ⋮----
-let lin = pixels.map {
+let d = blackPointDebug(
 ⋮----
+public static func blackPointDebug(
+⋮----
+let imageSource = imagePixels ?? pixels
+let kSig = Constants.blackPointSigmaK
+let maxSample = Constants.blackPointMaxSampleGamma
 let half = patch / 2
 let cx = width / 2
 let cy = height / 2
@@ -114,25 +153,40 @@ let x0 = max(0, cx - half)
 let x1 = min(width, cx + half)
 let y0 = max(0, cy - half)
 let y1 = min(height, cy + half)
-var patchVals: [[Double]] = [[], [], []]
+let pw = max(0, x1 - x0)
+let ph = max(0, y1 - y0)
+let emptyStats = BlackPointChannelStats(
 ⋮----
-let p = lin[y * width + x]
+var rgba: [UInt8] = includeImage ? [UInt8](repeating: 0, count: pw * ph * 4) : []
+var sum = SIMD3<Double>(repeating: 0)
+var sumSq = SIMD3<Double>(repeating: 0)
+var gammaSum = SIMD3<Double>(repeating: 0)
+var minG = SIMD3<Double>(repeating: 1)
+var maxG = SIMD3<Double>(repeating: 0)
+var keptCount = 0
+var idx = 0
 ⋮----
-let kSel = Constants.blackPointSelectSigmaK
-let kSig = Constants.blackPointSigmaK
+let p = pixels[y * width + x]
+let g = SIMD3<Double>(Double(p.x), Double(p.y), Double(p.z))
 ⋮----
-func meanStd(_ a: [Double]) -> (mean: Double, std: Double) {
+let q = imageSource[y * width + x]
 ⋮----
-let m = a.reduce(0, +) / Double(a.count)
-let varc = a.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(a.count)
+let l = SIMD3<Double>(srgbToLinear(g.x), srgbToLinear(g.y), srgbToLinear(g.z))
 ⋮----
-func offset(_ channel: KeyPath<SIMD3<Double>, Double>, seed: [Double]) -> Double {
+var contextRGBA: [UInt8] = []
+var contextSideOut = 0
 ⋮----
-let lo = pm - kSel * ps
-let hi = pm + kSel * ps
-var masked: [Double] = []
+let cside = min(requestedContext, width, height)
+let cx0 = max(0, min(width - cside, cx - cside / 2))
+let cy0 = max(0, min(height - cside, cy - cside / 2))
 ⋮----
-let v = p[keyPath: channel]
+var ci = 0
+⋮----
+func stats(
+⋮----
+let n = Double(keptCount)
+let m = s / n
+let v = max(0, sq / n - m * m)
 ```
 
 ## File: CameraKit/Sources/CameraKit/CalibrationResult.swift
@@ -242,6 +296,8 @@ private var currentSettings: CameraSettings?
 private var currentProcessing: ProcessingParameters?
 ⋮----
 private var calibrationTask: Task<CalibrationResult, Error>?
+⋮----
+private var lastBlackPointDebug: BlackPointDebug?
 private nonisolated let frameResultContinuationBox =
 ⋮----
 private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
@@ -496,15 +552,20 @@ var next = prior
 ⋮----
 let afterSample = try await sampleCenterPatchForBBCalibration()
 ⋮----
-public func calibrateBlackPoint() async throws -> CalibrationResult {
-⋮----
-let before = try await pipeline.dispatchCenterPatchOnNatural()
+public func calibrateBlackPoint() async throws -> BlackPointDebug {
 ⋮----
 let rb = try await pipeline.readbackNaturalRGB()
 ⋮----
-let off = CalibrationCompute.blackPointOffsets(
+let proc = try? await pipeline.readbackProcessedRGB()
+let imagePixels =
 ⋮----
-let after = try await pipeline.dispatchCenterPatch()
+let debug = CalibrationCompute.blackPointDebug(
+⋮----
+var next = currentProcessing ?? .identity
+⋮----
+public func clearBlackPoint() async {
+⋮----
+public static var calibrationPatchSizePx: Int { Constants.centerPatchSizePx }
 ⋮----
 public nonisolated func getPersistedProcessingParameters() -> ProcessingParameters? {
 ⋮----
@@ -839,7 +900,7 @@ let deviceInput = try AVCaptureDeviceInput(device: avDevice)
 ⋮----
 let liveDevice = LiveCaptureDevice(avDevice: avDevice)
 ⋮----
-let angle = Constants.captureOrientationAngleDeg
+let angle = orientationAngleDeg
 ⋮----
 func startRunning() {
 ⋮----
@@ -935,6 +996,8 @@ public var cropEnabled: Bool
 public var initialSettings: CameraSettings?
 ⋮----
 public var trackerHeight: Int?
+⋮----
+public var captureOrientationAngleDeg: CGFloat
 ⋮----
 public enum CameraMode: String, Sendable, Hashable, Codable {
 ⋮----
@@ -1239,7 +1302,7 @@ static let whitePointTargetDisplay: Double = 250.0 / 255.0
 ⋮----
 static let blackPointSigmaK: Double = 1.5
 ⋮----
-static let blackPointSelectSigmaK: Double = 3.0
+static let blackPointMaxSampleGamma: Double = 0.3
 ⋮----
 static let wbGrayWorldLogCap: Float = 0.25
 ⋮----
@@ -1690,6 +1753,10 @@ func dispatchCenterPatch() async throws -> RgbSample {
 func dispatchCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
 func readbackNaturalRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+⋮----
+func readbackProcessedRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+⋮----
+private func readbackRGBA16F(
 ⋮----
 let w = natTex.width
 let h = natTex.height

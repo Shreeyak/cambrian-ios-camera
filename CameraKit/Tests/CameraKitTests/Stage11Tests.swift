@@ -102,36 +102,40 @@ struct Stage11CalibrationComputeTests {
         let pixels = [SIMD3<Float>](repeating: SIMD3<Float>(g, g, g), count: w * h)
         let off = CalibrationCompute.blackPointOffsets(
             pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
-        // Uniform ⇒ σ = 0 ⇒ offset = mean = linearized value.
+        // Uniform ⇒ σ ≈ 0 ⇒ offset ≈ mean = linearized value. Tolerance 1e-8 (not
+        // 1e-9): the single-pass variance (E[x²]−E[x]²) leaves a ~1.5e-9 residual
+        // on a perfectly-uniform field, an utterly negligible black-point margin
+        // (~6 orders below 8-bit precision).
         let expected = CalibrationCompute.srgbToLinear(Double(g))
-        #expect(abs(off.r - expected) < 1e-9)
-        #expect(abs(off.g - expected) < 1e-9)
-        #expect(abs(off.b - expected) < 1e-9)
+        #expect(abs(off.r - expected) < 1e-8)
+        #expect(abs(off.g - expected) < 1e-8)
+        #expect(abs(off.b - expected) < 1e-8)
     }
 
-    @Test("black point: bright outliers outside the patch are excluded by the value mask")
-    func blackPointRejectsOutliers() {
+    @Test("black point: per-pixel gate drops a pixel bright in ANY channel")
+    func blackPointPerPixelGate() {
         let w = 128, h = 128
         let bg: Float = 0.03
         var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(bg, bg, bg), count: w * h)
-        // Bright outliers ONLY outside the center patch (the patch is clean
-        // background during a dark-field calibration). With a clean seed the band
-        // is tight around `bg`, so the off-patch outliers fall outside and are
-        // dropped — the offset must stay at the background, not be pulled up.
+        // Pixels dark in R/G (0.2 < 0.3) but bright in B (0.6 > 0.3), inside the
+        // patch. The per-PIXEL gate must drop them wholesale — their dark R/G must
+        // NOT pull the R/G offset off the background (a per-channel gate would).
         let half = Constants.centerPatchSizePx / 2
         let cx = w / 2, cy = h / 2
         for y in 0..<h {
             for x in 0..<w {
                 let inPatch = abs(x - cx) < half && abs(y - cy) < half
-                if !inPatch && (y * w + x) % 7 == 0 {
-                    pixels[y * w + x] = SIMD3<Float>(0.8, 0.8, 0.8)
+                if inPatch && (y * w + x) % 5 == 0 {
+                    pixels[y * w + x] = SIMD3<Float>(0.2, 0.2, 0.6)
                 }
             }
         }
         let off = CalibrationCompute.blackPointOffsets(
             pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
         let expected = CalibrationCompute.srgbToLinear(Double(bg))
-        #expect(abs(off.r - expected) < 1e-6, "outliers leaked into the offset: \(off.r)")
+        #expect(abs(off.r - expected) < 1e-8, "R pulled by a B-bright pixel: \(off.r)")
+        #expect(abs(off.g - expected) < 1e-8, "G pulled by a B-bright pixel: \(off.g)")
+        #expect(abs(off.b - expected) < 1e-8, "B pulled by a B-bright pixel: \(off.b)")
     }
 
     @Test("black point: offset = mean + k·σ over the masked set")

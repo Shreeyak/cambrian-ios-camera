@@ -10,13 +10,13 @@ SwiftPM dependency and presented via `CameraView()`.
 Interface-orientation **locking** lives entirely in this app target, **not** in
 the `CameraKit` package. The package is orientation-policy-agnostic: a host is
 free to support any orientations it likes. This app pins itself to
-landscape-right via three layers:
+landscape-left via three layers:
 
-1. **`Info.plist`** — `UISupportedInterfaceOrientations~ipad` is landscape-right
+1. **`Info.plist`** — `UISupportedInterfaceOrientations~ipad` is landscape-left
    only (plus `UIRequiresFullScreen`), so the OS never presents another
    orientation.
 2. **`UIApplicationDelegateAdaptor`** (`ios_example_appApp.swift`) — returns
-   `OrientationLock.declaredSupported` (`.landscapeRight`) from
+   `OrientationLock.declaredSupported` (`.landscapeLeft`) from
    `application(_:supportedInterfaceOrientationsFor:)`, locking the UIKit window
    regardless of device rotation. `OrientationLock` (`UI/OrientationLock.swift`)
    is the single read path for the policy so tests/HITL read one source of truth.

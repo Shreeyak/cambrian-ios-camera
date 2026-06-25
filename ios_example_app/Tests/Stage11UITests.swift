@@ -211,18 +211,33 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
             converged: true, iterations: 1)
     }
 
-    func calibrateBlackPoint() async throws -> CalibrationResult {
+    func calibrateBlackPoint() async throws -> BlackPointDebug {
         calibrateBPCount += 1
         // Mimic the engine: write a linear black point + enable it.
+        let r = CalibrationCompute.srgbToLinear(canonicalSample.r)
+        let g = CalibrationCompute.srgbToLinear(canonicalSample.g)
+        let b = CalibrationCompute.srgbToLinear(canonicalSample.b)
         var snap = processingSnapshot ?? .identity
-        snap.blackPointR = CalibrationCompute.srgbToLinear(canonicalSample.r)
-        snap.blackPointG = CalibrationCompute.srgbToLinear(canonicalSample.g)
-        snap.blackPointB = CalibrationCompute.srgbToLinear(canonicalSample.b)
+        snap.blackPointR = r
+        snap.blackPointG = g
+        snap.blackPointB = b
         snap.blackPointEnabled = true
         processingSnapshot = snap
-        return CalibrationResult(
-            before: canonicalSample, after: RgbSample(r: 0, g: 0, b: 0),
-            converged: true, iterations: 1)
+        func st(_ off: Double, _ mg: Double) -> BlackPointChannelStats {
+            BlackPointChannelStats(offsetLinear: off, meanGamma: mg, minGamma: mg, maxGamma: mg)
+        }
+        return BlackPointDebug(
+            side: 0, patchRGBA: [], keptCount: 1, totalCount: 1,
+            r: st(r, canonicalSample.r), g: st(g, canonicalSample.g), b: st(b, canonicalSample.b))
+    }
+
+    func clearBlackPoint() async {
+        var snap = processingSnapshot ?? .identity
+        snap.blackPointR = 0
+        snap.blackPointG = 0
+        snap.blackPointB = 0
+        snap.blackPointEnabled = false
+        processingSnapshot = snap
     }
 
     func updateSettings(_ settings: CameraSettings) async throws {

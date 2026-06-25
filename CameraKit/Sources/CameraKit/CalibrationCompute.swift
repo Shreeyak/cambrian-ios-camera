@@ -132,37 +132,52 @@ public enum CalibrationCompute {
         c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
     }
 
-    /// Derives the per-channel **linear** black-point offset from a dark-field readback.
+    /// Per-channel **linear** black-point offsets from a dark-field readback.
     ///
-    /// Implements the patch-seeded value mask (design D8), all statistics in
-    /// LINEAR light:
-    ///   1. Seed `patchMean`/`patchσ` per channel from the center patch.
-    ///   2. Grow the sample to every frame pixel whose channel value lies within
-    ///      `patchMean ± blackPointSelectSigmaK·patchσ` (excludes brighter objects).
-    ///   3. `offset = mean + blackPointSigmaK·σ` over that masked set — a gentle,
-    ///      noise-adaptive crush (k = 1.5 leaves ~the top 7% of the noise band).
+    /// Thin wrapper over `blackPointDebug` (which carries the full diagnostics);
+    /// returns just the applied offsets. See `blackPointDebug` for the algorithm.
+    public static func blackPointOffsets(
+        pixels: [SIMD3<Float>], width: Int, height: Int, patch: Int
+    ) -> (r: Double, g: Double, b: Double) {
+        let d = blackPointDebug(
+            pixels: pixels, width: width, height: height, patch: patch, includeImage: false)
+        return (d.r.offsetLinear, d.g.offsetLinear, d.b.offsetLinear)
+    }
+
+    /// Full black-point diagnostics from a dark-field readback: the per-channel
+    /// linear offset PLUS the sampled patch (for display) and per-channel stats.
     ///
-    /// The result is subtracted from linearized pixels by the shader affine
-    /// (`b = −a·blackPoint`), so it is returned in the same linear space.
+    /// Patch-only + near-black per-pixel gate (design D8, revised 2026-06-23), all
+    /// offset statistics in LINEAR light:
+    ///   1. Look only at the centered `patch × patch` window (the full-frame
+    ///      value-mask was dropped — it pulled in per-channel-divergent pixels that
+    ///      over-inflated the offsets and tinted the image).
+    ///   2. Keep a pixel only if EVERY channel is near-black ((gamma) value
+    ///      `< blackPointMaxSampleGamma`); a pixel bright in any channel is dropped
+    ///      wholesale, so all channels are estimated from the same dark-pixel set
+    ///      (consistent per-channel offsets, no tinting). `keptCount` reports how
+    ///      many survived — `0` means the surface was too bright to black-point.
+    ///   3. `offset = mean + blackPointSigmaK·σ` over the kept pixels (per channel);
+    ///      no kept pixels ⇒ offset `0`.
     ///
     /// - Parameters:
     ///   - pixels: row-major gamma-encoded RGB, one entry per pixel.
     ///   - width, height: frame dimensions (`pixels.count == width * height`).
-    ///   - patch: center-patch side length in pixels (the seed region).
-    public static func blackPointOffsets(
-        pixels: [SIMD3<Float>], width: Int, height: Int, patch: Int
-    ) -> (r: Double, g: Double, b: Double) {
-        guard width > 0, height > 0, pixels.count == width * height else {
-            return (0, 0, 0)
-        }
-        // Linearize once (gamma → linear), per channel.
-        let lin = pixels.map {
-            SIMD3<Double>(
-                srgbToLinear(Double($0.x)),
-                srgbToLinear(Double($0.y)),
-                srgbToLinear(Double($0.z)))
-        }
-        // 1. Seed region: the centered `patch × patch` window, per channel.
+    ///   - patch: center-patch side length in pixels (the only region sampled).
+    ///   - includeImage: when `true`, fills `patchRGBA` for display; `false` skips
+    ///     that allocation for the offset-only path.
+    public static func blackPointDebug(
+        pixels: [SIMD3<Float>], imagePixels: [SIMD3<Float>]? = nil,
+        width: Int, height: Int, patch: Int, includeImage: Bool = true,
+        contextSide requestedContext: Int = 0
+    ) -> BlackPointDebug {
+        // Stats (offsets, per-channel gamma) come from `pixels` (the raw natural
+        // lane); the thumbnail is rendered from `imagePixels` when supplied (the
+        // graded processed lane, for WYSIWYG with the preview) and falls back to
+        // `pixels` otherwise. Both must share `width × height`.
+        let imageSource = imagePixels ?? pixels
+        let kSig = Constants.blackPointSigmaK
+        let maxSample = Constants.blackPointMaxSampleGamma
         let half = patch / 2
         let cx = width / 2
         let cy = height / 2
@@ -170,46 +185,97 @@ public enum CalibrationCompute {
         let x1 = min(width, cx + half)
         let y0 = max(0, cy - half)
         let y1 = min(height, cy + half)
-        var patchVals: [[Double]] = [[], [], []]
+        let pw = max(0, x1 - x0)
+        let ph = max(0, y1 - y0)
+        let emptyStats = BlackPointChannelStats(
+            offsetLinear: 0, meanGamma: 0, minGamma: 0, maxGamma: 0)
+        guard width > 0, height > 0, pixels.count == width * height,
+            imageSource.count == width * height, pw > 0, ph > 0
+        else {
+            return BlackPointDebug(
+                side: 0, patchRGBA: [], keptCount: 0, totalCount: 0,
+                r: emptyStats, g: emptyStats, b: emptyStats)
+        }
+
+        var rgba: [UInt8] = includeImage ? [UInt8](repeating: 0, count: pw * ph * 4) : []
+        var sum = SIMD3<Double>(repeating: 0)
+        var sumSq = SIMD3<Double>(repeating: 0)
+        var gammaSum = SIMD3<Double>(repeating: 0)
+        var minG = SIMD3<Double>(repeating: 1)
+        var maxG = SIMD3<Double>(repeating: 0)
+        var keptCount = 0
+        var idx = 0
         for y in y0..<y1 {
             for x in x0..<x1 {
-                let p = lin[y * width + x]
-                patchVals[0].append(p.x)
-                patchVals[1].append(p.y)
-                patchVals[2].append(p.z)
+                let p = pixels[y * width + x]
+                let g = SIMD3<Double>(Double(p.x), Double(p.y), Double(p.z))
+                minG = SIMD3(min(minG.x, g.x), min(minG.y, g.y), min(minG.z, g.z))
+                maxG = SIMD3(max(maxG.x, g.x), max(maxG.y, g.y), max(maxG.z, g.z))
+                if includeImage {
+                    let q = imageSource[y * width + x]
+                    rgba[idx * 4 + 0] = UInt8(max(0, min(255, Double(q.x) * 255)))
+                    rgba[idx * 4 + 1] = UInt8(max(0, min(255, Double(q.y) * 255)))
+                    rgba[idx * 4 + 2] = UInt8(max(0, min(255, Double(q.z) * 255)))
+                    rgba[idx * 4 + 3] = 255
+                }
+                idx += 1
+                // Per-pixel near-black gate: keep only if every channel is dark.
+                if g.x < maxSample && g.y < maxSample && g.z < maxSample {
+                    let l = SIMD3<Double>(srgbToLinear(g.x), srgbToLinear(g.y), srgbToLinear(g.z))
+                    sum += l
+                    sumSq += l * l
+                    gammaSum += g
+                    keptCount += 1
+                }
             }
         }
-        let kSel = Constants.blackPointSelectSigmaK
-        let kSig = Constants.blackPointSigmaK
 
-        func meanStd(_ a: [Double]) -> (mean: Double, std: Double) {
-            guard !a.isEmpty else { return (0, 0) }
-            let m = a.reduce(0, +) / Double(a.count)
-            let varc = a.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(a.count)
-            return (m, varc.squareRoot())
-        }
-
-        // 2. Per channel: value-mask the full frame off the patch seed, then mean + k·σ.
-        func offset(_ channel: KeyPath<SIMD3<Double>, Double>, seed: [Double]) -> Double {
-            let (pm, ps) = meanStd(seed)
-            let lo = pm - kSel * ps
-            let hi = pm + kSel * ps
-            var masked: [Double] = []
-            masked.reserveCapacity(lin.count)
-            for p in lin {
-                let v = p[keyPath: channel]
-                if v >= lo && v <= hi { masked.append(v) }
+        // Optional context window: a wider centered crop (from the image source)
+        // so the demo app can show the sampled patch in its surroundings. The
+        // sample patch stays centered within it (origin = center − cside/2).
+        var contextRGBA: [UInt8] = []
+        var contextSideOut = 0
+        if includeImage, requestedContext > 0 {
+            let cside = min(requestedContext, width, height)
+            let cx0 = max(0, min(width - cside, cx - cside / 2))
+            let cy0 = max(0, min(height - cside, cy - cside / 2))
+            contextRGBA = [UInt8](repeating: 0, count: cside * cside * 4)
+            var ci = 0
+            for y in cy0..<(cy0 + cside) {
+                for x in cx0..<(cx0 + cside) {
+                    let q = imageSource[y * width + x]
+                    contextRGBA[ci * 4 + 0] = UInt8(max(0, min(255, Double(q.x) * 255)))
+                    contextRGBA[ci * 4 + 1] = UInt8(max(0, min(255, Double(q.y) * 255)))
+                    contextRGBA[ci * 4 + 2] = UInt8(max(0, min(255, Double(q.z) * 255)))
+                    contextRGBA[ci * 4 + 3] = 255
+                    ci += 1
+                }
             }
-            // Degenerate fields (e.g. patchσ ≈ 0) can mask out everything but the
-            // seed — fall back to the seed so the offset is still defined.
-            let (m, s) = meanStd(masked.isEmpty ? seed : masked)
-            return m + kSig * s
+            contextSideOut = cside
         }
-        return (
-            offset(\.x, seed: patchVals[0]),
-            offset(\.y, seed: patchVals[1]),
-            offset(\.z, seed: patchVals[2])
-        )
+
+        // Per channel: mean + k·σ over kept pixels (population var = E[x²]−E[x]²,
+        // clamped ≥ 0). No kept pixels ⇒ offset 0.
+        func stats(
+            _ s: Double, _ sq: Double, _ gSum: Double, _ minc: Double, _ maxc: Double
+        ) -> BlackPointChannelStats {
+            guard keptCount > 0 else {
+                return BlackPointChannelStats(
+                    offsetLinear: 0, meanGamma: 0, minGamma: minc, maxGamma: maxc)
+            }
+            let n = Double(keptCount)
+            let m = s / n
+            let v = max(0, sq / n - m * m)
+            return BlackPointChannelStats(
+                offsetLinear: m + kSig * v.squareRoot(),
+                meanGamma: gSum / n, minGamma: minc, maxGamma: maxc)
+        }
+        return BlackPointDebug(
+            side: pw, patchRGBA: rgba, keptCount: keptCount, totalCount: pw * ph,
+            r: stats(sum.x, sumSq.x, gammaSum.x, minG.x, maxG.x),
+            g: stats(sum.y, sumSq.y, gammaSum.y, minG.y, maxG.y),
+            b: stats(sum.z, sumSq.z, gammaSum.z, minG.z, maxG.z),
+            contextRGBA: contextRGBA, contextSide: contextSideOut)
     }
 
 }

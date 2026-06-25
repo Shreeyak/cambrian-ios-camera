@@ -89,6 +89,10 @@ public actor CameraEngine {
     /// `setResolution()` throw `.calibrationInProgress`. `close()` and the
     /// `.interrupted` `SessionState` route call `cancel()` here.
     private var calibrationTask: Task<CalibrationResult, Error>?
+    /// Diagnostics from the most recent `calibrateBlackPoint()` — the calibration
+    /// task shares the `calibrationTask` exclusivity guard (typed `CalibrationResult`),
+    /// so the black-point debug payload is stashed here and returned by the caller.
+    private var lastBlackPointDebug: BlackPointDebug?
     private nonisolated let frameResultContinuationBox =
         Mutex<AsyncStream<FrameResult>.Continuation?>(nil)
     private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
@@ -313,7 +317,8 @@ public actor CameraEngine {
             try session.configure(
                 deliveryQueue: delivery,
                 sampleBufferDelegate: delegate,
-                requestedSize: configuration.captureResolution)
+                requestedSize: configuration.captureResolution,
+                orientationAngleDeg: configuration.captureOrientationAngleDeg)
         }
 
         // 4. Metal pipeline — pass the shared submission gate (ADR-09).
@@ -1491,35 +1496,80 @@ public actor CameraEngine {
     /// `before` is the raw natural center patch (the dark field as captured);
     /// `after` is the post-normalization processed center patch (background → ~0).
     /// Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
-    public func calibrateBlackPoint() async throws -> CalibrationResult {
+    public func calibrateBlackPoint() async throws -> BlackPointDebug {
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
+        // The task returns `CalibrationResult` to share `calibrationTask`'s type;
+        // the real payload (BlackPointDebug) is stashed in `lastBlackPointDebug`.
         let task = Task<CalibrationResult, Error> { [self] in
             guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-            let before = try await pipeline.dispatchCenterPatchOnNatural()
-            try Task.checkCancellation()
             let rb = try await pipeline.readbackNaturalRGB()
             try Task.checkCancellation()
-            let off = CalibrationCompute.blackPointOffsets(
-                pixels: rb.pixels, width: rb.width, height: rb.height,
-                patch: Constants.centerPatchSizePx)
-            let prior = currentProcessing ?? .identity
-            var next = prior
-            next.blackPointR = off.r
-            next.blackPointG = off.g
-            next.blackPointB = off.b
-            next.blackPointEnabled = true
-            await setProcessingParams(next)
-            try Task.checkCancellation()
-            // `after`: the live processed patch now reflects the new black point
-            // (the next encode reads the updated ColorUniform). One-frame-stale at
-            // worst — the authoritative check is the visual preview.
-            let after = try await pipeline.dispatchCenterPatch()
-            return CalibrationResult(before: before, after: after, converged: true, iterations: 1)
+            // Thumbnail is rendered from the processed (graded) lane so it matches
+            // the on-screen preview under the reticle (WYSIWYG); the math stays on
+            // the raw natural `rb`. Only use the processed pixels when they share
+            // the natural lane's dimensions (they always do — both `outputSize`);
+            // fall back to natural on any mismatch or readback failure.
+            let proc = try? await pipeline.readbackProcessedRGB()
+            let imagePixels =
+                (proc?.width == rb.width && proc?.height == rb.height) ? proc?.pixels : nil
+            let debug = CalibrationCompute.blackPointDebug(
+                pixels: rb.pixels, imagePixels: imagePixels,
+                width: rb.width, height: rb.height,
+                patch: Constants.centerPatchSizePx,
+                contextSide: 4 * Constants.centerPatchSizePx)
+            lastBlackPointDebug = debug
+            CameraKitLog.notice(
+                .engine,
+                "[blackpoint] kept \(debug.keptCount)/\(debug.totalCount) "
+                    + "offsets r=\(debug.r.offsetLinear) g=\(debug.g.offsetLinear) "
+                    + "b=\(debug.b.offsetLinear) maxγ r=\(debug.r.maxGamma) "
+                    + "g=\(debug.g.maxGamma) b=\(debug.b.maxGamma) from \(rb.width)x\(rb.height)")
+            // Apply + enable ONLY when near-black pixels were found. A too-bright
+            // surface (keptCount == 0) leaves any existing black point untouched.
+            if debug.keptCount > 0 {
+                var next = currentProcessing ?? .identity
+                next.blackPointR = debug.r.offsetLinear
+                next.blackPointG = debug.g.offsetLinear
+                next.blackPointB = debug.b.offsetLinear
+                next.blackPointEnabled = true
+                await setProcessingParams(next)
+            } else {
+                CameraKitLog.notice(
+                    .engine,
+                    "[blackpoint] no near-black pixels (surface too bright) — black point unchanged")
+            }
+            return CalibrationResult(
+                before: RgbSample(r: 0, g: 0, b: 0), after: RgbSample(r: 0, g: 0, b: 0),
+                converged: debug.keptCount > 0, iterations: 1)
         }
         calibrationTask = task
         defer { calibrationTask = nil }
-        return try await task.value
+        _ = try await task.value
+        return lastBlackPointDebug
+            ?? CalibrationCompute.blackPointDebug(pixels: [], width: 0, height: 0, patch: 0)
     }
+
+    /// Clears the applied black point — zeroes the per-channel offsets and disables it.
+    ///
+    /// The demo app's "undo". Other processing parameters are untouched.
+    public func clearBlackPoint() async {
+        var next = currentProcessing ?? .identity
+        next.blackPointR = 0
+        next.blackPointG = 0
+        next.blackPointB = 0
+        next.blackPointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Side length (px) of the centered square patch that calibration samples from
+    /// the primary frame.
+    ///
+    /// Black-point calibration reads back this centered patch and computes its
+    /// statistics over it. Hosts draw their calibration reticle to this size —
+    /// mapped through the preview's aspect-fit scale — so the on-screen rectangle
+    /// marks **exactly** the sampled region, leaving no ambiguity about where
+    /// pixels come from.
+    public static var calibrationPatchSizePx: Int { Constants.centerPatchSizePx }
 
     /// Stage 04: returns the persisted ProcessingParameters without requiring
     /// an active session. Implementation per architecture/07-settings.md
