@@ -45,11 +45,13 @@ pointwise GPU kernel chain without introducing an additional full-frame intermed
 The system SHALL support a per-channel black point that maps a calibrated dark reference to 0
 (solid black), applied in linear light before the creative grade. It SHALL be independently
 enable/disable-able. The black-point offset SHALL be derived statistically as `mean + k·σ` per
-channel (computed in linear light), where `k` is a build-time constant (`blackPointSigmaK`,
-default 1.5). The dark-field sample SHALL be collected by seeding from the center patch and growing
-the sample to every frame pixel whose value falls within `patchMean ± k_select · patchσ` (per
-channel), where `k_select` is a build-time constant (`blackPointSelectSigmaK`, default 3.0); `mean`
-and `σ` are then computed over that masked background set.
+channel (computed in linear light over the kept sample), where `k` is a build-time constant
+(`blackPointSigmaK`, default 1.5). The dark-field sample SHALL be taken over the centered square
+patch (`centerPatchSizePx`), keeping only pixels every channel of which is below a near-black
+threshold (`blackPointMaxSampleGamma`, default 0.3 in gamma/display space); brighter or off-color
+pixels are excluded per pixel. Calibration SHALL fail — surfacing an error and leaving any existing
+black point unchanged — when fewer than `blackPointMinKeptFraction` (default 0.4) of the patch
+passes the near-black gate.
 
 #### Scenario: Dark background renders solid black
 
@@ -61,10 +63,15 @@ and `σ` are then computed over that masked background set.
 - **WHEN** the black point is calibrated with the default `k = 1.5`
 - **THEN** signal meaningfully above the noise floor is retained (the gentle margin does not crush dim features to black)
 
-#### Scenario: Value-mask excludes non-background pixels
+#### Scenario: Non-black pixels are excluded per pixel
 
-- **WHEN** the dark-field frame contains a brighter object outside the `patchMean ± k_select·patchσ` band
-- **THEN** those pixels are excluded from the mean/σ statistic and do not bias the black-point offset
+- **WHEN** a pixel in the patch is at or above the near-black threshold in any channel
+- **THEN** it is excluded from the mean/σ statistic and does not bias the black-point offset
+
+#### Scenario: Insufficient dark field fails calibration
+
+- **WHEN** fewer than `blackPointMinKeptFraction` of the patch passes the near-black gate (the field is not dark enough)
+- **THEN** calibration fails with an error whose reason is surfaced to the caller, and any existing black point is left unchanged
 
 #### Scenario: Black point is applied pre-grade in linear light
 

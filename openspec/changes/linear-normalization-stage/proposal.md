@@ -19,8 +19,9 @@ and keeps them stable through it.
   - **Black point** — per-channel offset so the dark reference maps to 0 (solid black). Migrates
     the existing post-grade "black balance". The fixed `1.5×mean` overscan is replaced by a
     statistical `mean + k·σ` margin (`k = blackPointSigmaK`, default 1.5 — now a σ-multiplier),
-    computed in linear light over a patch-seeded value-mask (grow the 96² center patch to all frame
-    pixels within `patchMean ± k_select·patchσ`, `k_select = blackPointSelectSigmaK`, default 3.0).
+    computed in linear light over the centered 96² patch, keeping only pixels every channel of which
+    is near-black (`< blackPointMaxSampleGamma`, default 0.3). Calibration fails when fewer than
+    `blackPointMinKeptFraction` (default 0.4) of the patch is dark enough.
   - **White-balance chroma residual** — per-channel cast-neutralization gain on top of the locked
     hardware gains; brightness-preserving; stays under the **white balance** name. Corrects Apple's
     WB where it falls short.

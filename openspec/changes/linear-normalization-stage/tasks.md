@@ -4,7 +4,7 @@
 
 - [x] 1.1 Extend `ProcessingParameters` (Capabilities.swift) with per-channel linear black point, WB chroma residual, and white-point level coefficients plus their enable/disable toggles; default to identity / disabled (white-point level off).
 - [x] 1.2 Extend `ColorUniform` (ColorShaders.metal + Swift mirror) with the fused per-channel affine coefficients `a`/`b`, and a transfer-function/linearize flag if needed.
-- [x] 1.3 Add `Constants.swift` entries: `whitePointTargetDisplay` (= 250.0/255.0), `blackPointSigmaK` (= 1.5), `blackPointSelectSigmaK` (= 3.0). (Note: kept `blackBalanceOverscan` marked deprecated rather than renaming now — the rename completes in §4 when its `1.5×mean` usage is replaced by the statistical path, so the doc/usage stay consistent during the transition.)
+- [x] 1.3 Add `Constants.swift` entries: `whitePointTargetDisplay` (= 250.0/255.0), `blackPointSigmaK` (= 1.5), `blackPointMaxSampleGamma` (= 0.3, the per-pixel near-black gate), `blackPointMinKeptFraction` (= 0.4, the kept-fraction floor). `blackBalanceOverscan` is removed in §4.4. (The originally-planned `blackPointSelectSigmaK` value-mask constant was never shipped — the value-mask was dropped; see §4.1 and design D8.)
 - [x] 1.4 Update `SettingsPersistence` to persist/restore the new coefficients and toggles; keep the existing rule that manual white-balance is not silently restored into auto. Back-compat handled via `ProcessingParameters.init(from:)` (decodeIfPresent, no key bump): old grade values are preserved; legacy black keys are ignored (no value migration — legacy black is removed entirely in §4).
 
 ## 2. Linear-light normalization in the shaders
@@ -20,12 +20,12 @@
 - [x] 3.2 `renderStill(pixelBuffer:)` inherits the same normalization through `gradedCore` (single insertion point, not duplicated) so `captureNaturalPicture` matches.
 - [x] 3.3 Pre-grade ("natural") texture tap preserved: `latestNaturalTex16F` is the decode output, sampled by WB/black-point calibration before any normalization/grade.
 
-## 4. Black-point calibration (statistical, patch-seeded mask)
+## 4. Black-point calibration (statistical, patch-only with a per-pixel near-black gate)
 
-- [ ] 4.1 Implement the GPU dark-field reduction: seed `patchMean`/`patchσ` from the 96² center patch, build the value-mask `patchMean ± blackPointSelectSigmaK·patchσ` per channel, then compute `mean`/`σ` over the masked set in a single reduction (count, sum, sum-of-squares), in linear light.
-- [ ] 4.2 Derive the per-channel offset as `mean + blackPointSigmaK·σ`; wire it into the affine `b` term.
-- [ ] 4.3 Add `calibrateBlackPoint()` (CameraEngine.swift + CalibrationCompute.swift) as the new entry point.
-- [ ] 4.4 Clean break (breaking): remove the legacy black-balance entirely — delete `calibrateBlackBalance` (Swift/Pigeon/Dart), `ProcessingParameters.blackR/G/B` (+ `ColorUniform` mirror), `CalibrationCompute.blackBalanceOffsets`, `Constants.blackBalanceOverscan`, and the post-grade subtraction in `ColorShaders.metal` (step 5). No alias/forwarding. Update all call sites and tests.
+- [x] 4.1 Sample the centered 96² patch only — the GPU value-mask was dropped (design D8). A compute kernel (`extractCenterRegion`) copies just the patch into a small texture (`MetalPipeline.readbackNaturalCenterRegion`); the CPU (`CalibrationCompute.blackPointDebug`) keeps only pixels whose every channel is below `blackPointMaxSampleGamma` (per-pixel near-black gate) and computes `mean`/`σ` over the kept set in linear light. No GPU reduction, no full-frame readback.
+- [x] 4.2 Derive the per-channel offset as `mean + blackPointSigmaK·σ` over the kept pixels; wire it into the affine `b` term.
+- [x] 4.3 Add `calibrateBlackPoint()` + `clearBlackPoint()` (CameraEngine.swift + CalibrationCompute.swift). Calibration **fails** — throwing `EngineError.blackPointCalibrationFailed(reason:)`, existing black point untouched — when fewer than `blackPointMinKeptFraction` of the patch passes the gate.
+- [x] 4.4 Clean break (breaking): removed the legacy black-balance entirely — `calibrateBlackBalance` (Swift/Pigeon/Dart), `ProcessingParameters.blackR/G/B` (+ `ColorUniform` mirror), `CalibrationCompute.blackBalanceOffsets`, `Constants.blackBalanceOverscan`, and the post-grade subtraction in `ColorShaders.metal` (step 5). No alias/forwarding. All call sites and tests updated.
 
 ## 5. White-balance + white-point calibration
 
@@ -46,11 +46,12 @@
 
 ## 8. Flutter surface
 
-- [ ] 8.1 Surface the white-point toggle and any new calibration/parameter fields through the Pigeon API and Dart `CameraEngine`; remove the legacy black-balance Dart/Pigeon method entirely (breaking — no forwarder).
+- [x] 8.1 Remove the legacy black-balance Dart/Pigeon method entirely (breaking — no forwarder); add `void calibrateBlackPoint()` + `CameraErrorCode.calibrationFailed` to the Pigeon API and Dart `CameraEngine`, with the adapter mapping `EngineError.blackPointCalibrationFailed` → `calibrationFailed` (and friendlier messages for bare `MetalError`/`CancellationError`). Regenerated Pigeon + mocks; `flutter test` + `flutter build ios` green.
+- [ ] 8.2 Surface the white-point toggle and any new WB / white-point parameter fields through the Pigeon API and Dart `CameraEngine` (depends on §5).
 
 ## 9. Verification & docs
 
-- [ ] 9.1 Add/adjust tests for the affine math, black-point `mean + k·σ` + value-mask derivation, chroma/level decomposition, auto/manual gating, endpoint preservation, and persistence (including legacy-key migration).
+- [ ] 9.1 Tests in place: affine math, black-point `mean + k·σ` + per-pixel near-black gate, endpoint preservation, and persistence (Stage04 / Stage11 / FrameMetadata; legacy keys ignored). Remaining: chroma/level decomposition + auto/manual WB gating tests (depend on §5). (The value-mask derivation test was dropped with the value-mask.)
 - [ ] 9.2 Build via XcodeBuildMCP (device-only) and verify on the iPad: solid white (H&E, white point on), solid black (fluorescence, dim signal preserved), grey preserved (phase contrast, white point off, chroma on), and that an identity grade leaves the normalized background solid (endpoint drift under grade is accepted, not tested as preserved).
-- [ ] 9.3 Update consumer docs (`07-image-processing.md`, `08-calibration.md`) to describe normalization, the WB chroma/white-point split, the auto/manual WB gating, and the black-balance→black-point deprecation; regenerate `Documentation/`.
+- [ ] 9.3 Consumer docs updated for the black-balance→black-point clean break + linear normalization (`07-image-processing.md`, `08-calibration.md`); `Documentation/` regenerated. Remaining: the WB chroma / white-point split + auto/manual WB gating docs (depend on §5).
 - [ ] 9.4 Call out the black-balance **removal as a breaking change** in the GitHub release notes at release time (consumers migrate `calibrateBlackBalance` → `calibrateBlackPoint`).

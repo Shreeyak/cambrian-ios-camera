@@ -95,30 +95,38 @@ constant. Build-time only (a `static let` in `Constants.swift`), not a runtime p
 The existing post-grade subtraction becomes the linear, pre-grade black point. The fixed `1.5×mean`
 overscan is replaced by a principled `mean + k·σ` margin (`k = blackPointSigmaK`, default 1.5 — now
 a σ-multiplier, **not** a mean-multiplier), computed in linear light so the margin adapts to the
-measured noise. **Behavioral migration is complete (no compat toggle for the old look)** — but the
-*API* stays non-breaking (D9).
+measured noise. **Behavioral migration is complete (no compat toggle for the old look)**, and the
+*API* is a clean break (D9).
 *Note the semantic shift:* old offset `= 1.5 · mean`; new offset `= mean + 1.5 · σ`. The reused
 value 1.5 plays an entirely different (and now statistically meaningful) role.
 
-### D8a. Black-point statistics on CPU over a readback (not a GPU reduction)
-Calibration is a one-shot button press, not a per-frame path, so the patch-seed + value-mask +
-mean/σ are computed in plain Swift (`CalibrationCompute.blackPointOffsets`) over a full-frame
-readback of the linearized natural tap — not a GPU reduction kernel. Full-frame readback at 1440²
-RGBA16F (~16 MB) is trivial for a one-shot op, and the stats become unit-testable Swift instead of
-unverifiable shader reductions (advisor, 2026-06-23). The linearize used in calibration
-(`CalibrationCompute.srgbToLinear`) MUST match the shader's `srgbToLinear` (pinned by the round-trip
-device test) so calibration and application agree.
+### D8a. Black-point statistics on CPU over a GPU-extracted patch (not a GPU reduction)
+Calibration is a one-shot button press, not a per-frame path, so the mean/σ are computed in plain
+Swift (`CalibrationCompute.blackPointDebug`) — not a GPU reduction kernel — over the linearized
+natural tap. To stay off the multi-megapixel CPU path, a small compute kernel (`extractCenterRegion`)
+copies only the centered sampled patch into a tiny texture (`readbackNaturalCenterRegion`); only that
+region is read back and unpacked (≈96² px), not the full frame. The stats are then unit-testable
+Swift instead of unverifiable shader reductions (advisor, 2026-06-23). The linearize used in
+calibration (`CalibrationCompute.srgbToLinear`) MUST match the shader's `srgbToLinear` (pinned by the
+round-trip device test) so calibration and application agree.
 
-### D8. Black-point calibration: patch-seeded value-mask
-Calibration seeds from the 96² center patch to learn the "black signature" (`patchMean`, `patchσ`),
-then grows the sample to every frame pixel within `patchMean ± k_select·patchσ`
-(`k_select = blackPointSelectSigmaK`, default 3.0). `mean` and `σ` for the offset are computed over
-that masked background set via a single GPU reduction (count, sum, sum-of-squares). This yields a
-far larger, more reliable statistic and automatically excludes brighter objects in frame. The
-±3σ_patch band is the *collection* width (be generous, ~99.7% of background); the `+1.5σ` margin is
-the *floor* (be gentle, preserve dim signal) — two different k for two different jobs.
+### D8. Black-point calibration: patch-only with a per-pixel near-black gate
+Calibration samples only the centered `centerPatchSizePx` (96²) patch and keeps a pixel only when
+**every** channel is below a near-black threshold (`blackPointMaxSampleGamma`, default 0.3 in
+gamma/display space); a pixel bright or colored in any channel is dropped wholesale, so all channels
+are estimated from the same dark-pixel set. `mean` and `σ` (in linear light) over the kept pixels
+give the per-channel offset `mean + blackPointSigmaK·σ`. Calibration **fails** — throwing
+`EngineError.blackPointCalibrationFailed(reason:)` and leaving any existing black point unchanged —
+when fewer than `blackPointMinKeptFraction` (default 0.4) of the patch passes the gate, so a sliver
+of dark pixels on an otherwise bright surface cannot drive a bogus black point.
 
-### D9. Calibration & apply surface; non-breaking black-balance deprecation
+> *History:* an earlier design used a patch-seeded **value-mask** (collect pixels within
+> `patchMean ± blackPointSelectSigmaK·patchσ` across the whole frame, via a GPU reduction). That was
+> dropped (2026-06-23, device tuning): the full-frame value-mask pulled in per-channel-divergent
+> pixels that over-inflated and tinted the offset. The per-pixel near-black gate over the patch alone
+> is simpler and behaved better on device; `blackPointSelectSigmaK` was never shipped.
+
+### D9. Calibration & apply surface; clean-break black-balance removal
 - **White balance**: one `calibrateWhiteBalance()` (no white-point arg) derives device gains +
   chroma residual + level from one white-field sample and stores all three. `applyWhiteBalance(
   whitePoint: Bool = false)` selects at use time — chroma only (phase contrast) or chroma + level
@@ -135,9 +143,9 @@ the *floor* (be gentle, preserve dim signal) — two different k for two differe
 Extend `ProcessingParameters` (and `ColorUniform`) with the per-channel linear black point, WB
 chroma residual, and white-point level coefficients and their toggles; persist via
 `SettingsPersistence` (manual WB state still not silently restored into auto; legacy black-balance
-keys migrated). Surface the white-point toggle through the Flutter Pigeon API. New `Constants.swift`
-entries: `whitePointTargetDisplay`, `blackPointSigmaK`, `blackPointSelectSigmaK` (renaming
-`blackBalanceOverscan`).
+keys ignored on decode, not migrated). Surface the white-point toggle through the Flutter Pigeon API.
+New `Constants.swift` entries: `whitePointTargetDisplay`, `blackPointSigmaK`,
+`blackPointMaxSampleGamma`, `blackPointMinKeptFraction` (`blackBalanceOverscan` removed).
 
 ### D11. Role-based pass naming (behavior-preserving)
 Existing pass numbers encode *project history*, not execution order (`encode()` runs `1 → 2 → 7p →
@@ -169,8 +177,9 @@ no behavioral delta (hence a task, not a spec requirement).
 
 1. Land the normalization affine + linearize/re-encode with all toggles **off by default**
    (behavior unchanged except the linear round-trip, which is identity).
-2. Migrate "black balance" to the statistical linear black point (`mean + k·σ`, patch-seeded
-   value-mask). Keep `calibrateBlackBalance` as a deprecated alias + persistence migration shim.
+2. Migrate "black balance" to the statistical linear black point (`mean + k·σ` over the centered
+   patch with a per-pixel near-black gate). Clean break — remove `calibrateBlackBalance` entirely
+   (no alias); old persisted blobs keep their grade values, legacy black keys are ignored.
 3. Add manual-mode WB chroma residual + gating (under the existing "white balance" name).
 4. Add white point (off by default) + its level coefficient + the shared white-field calibration.
 5. (Optional, profile-driven) fuse pointwise passes; keep the calibration tap.
