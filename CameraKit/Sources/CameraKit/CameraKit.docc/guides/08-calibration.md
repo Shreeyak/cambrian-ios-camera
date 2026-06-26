@@ -1,6 +1,6 @@
 # Calibration
 
-White- and black-balance calibration, and reading the result.
+White-balance and black-point calibration, and reading the result.
 
 Assumes you have read <doc:06-controlling-the-camera>.
 
@@ -17,10 +17,25 @@ if result.converged {
 }
 ```
 
-## Black-balance calibration
+## Black-point calibration
 
-``CameraEngine/calibrateBlackBalance()`` calibrates the black level the same way
-and also returns a ``CalibrationResult``.
+``CameraEngine/calibrateBlackPoint()`` derives a per-channel linear black point
+from a dark field and applies it (subtracted in linear light, before the grade).
+Point the camera at a uniformly dark/black field, then call it. It returns no
+value on success; it **throws** when the field isn't dark enough — too little of
+the sampled patch reads as near-black — leaving any existing black point
+untouched. Catch the error and prompt the user to retry against a darker field.
+
+```swift
+do {
+    try await engine.calibrateBlackPoint()
+    // The black point is now calibrated and enabled.
+} catch {
+    // Field wasn't dark enough — show the error and let the user retry.
+}
+```
+
+Clear an applied black point with ``CameraEngine/clearBlackPoint()``.
 
 ## Reading CalibrationResult
 
@@ -35,10 +50,12 @@ and also returns a ``CalibrationResult``.
 
 ## Convergence and failure
 
-When ``CalibrationResult/converged`` is `false`, the scene was unsuitable (for
-example, not neutral enough, or too dark). Leave the previous settings in place
-and prompt the user to retry against a neutral surface. Both methods are `async
-throws`; handle thrown errors as a calibration failure (<doc:09-observing-state-and-errors>).
+For white balance, when ``CalibrationResult/converged`` is `false` the scene was
+unsuitable (not neutral enough, or too dark) — leave the previous settings in
+place and prompt the user to retry against a neutral surface. Black point instead
+signals failure by **throwing** (the field wasn't dark enough). Both methods are
+`async throws`; handle thrown errors as a calibration failure
+(<doc:09-observing-state-and-errors>).
 
 ## Reference integration
 

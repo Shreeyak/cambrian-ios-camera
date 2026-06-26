@@ -14,6 +14,14 @@ actor CameraEngine
 init(initialPhase: AppLifecyclePhase, clock: any CameraKitClock = SystemClock())
 ```
 
+### calibrationPatchSizePx
+
+```swift
+static var calibrationPatchSizePx: Int { get }
+```
+
+Side length (px) of the centered square patch that calibration samples from the primary frame. Black-point calibration reads back this centered patch and computes its statistics over it. Hosts draw their calibration reticle to this size — mapped through the preview's aspect-fit scale — so the on-screen rectangle marks **exactly** the sampled region, leaving no ambiguity about where pixels come from.
+
 ### consumers
 
 ```swift
@@ -54,13 +62,13 @@ nonisolated static func requestPhotosAddPermission() async -> CameraPermissionSt
 
 Triggers the system Photos add-only prompt.
 
-### calibrateBlackBalance()
+### calibrateBlackPoint()
 
 ```swift
-func calibrateBlackBalance() async throws -> CalibrationResult
+func calibrateBlackPoint() async throws -> BlackPointDebug
 ```
 
-Single-shot BB calibration. Samples the center patch through the current BCSG with BB temporarily zeroed, computes per-channel pedestal via `CalibrationCompute.blackBalanceOffsets`, writes into `ProcessingParameters.blackR/G/B` via `setProcessingParams`. Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
+Calibrates the linear black point from a dark-field readback (linear-normalization-stage). Reads back the centered sampled patch of the natural (pre-grade) lane — extracted on the GPU, so calibration never touches the full-frame CPU path — derives per-channel **linear** offsets (`mean + k·σ` over the near-black pixels), writes them into `ProcessingParameters.blackPoint{R,G,B}`, and enables the black point. The shader folds the offset into the normalization affine pre-grade. On failure the existing black point is left untouched. Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
 
 ### calibrateWhiteBalance()
 
@@ -107,6 +115,14 @@ ISP one-shot via `AVCapturePhotoOutput` → live Metal crop+grade → still crop
 - Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves outside the app sandbox.
 - Throws: `EngineError.capture(_:)` wrapping any other `StillCaptureError`.
 
+### clearBlackPoint()
+
+```swift
+func clearBlackPoint() async
+```
+
+Clears the applied black point — zeroes the per-channel offsets and disables it. The demo app's "undo". Other processing parameters are untouched.
+
 ### close()
 
 ```swift
@@ -140,7 +156,7 @@ Exposes the live processed-lane texture for the right-half MTKView draw. `.bgra8
 func currentProcessingParametersSnapshot() -> ProcessingParameters?
 ```
 
-Returns the last applied `ProcessingParameters`, or nil if none have been applied. Symmetric with `currentSettingsSnapshot()`. Used by `CalibrationViewModel` to refresh its mirror after engine-side `calibrateBlackBalance()`.
+Returns the last applied `ProcessingParameters`, or nil if none have been applied. Symmetric with `currentSettingsSnapshot()`. Used by `CalibrationViewModel` to refresh its mirror after engine-side calibration.
 
 ### currentSettingsSnapshot()
 
@@ -285,7 +301,7 @@ Update the host's current lifecycle phase. Never throws; safe on every transitio
 func setProcessingParams(_ params: ProcessingParameters) async
 ```
 
-Wholesale replacement. **Pipeline order (`Shaders/ColorShaders.metal`):** 1. Brightness → 2. Contrast → 3. Saturation → 4. Gamma → 5. Black balance. Black balance is the **last** step — pedestal is subtracted from the graded output, behaving like a final shadow lift rather than a pre-grade noise-floor compensation. Calibration sampling for BB must therefore read from a render where BCSG is applied and BB is zeroed (see `MetalPipeline.dispatchBBCalibrationSample`) so each calibrate isn't biased by the previously-applied pedestal.
+Wholesale replacement. **Pipeline order (`Shaders/ColorShaders.metal`):** 0. Normalization (linear light, pre-grade: black point / WB chroma / white point, fused affine) → 1. Brightness → 2. Contrast → 3. Saturation → 4. Gamma. The black point is part of the pre-grade normalization (linear light), derived statistically by `calibrateBlackPoint()` from the raw natural lane.
 
 ### setResolution(size:)
 
@@ -367,10 +383,10 @@ Public surface of `CameraEngine` that the Flutter iOS adapter consumes. Mirrors 
 nonisolated var consumers: ConsumerRegistry { get }
 ```
 
-### calibrateBlackBalance()
+### calibrateBlackPoint()
 
 ```swift
-func calibrateBlackBalance() async throws -> CalibrationResult
+func calibrateBlackPoint() async throws -> BlackPointDebug
 ```
 
 ### calibrateWhiteBalance()
@@ -389,6 +405,12 @@ func captureImage(outputURL: URL?, photosDestination: PhotosDestination) async t
 
 ```swift
 func captureNaturalPicture(outputURL: URL?, photosDestination: PhotosDestination) async throws -> StillCaptureOutput
+```
+
+### clearBlackPoint()
+
+```swift
+func clearBlackPoint() async
 ```
 
 ### close()

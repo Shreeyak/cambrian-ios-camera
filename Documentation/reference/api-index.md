@@ -15,6 +15,8 @@ in the table below to find its file.
 | Symbol | File |
 | --- | --- |
 | `AppLifecyclePhase` | [lifecycle.md](lifecycle.md) |
+| `BlackPointChannelStats` | [calibration.md](calibration.md) |
+| `BlackPointDebug` | [calibration.md](calibration.md) |
 | `CalibrationResult` | [calibration.md](calibration.md) |
 | `CameraEngine` | [camera-engine.md](camera-engine.md) |
 | `CameraEngineProtocol` | [camera-engine.md](camera-engine.md) |
@@ -63,7 +65,7 @@ in the table below to find its file.
 - [Configuration](configuration.md): `OpenConfiguration`, `SessionCapabilities`, `StreamConfiguration`, `Size`, `Rect`
 - [Camera Settings](camera-settings.md): `CameraSettings`, `CameraMode`, `WhiteBalanceMode`, `WhiteBalancePreset`, `CameraPosition`
 - [Image Processing](image-processing.md): `ProcessingParameters`
-- [Calibration](calibration.md): `CalibrationResult`, `RgbSample`, `WhiteBalanceGains`
+- [Calibration](calibration.md): `CalibrationResult`, `RgbSample`, `WhiteBalanceGains`, `BlackPointDebug`, `BlackPointChannelStats`
 - [Recording](recording.md): `RecordingOptions`, `RecordingStart`, `RecordingState`, `PhotosDestination`
 - [Stills](stills.md): `StillCaptureOutput`
 - [Session State](session-state.md): `SessionState`, `StreamId`

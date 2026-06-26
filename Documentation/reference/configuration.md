@@ -10,10 +10,10 @@ struct OpenConfiguration
 
 Startup arguments for CameraEngine.open(configuration:).
 
-### init(cameraId:captureResolution:cropRegion:cropEnabled:initialSettings:trackerHeight:)
+### init(cameraId:captureResolution:cropRegion:cropEnabled:initialSettings:trackerHeight:captureOrientationAngleDeg:)
 
 ```swift
-init(cameraId: String? = nil, captureResolution: Size? = nil, cropRegion: Rect? = nil, cropEnabled: Bool = false, initialSettings: CameraSettings? = nil, trackerHeight: Int? = nil)
+init(cameraId: String? = nil, captureResolution: Size? = nil, cropRegion: Rect? = nil, cropEnabled: Bool = false, initialSettings: CameraSettings? = nil, trackerHeight: Int? = nil, captureOrientationAngleDeg: CGFloat = 0)
 ```
 
 ### cameraId
@@ -21,6 +21,14 @@ init(cameraId: String? = nil, captureResolution: Size? = nil, cropRegion: Rect? 
 ```swift
 var cameraId: String?
 ```
+
+### captureOrientationAngleDeg
+
+```swift
+var captureOrientationAngleDeg: CGFloat
+```
+
+Capture-buffer rotation in degrees, applied to the video/photo connections via `videoRotationAngle`. This rotates the *delivered pixel buffers* themselves, so every lane (preview, processed, tracker) and stills inherit it consistently. Valid values are `0` / `90` / `180` / `270`; an unsupported angle throws at `open()`. A host that locks its UI to landscape-left, for example, passes `180` so the delivered frame reads upright.
 
 ### captureResolution
 

@@ -6,11 +6,11 @@ Assumes you have read [01-overview](01-overview.md).
 
 ## ProcessingParameters
 
-`ProcessingParameters` carries the color controls applied by the GPU
+`ProcessingParameters` carries the gamma-space color grade applied by the GPU
 pipeline: `ProcessingParameters.brightness`, `ProcessingParameters.contrast`,
-`ProcessingParameters.saturation`, the per-channel black levels
-`ProcessingParameters.blackR` / `ProcessingParameters.blackG` /
-`ProcessingParameters.blackB`, and `ProcessingParameters.gamma`.
+`ProcessingParameters.saturation`, and `ProcessingParameters.gamma`. The
+black level is handled separately, in linear light before the grade, by the
+black point — see [08-calibration](08-calibration.md) (`CameraEngine.calibrateBlackPoint()`).
 
 Apply them with `CameraEngine.setProcessingParams(_:)`:
 
@@ -29,13 +29,14 @@ stream, the tracker lane, and **both** still-capture methods.
 `CameraEngine.captureNaturalPicture(outputURL:photosDestination:)` run the
 same color pipeline (see [05-capturing-stills-and-video](05-capturing-stills-and-video.md)), so both reflect
 the current parameters. There is no un-graded delivery path — the pre-grade
-image exists only internally, to seed white- and black-balance calibration.
+image exists only internally, to seed white-balance and black-point calibration.
 
 ## The identity baseline
 
 `ProcessingParameters.identity` is the no-op configuration: brightness 0,
-contrast 1, saturation 1, zero black levels, gamma 1. Start from it for a clean
-baseline, or from the current snapshot to adjust a single field.
+contrast 1, saturation 1, gamma 1, with normalization (black point / white
+balance / white point) disabled. Start from it for a clean baseline, or from the
+current snapshot to adjust a single field.
 
 ## Applying and persisting
 

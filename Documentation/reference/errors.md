@@ -176,6 +176,14 @@ Wraps framework errors without losing root cause.
 case alreadyOpen
 ```
 
+### EngineError.blackPointCalibrationFailed(reason:)
+
+```swift
+case blackPointCalibrationFailed(reason: String)
+```
+
+A `calibrateBlackPoint()` call could not derive a valid black point — the sampled patch was not dark enough (too few near-black pixels). The `reason` is operator-facing (e.g. "point at a uniformly dark field").
+
 ### EngineError.calibrationInProgress
 
 ```swift

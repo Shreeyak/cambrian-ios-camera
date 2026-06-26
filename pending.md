@@ -36,26 +36,11 @@ pass over every error type is its own change.
 
 Tracked as task #1.
 
-## Consumer docs still describe the removed black-balance API
+## Notes
 
-**What.** The generated consumer docs under `Documentation/` (and their `.docc`
-source) still document `calibrateBlackBalance()` and the legacy
-`ProcessingParameters.blackR/G/B` as if current — e.g.
-`Documentation/reference/camera-engine.md` (two `calibrateBlackBalance()`
-sections), `Documentation/reference/image-processing.md` (blackR/G/B fields),
-`Documentation/reference/calibration.md`, and the calibration guide source
-`CameraKit/Sources/CameraKit/CameraKit.docc/guides/08-calibration.md`.
-
-**Why it matters.** These are user-facing; they'll mislead consumers into calling
-a removed API. (Hand-written source/tests are clean — confirmed by a repo-wide
-scan; only docs lag.)
-
-**Why deferred.** Regenerating consumer docs (`scripts/regen-docs.sh`) needs a
-device symbol-graph build and a manual prose pass over the `.docc` calibration
-guide — a distinct chunk from the code clean break.
-
-**Acceptance bar.** No `calibrateBlackBalance` / legacy `blackR/G/B` references in
-`Documentation/` or the `.docc` guides; the calibration guide describes black
-point. (Historical ledgers — `CameraKit/state.md`, append-only `DECISIONS.md` —
-and the `openspec/changes/linear-normalization-stage/` design/spec are records of
-the migration and are left as-is, except `tasks.md` §4.4 which is now done.)
+Historical ledgers — `CameraKit/state.md` and append-only `DECISIONS.md` — plus
+the `openspec/changes/linear-normalization-stage/` design/spec still mention the
+old black balance, but those are records of the migration and are intentionally
+left as-is. (`openspec` `tasks.md` §4.4 is complete; the §4.1/design D8/D8a
+algorithm reconcile — patch-only + per-pixel gate vs the originally-specified
+value-mask — remains for an openspec sync pass.)
