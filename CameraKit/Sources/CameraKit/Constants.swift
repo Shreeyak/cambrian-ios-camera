@@ -2,7 +2,7 @@ import CoreVideo
 import Metal
 
 enum Constants {
-    static let frameRateTargetFPS: Int = 30
+    static let frameRateTargetFPS: Int = 60
     static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
     static let workingPixelFormat: MTLPixelFormat = .rgba16Float
     static let captureDefaultWidthPx: Int = 4160

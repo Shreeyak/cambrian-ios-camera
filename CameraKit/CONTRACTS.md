@@ -1261,7 +1261,7 @@ public func sleep(milliseconds: Int) async throws {
 ## File: CameraKit/Sources/CameraKit/Constants.swift
 ```swift
 enum Constants {
-static let frameRateTargetFPS: Int = 30
+static let frameRateTargetFPS: Int = 60
 static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
 static let workingPixelFormat: MTLPixelFormat = .rgba16Float
 static let captureDefaultWidthPx: Int = 4160
