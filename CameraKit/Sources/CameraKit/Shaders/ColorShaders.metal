@@ -23,10 +23,31 @@ struct ColorUniform {
     float contrast;
     float saturation;
     float gamma;
-    // linear-normalization-stage: fused per-channel affine in LINEAR light,
-    // applied BEFORE the gamma-space grade above. `out = a·x + b` per channel.
-    // Identity (a=1, b=0) ⇒ no-op. Individual scalars (NOT float3) to keep the
-    // host/shader byte layout identical for setBytes. Applied in task 2.2.
+    // linear-normalization-stage: the fused per-channel normalization affine,
+    // evaluated in LINEAR light BEFORE the gamma-space grade above. Per channel:
+    //
+    //     out = a · x + b
+    //
+    // THREE physically-distinct calibration ops collapse into this one multiply-add
+    // (they are all per-channel linear ops, so they compose exactly — design D2):
+    //
+    //     • black point      → contributes to b   (an OFFSET; dark field → 0)
+    //     • WB chroma residual → contributes to a (a per-channel GAIN; neutralizes cast)
+    //     • white-point level  → contributes to a (a scalar GAIN; lifts white → target)
+    //
+    // with, on the HOST side (ColorUniform.init in MetalPipeline.swift — this shader
+    // never sees the individual ops, only the folded a/b):
+    //
+    //     a = wbChroma · whitePointLevel      (per channel; level is a scalar)
+    //     b = −a · blackPoint                 (so black is subtracted FIRST, then gained)
+    //
+    // Each op is gated by its own toggle host-side, substituting its identity value
+    // when off (blackPoint→0, chroma→1, level→1); white-point level is additionally
+    // gated by chroma (D4 — "level without chroma" is inert). All-off ⇒ a=1, b=0 and
+    // `normalizeEnabled` is 0 so this block is skipped entirely (see the kernel).
+    //
+    // Individual scalars (NOT float3) so the host/shader byte layout is identical for
+    // `setBytes` (no float3 16-byte alignment surprises).
     float aR;
     float aG;
     float aB;
@@ -72,27 +93,34 @@ kernel void colorTransform(texture2d<float, access::read>  inTex  [[texture(0)]]
     float3 c = srgb.rgb;
 
     // 0. Linear-light normalization (linear-normalization-stage) — runs BEFORE the
-    //    gamma-space grade below. Physical ops (black point, white balance, white
-    //    point) are only correct in linear light, so we: undo gamma → apply one
-    //    fused per-channel affine in linear → re-encode to gamma → then grade.
+    //    gamma-space grade below. Black point / WB chroma / white point are physical
+    //    (multiply/subtract on light) and are only correct in LINEAR light, so this
+    //    block is a four-step round trip — note the UNITS change at each arrow:
+    //
+    //      c (gamma R'G'B')  --srgbToLinear-->  lin (LINEAR)
+    //                        --a·lin + b------>  lin (LINEAR, normalized)   ← the fused affine
+    //                        --clamp[0,1]----->  lin (LINEAR, bounded)
+    //                        --linearToSrgb--->  c   (gamma R'G'B')         ← back for the grade
+    //
+    //    `a`/`b` are the host-folded per-channel affine (see ColorUniform above:
+    //    a = chroma·level, b = −a·blackPoint); this kernel applies them verbatim and
+    //    knows nothing of the three ops that produced them.
     //
     //    Gated by `normalizeEnabled`: when no normalization op is active we skip the
     //    whole block, leaving `c` untouched. This is the real identity guarantee —
     //    the half-float sRGB round-trip is NOT bit-exact and BT.601 can hand us
-    //    out-of-gamut values, so a "no-op" round-trip would still perturb pixels.
-    //
-    //    The affine is `out = a·x + b` in linear, where (host-computed, ColorUniform):
-    //      a = wbChroma · whitePointLevel   (per-channel gain; level is scalar)
-    //      b = −a · blackPoint              (black subtracted first, then gained)
+    //    out-of-gamut values, so even a "no-op" (a=1,b=0) round-trip would perturb
+    //    pixels. Host sets the gate iff black point OR chroma is on (an orphan white
+    //    point is inert, so it must not trip the gate).
     if (u.normalizeEnabled != 0) {
         // gamma → linear (c is gamma-encoded R'G'B' from the BT.601 decode pass)
         float3 lin = float3(srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b));
-        // fused per-channel affine in LINEAR light
+        // the fused per-channel affine, in LINEAR light: out = a·x + b
         lin = float3(u.aR, u.aG, u.aB) * lin + float3(u.bR, u.bG, u.bB);
-        // Clamp to [0, 1]: lower bound is mandatory (black subtraction makes
-        // negatives; linearToSrgb(neg) = NaN) and is the black floor; upper bound
-        // is the white ceiling (white point maps the reference to ≤ 1, brighter
-        // values clamp to solid white).
+        // Clamp to [0, 1]: the lower bound is MANDATORY (a black-point subtraction
+        // drives near-black below 0, and linearToSrgb(neg) = NaN) and doubles as the
+        // black floor; the upper bound is the white ceiling (white point maps the
+        // reference to ≤ 1, and anything brighter clamps to solid white).
         lin = clamp(lin, 0.0, 1.0);
         // linear → gamma, back into the working/display space for the grade below
         c = float3(linearToSrgb(lin.r), linearToSrgb(lin.g), linearToSrgb(lin.b));
