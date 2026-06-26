@@ -489,8 +489,16 @@ public actor CameraEngine {
         await reconcile()
 
         // Apply persisted ProcessingParameters if any (07-settings.md §Persistence).
+        // §5.3 — gate the restored WB chroma / white-point toggles to the effective
+        // WB mode. Manual WB is NOT silently restored into a stale lock (persistence
+        // strips `.manual`), so WB is auto here unless `initialSettings` set a lock;
+        // a persisted `wbChromaEnabled == true` must therefore start disabled rather
+        // than applying chroma on top of moving auto gains. Coefficients are kept, so
+        // a later `calibrateWhiteBalance()`/lock re-activates them.
         if let persistedProcessing = SettingsPersistence.loadProcessing() {
-            await self.setProcessingParams(persistedProcessing)
+            let effectiveWB = currentSettings?.wbMode ?? .auto
+            await self.setProcessingParams(
+                Self.gateWBNormalization(persistedProcessing, wbMode: effectiveWB))
         }
 
         // Mirror the resolved open-time crop (explicit rect or the on-open default)
@@ -767,6 +775,18 @@ public actor CameraEngine {
         try await session.applySettings(resolved, on: device)
         currentSettings = resolved
 
+        // 4b. §5.3 — keep the WB chroma / white-point normalization gated to a
+        //     locked white balance. Whenever WB is (or returns to) auto, disable
+        //     those toggles so a software residual never chases moving hardware
+        //     gains. Idempotent and coefficient-preserving; only re-pushes the
+        //     uniforms when a toggle actually flips (so a non-WB settings change in
+        //     auto is a no-op here).
+        let effectiveWB = resolved.wbMode ?? .auto
+        if let cur = currentProcessing {
+            let gated = Self.gateWBNormalization(cur, wbMode: effectiveWB)
+            if gated != cur { await setProcessingParams(gated) }
+        }
+
         // 5. Persist. Detached so the actor doesn't block on I/O.
         let toSave = resolved
         Task.detached { SettingsPersistence.save(toSave) }
@@ -780,6 +800,31 @@ public actor CameraEngine {
             || settings.wbGainR != nil
             || settings.wbGainG != nil
             || settings.wbGainB != nil
+    }
+
+    /// Gates the WB-derived normalization toggles (chroma residual + white point)
+    /// to a locked white balance (linear-normalization-stage §5.3, design D5).
+    ///
+    /// In **auto** WB the hardware gains move continuously, so a software chroma
+    /// residual layered on top would chase them; the residual is only meaningful
+    /// once gains are locked (`.manual` / `.locked`). This returns `p` unchanged
+    /// when WB is locked, and with `wbChromaEnabled`/`whitePointEnabled` forced off
+    /// otherwise. It does **not** touch the stored coefficients — only the toggles —
+    /// so re-locking re-activates the last calibration without recomputing.
+    ///
+    /// Applied at the two points WB mode is established: the `updateSettings`
+    /// chokepoint (explicit transitions, incl. calibrate's cancel→auto path) and
+    /// the persisted-parameter restore in `open()` (where WB defaults to auto and a
+    /// stale `wbChromaEnabled == true` would otherwise apply chroma in auto).
+    private static func gateWBNormalization(
+        _ p: ProcessingParameters, wbMode: WhiteBalanceMode?
+    ) -> ProcessingParameters {
+        let locked = (wbMode == .manual || wbMode == .locked)
+        guard !locked else { return p }
+        var g = p
+        g.wbChromaEnabled = false
+        g.whitePointEnabled = false
+        return g
     }
 
     /// Session-only teardown + re-select format + restart for new resolution.
@@ -1426,7 +1471,25 @@ public actor CameraEngine {
                 manual.wbGainB = Double(gains.blue)
                 try await _updateSettingsBypassingCalibrationGuard(manual)
                 let after = try await sampleCenterPatchOnNatural()
-                CameraKitLog.notice(.engine, "[wb] calibrate done")
+                // §5.1 — decompose the locked white field into the per-channel chroma
+                // residual + scalar white-point level and store all three (the
+                // hardware gains are already committed above). Chroma is enabled now
+                // that WB is locked to manual (it neutralizes the residual cast);
+                // white point stays at whatever it was (off by default — phase
+                // contrast) and is selected later via `applyWhiteBalance(whitePoint:)`
+                // without recalibrating.
+                let residual = CalibrationCompute.whiteBalanceResidual(whiteSample: after)
+                var proc = currentProcessing ?? .identity
+                proc.wbChromaR = residual.chroma.r
+                proc.wbChromaG = residual.chroma.g
+                proc.wbChromaB = residual.chroma.b
+                proc.whitePointLevel = residual.level
+                proc.wbChromaEnabled = true
+                await setProcessingParams(proc)
+                CameraKitLog.notice(
+                    .engine,
+                    "[wb] calibrate done chroma=(\(residual.chroma.r), \(residual.chroma.g), \(residual.chroma.b)) level=\(residual.level)"
+                )
                 return CalibrationResult(
                     before: before, after: after,
                     converged: true, iterations: 1)
@@ -1520,6 +1583,31 @@ public actor CameraEngine {
         next.blackPointG = 0
         next.blackPointB = 0
         next.blackPointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Selects how the calibrated white balance is applied (linear-normalization-stage §5.2).
+    ///
+    /// White balance decomposes into a brightness-preserving **chroma residual**
+    /// (neutralizes the cast) and an optional **white-point level** (lifts the
+    /// neutralized reference to the white target). This is the apply-time selector
+    /// between the two microscopy modes, switchable without recalibrating:
+    /// - `whitePoint: false` (default) — **phase contrast**: chroma only. The grey
+    ///   field is neutralized but its level is preserved (not stretched to white).
+    /// - `whitePoint: true` — **brightfield**: chroma + level. The white field maps
+    ///   to the configured target as solid neutral white.
+    ///
+    /// The white point is never applied without chroma ("level without chroma" is
+    /// not a valid state — design D4), so it is enabled only alongside chroma.
+    /// Both toggles are gated to a locked white balance (§5.3): in **auto** WB this
+    /// is a no-op (the toggles stay off), since a software residual can't sit on top
+    /// of continuously-moving hardware gains. Call `calibrateWhiteBalance()` first —
+    /// it locks WB and derives the coefficients this selects between.
+    public func applyWhiteBalance(whitePoint: Bool = false) async {
+        let locked = (currentSettings?.wbMode == .manual || currentSettings?.wbMode == .locked)
+        var next = currentProcessing ?? .identity
+        next.wbChromaEnabled = locked
+        next.whitePointEnabled = locked && whitePoint
         await setProcessingParams(next)
     }
 

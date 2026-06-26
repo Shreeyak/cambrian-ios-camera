@@ -288,8 +288,14 @@ struct Stage04Tests {
             pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
         pipeline.setLatestProcessedForTest(buffer: pBuf, texture: pTex)
 
-        // a = chroma·level = 1·2 = 2 (whitePoint); b = −a·bp = −2·0.05 = −0.1 (blackPoint).
+        // a = chroma·level = 1·2 = 2; b = −a·bp = −2·0.05 = −0.1 (blackPoint).
+        // White point is gated by chroma (D4: "level without chroma" is inert), so
+        // enable chroma (identity 1·) alongside the level to realize the gain of 2.
         var params = ProcessingParameters.identity
+        params.wbChromaEnabled = true
+        params.wbChromaR = 1.0
+        params.wbChromaG = 1.0
+        params.wbChromaB = 1.0
         params.whitePointEnabled = true
         params.whitePointLevel = 2.0
         params.blackPointEnabled = true
@@ -339,6 +345,126 @@ struct Stage04Tests {
         let buf = try #require(pipeline.latestProcessedBufferForTest)
         let (r, _, _, _) = try sampleCenterPixel(buf)
         #expect(abs(r - input) < 2e-3, "sRGB round-trip not identity: \(r) vs \(input)")
+    }
+
+    /// End-to-end golden test of the fused normalization affine over **specific,
+    /// per-channel-distinct RGB patches** run through several parameter sets, each
+    /// checked on all three channels against an independent Double-precision Swift
+    /// reference (host affine composition → linearize → a·x+b → clamp → re-encode),
+    /// with the creative grade held at identity so the output reflects normalization
+    /// alone. Exercises real combinations a uniform-grey patch can't: per-channel
+    /// black point, chroma neutralization of a colored field, white-point lift, and
+    /// all three fused together.
+    @Test func fusedNormalizationPatchCases() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 64, height: 64)
+
+        // Two specific, per-channel-distinct gamma-encoded R'G'B' patches.
+        let colors: [(name: String, r: Float, g: Float, b: Float)] = [
+            ("warm", 0.60, 0.40, 0.20),
+            ("cool", 0.20, 0.50, 0.80),
+        ]
+        let targetGamma = Float(Constants.whitePointTargetDisplay)
+
+        for color in colors {
+            // Per-color linear values + the chroma gains that neutralize THIS color
+            // (brightness-preserving: meanLin / channel), and the level that lifts the
+            // neutralized mean to the white-point target.
+            let lr = Double(srgbToLinearRef(color.r))
+            let lg = Double(srgbToLinearRef(color.g))
+            let lb = Double(srgbToLinearRef(color.b))
+            let meanLin = (lr + lg + lb) / 3.0
+            let targetLin = CalibrationCompute.srgbToLinear(Constants.whitePointTargetDisplay)
+
+            // Case 1 — black point only (per-channel offset, a = 1).
+            var blackOnly = ProcessingParameters.identity
+            blackOnly.blackPointEnabled = true
+            blackOnly.blackPointR = 0.02
+            blackOnly.blackPointG = 0.02
+            blackOnly.blackPointB = 0.02
+
+            // Case 2 — chroma only (phase contrast: neutralize, preserve level).
+            var chromaOnly = ProcessingParameters.identity
+            chromaOnly.wbChromaEnabled = true
+            chromaOnly.wbChromaR = meanLin / lr
+            chromaOnly.wbChromaG = meanLin / lg
+            chromaOnly.wbChromaB = meanLin / lb
+
+            // Case 3 — chroma + white point (brightfield: lift to the white target).
+            var brightfield = chromaOnly
+            brightfield.whitePointEnabled = true
+            brightfield.whitePointLevel = targetLin / meanLin
+
+            // Case 4 — all three fused (black point + chroma + white point).
+            var combined = brightfield
+            combined.blackPointEnabled = true
+            combined.blackPointR = 0.01
+            combined.blackPointG = 0.01
+            combined.blackPointB = 0.01
+
+            let cases: [(name: String, params: ProcessingParameters)] = [
+                ("blackPoint", blackOnly),
+                ("chromaNeutralize", chromaOnly),
+                ("brightfield", brightfield),
+                ("combined", combined),
+            ]
+
+            for testCase in cases {
+                let p = testCase.params
+                // Independent per-channel a/b — re-derive the HOST composition (D2/D4)
+                // in Double, so this reference also validates ColorUniform.init, not
+                // just the shader. level is gated by chroma; b = −a·blackPoint.
+                let level = (p.whitePointEnabled && p.wbChromaEnabled) ? p.whitePointLevel : 1.0
+                func ab(_ chroma: Double, _ bp: Double) -> (a: Double, b: Double) {
+                    let a = (p.wbChromaEnabled ? chroma : 1.0) * level
+                    let b = -a * (p.blackPointEnabled ? bp : 0.0)
+                    return (a, b)
+                }
+                let cR = ab(p.wbChromaR, p.blackPointR)
+                let cG = ab(p.wbChromaG, p.blackPointG)
+                let cB = ab(p.wbChromaB, p.blackPointB)
+                let eR = fusedNormalizeRef(color.r, a: cR.a, b: cR.b)
+                let eG = fusedNormalizeRef(color.g, a: cG.a, b: cG.b)
+                let eB = fusedNormalizeRef(color.b, a: cB.a, b: cB.b)
+
+                // Drive the patch through the GPU fused kernel (grade at identity).
+                let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+                let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+                    pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
+                try fillBufferUniform(nBuf, r: color.r, g: color.g, b: color.b, a: 1.0)
+                pipeline.setLatestNaturalForTest(texture: nTex)
+                let (pBuf, pTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
+                    pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+                pipeline.setLatestProcessedForTest(buffer: pBuf, texture: pTex)
+                pipeline.uniforms.withLock { $0.color = ColorUniform(p) }
+                try await pipeline.encodeGradeOnly()
+
+                let out = try #require(pipeline.latestProcessedBufferForTest)
+                let (gr, gg, gb, _) = try sampleCenterPixel(out)
+
+                let tag = "\(color.name)/\(testCase.name)"
+                let tol: Float = 3e-3
+                #expect(abs(gr - eR) < tol, "\(tag) R: gpu \(gr) != ref \(eR)")
+                #expect(abs(gg - eG) < tol, "\(tag) G: gpu \(gg) != ref \(eG)")
+                #expect(abs(gb - eB) < tol, "\(tag) B: gpu \(gb) != ref \(eB)")
+
+                // Cross-checks via an independent path (not the a·x+b reference):
+                switch testCase.name {
+                case "chromaNeutralize":
+                    // Chroma alone equalizes the channels (neutral grey), level preserved.
+                    #expect(
+                        abs(gr - gg) < 5e-3 && abs(gg - gb) < 5e-3,
+                        "\(tag): chroma should neutralize to grey, got (\(gr), \(gg), \(gb))")
+                case "brightfield":
+                    // Chroma + level lands every channel on the white-point target.
+                    #expect(abs(gr - targetGamma) < 5e-3, "\(tag) R off target \(gr)")
+                    #expect(abs(gg - targetGamma) < 5e-3, "\(tag) G off target \(gg)")
+                    #expect(abs(gb - targetGamma) < 5e-3, "\(tag) B off target \(gb)")
+                default:
+                    break
+                }
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -416,5 +542,14 @@ struct Stage04Tests {
     private func srgbEncodeRef(_ c: Float) -> Float {
         let x = Double(c)
         return Float(x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0 / 2.4) - 0.055)
+    }
+
+    /// Independent reference for the shader's normalization block on one channel:
+    /// linearize → `a·x + b` (in linear light) → clamp[0,1] → re-encode. Mirrors the
+    /// `colorTransform` kernel's step 0; `a`/`b` are the caller's host-composed affine.
+    private func fusedNormalizeRef(_ input: Float, a: Double, b: Double) -> Float {
+        let lin = Double(srgbToLinearRef(input))
+        let affined = min(max(a * lin + b, 0.0), 1.0)
+        return srgbEncodeRef(Float(affined))
     }
 }

@@ -29,13 +29,13 @@
 
 ## 5. White-balance + white-point calibration
 
-- [ ] 5.1 Extend `calibrateWhiteBalance()` to derive and store all three from one white-field sample: hardware gains (existing lock), the per-channel chroma residual (brightness-preserving), and the per-channel white-point level (to `whitePointTargetDisplay`, converted to linear). No white-point argument.
-- [ ] 5.2 Add `applyWhiteBalance(whitePoint: Bool = false)`: chroma only when false, chroma + level when true; make "level without chroma" unrepresentable.
-- [ ] 5.3 Gate the chroma residual to manual WB mode (identity in auto); confirm the decomposition (chroma neutralizes without changing level; level lifts to target) on real data.
+- [x] 5.1 `calibrateWhiteBalance()` derives + stores all three from one white-field sample: hardware gains (existing lock), the per-channel chroma residual, and the white-point level. Math in `CalibrationCompute.whiteBalanceResidual(whiteSample:)` (linearize → `meanLin` computed once → chroma `meanLin/lC` brightness-preserving → level `targetLin/meanLin`); wired into `calibrateWhiteBalance` after the post-lock `after` sample, storing `wbChroma{R,G,B}` + `whitePointLevel`, enabling chroma. No white-point argument.
+- [x] 5.2 `applyWhiteBalance(whitePoint: Bool = false)` (CameraEngine + protocol): chroma only when false, chroma + level when true. "Level without chroma" made unrepresentable two ways — `applyWhiteBalance` enables white point only alongside chroma, and `ColorUniform.init` gates the level term (and the `normalizeEnabled` trigger) by `wbChromaEnabled` so a hand-built orphan white-point is inert.
+- [x] 5.3 Chroma + white point gated to a locked WB (`gateWBNormalization`) at both mode-establishing sites: the `updateSettings` chokepoint (explicit transitions incl. calibrate's cancel→auto) and the `open()` persisted-param restore (closes the auto-default-restores-stale-chroma hole). Decomposition properties unit-tested (`wbResidualNeutral`/`Brightfield`/`ChromaOnly`, Stage11). On-device decomposition confirmation (chroma neutralizes without stretch; level lifts to target on real brightfield/phase-contrast) rolls into §9.2 — needs the apply-time toggle on device.
 
 ## 6. Mode gating & toggles
 
-- [ ] 6.1 Make black point, WB chroma, and white-point level independently reflected in the affine; white-point level disabled by default.
+- [x] 6.1 Black point, WB chroma, and white-point level are independently reflected in the fused affine (`ColorUniform.init`): each contributes its identity value when its toggle is off; white-point level is disabled by default and additionally gated by chroma (no level without chroma).
 - [ ] 6.2 Confirm phase-contrast path (chroma on, level off) preserves grey structure; brightfield path (chroma + level) yields solid neutral white at the target.
 
 ## 7. Kernel fusion (profile-driven)
@@ -52,6 +52,9 @@
 ## 9. Verification & docs
 
 - [ ] 9.1 Tests in place: affine math, black-point `mean + k·σ` + per-pixel near-black gate, endpoint preservation, and persistence (Stage04 / Stage11 / FrameMetadata; legacy keys ignored). Remaining: chroma/level decomposition + auto/manual WB gating tests (depend on §5). (The value-mask derivation test was dropped with the value-mask.)
-- [ ] 9.2 Build via XcodeBuildMCP (device-only) and verify on the iPad: solid white (H&E, white point on), solid black (fluorescence, dim signal preserved), grey preserved (phase contrast, white point off, chroma on), and that an identity grade leaves the normalized background solid (endpoint drift under grade is accepted, not tested as preserved).
+- [ ] 9.2 Build via XcodeBuildMCP (device-only) and verify on the iPad: solid white (H&E, white point on), solid black (fluorescence, dim signal preserved), grey preserved (phase contrast, white point off, chroma on), and that an identity grade leaves the normalized background solid (endpoint drift under grade is accepted, not tested as preserved). Carried in from §5 (need an apply-time white-point toggle on device — §8.2-adjacent):
+  - On-device **decomposition** confirmation (the §5 unit tests prove only the affine algebra is self-consistent, not that the chroma formula neutralizes a real cast): chroma-only neutralizes a real white field without stretching its level; chroma+level lifts it to the target.
+  - **`after`-staleness** guard: `calibrateWhiteBalance` now derives the stored chroma from the post-lock `after` patch, so a transitional (pre-propagation) frame would silently mis-derive it. Calibrate twice against a fixed white field and assert the chroma coefficients are stable run-to-run (jitter ⇒ staleness in `applyManualGainsAndAwait`).
+  - **Restore-gate** scenario (no unit coverage — `open()` needs a real session): persist `wbChromaEnabled = true`, relaunch with WB defaulting to auto, assert chroma starts disabled (the §5.3 `gateWBNormalization` hole-closer).
 - [ ] 9.3 Consumer docs updated for the black-balance→black-point clean break + linear normalization (`07-image-processing.md`, `08-calibration.md`); `Documentation/` regenerated. Remaining: the WB chroma / white-point split + auto/manual WB gating docs (depend on §5).
 - [ ] 9.4 Call out the black-balance **removal as a breaking change** in the GitHub release notes at release time (consumers migrate `calibrateBlackBalance` → `calibrateBlackPoint`).

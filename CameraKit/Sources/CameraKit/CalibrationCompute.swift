@@ -209,4 +209,50 @@ public enum CalibrationCompute {
             b: stats(sum.z, sumSq.z, gammaSum.z, minG.z, maxG.z))
     }
 
+    // MARK: - linear-normalization-stage: white-balance residual + white point
+
+    /// Decomposes one white-field sample into a per-channel **chroma residual**
+    /// gain and a scalar **white-point level**, both in linear light (§5.1).
+    ///
+    /// The sample is the centered patch read from the natural (pre-grade) lane
+    /// *after* the hardware white-balance gains have been locked, so it carries
+    /// the residual color cast the hardware gains could not remove. The
+    /// decomposition (design D4):
+    ///   1. Linearize each gamma-encoded channel (`srgbToLinear`, the same curve
+    ///      the shader applies — pinned by `normalizationSrgbRoundTripIsIdentity`).
+    ///   2. `meanLin = (lr + lg + lb) / 3` — computed **once** and fed to both
+    ///      terms. The composite gain is `chroma·level = meanLin/lC · target/meanLin
+    ///      = target/lC`; the mean cancels, so brightfield always lands every
+    ///      channel on `target`. Splitting the mean between the two terms (e.g.
+    ///      geometric for one) would break that cancellation — don't.
+    ///   3. **Chroma residual** `chromaC = meanLin / lC`: equalizes the channels to
+    ///      their shared linear mean. Brightness-preserving — it conserves the
+    ///      linear-RGB sum (`Σ chromaC·lC = 3·meanLin = Σ lC`), so a grey reference
+    ///      stays at its level instead of being pushed toward white. Safe for phase
+    ///      contrast.
+    ///   4. **Level** `targetLin / meanLin`, with `targetLin =
+    ///      srgbToLinear(Constants.whitePointTargetDisplay)`: lifts the neutralized
+    ///      reference to the configured white target. Optional, applied only in
+    ///      brightfield (see `applyWhiteBalance(whitePoint:)`).
+    ///
+    /// Near-zero channels are eps-clamped so a (degenerate) black sample can't
+    /// divide by zero; on a real white field every channel is bright.
+    ///
+    /// - Parameter whiteSample: per-channel **gamma-encoded** RGB of the locked
+    ///   white-field patch (`sampleCenterPatchOnNatural()`'s `after`).
+    /// - Returns: the per-channel chroma gains and the scalar white-point level.
+    public static func whiteBalanceResidual(
+        whiteSample: RgbSample
+    ) -> (chroma: RgbSample, level: Double) {
+        let eps = 1e-4
+        let lr = max(eps, srgbToLinear(whiteSample.r))
+        let lg = max(eps, srgbToLinear(whiteSample.g))
+        let lb = max(eps, srgbToLinear(whiteSample.b))
+        let meanLin = (lr + lg + lb) / 3.0
+        let targetLin = srgbToLinear(Constants.whitePointTargetDisplay)
+        let chroma = RgbSample(r: meanLin / lr, g: meanLin / lg, b: meanLin / lb)
+        let level = targetLin / meanLin
+        return (chroma: chroma, level: level)
+    }
+
 }

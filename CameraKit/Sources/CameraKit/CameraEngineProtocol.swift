@@ -54,6 +54,7 @@ public protocol CameraEngineProtocol: Actor {
 
     // MARK: Calibration
     func calibrateWhiteBalance() async throws -> CalibrationResult
+    func applyWhiteBalance(whitePoint: Bool) async
     func calibrateBlackPoint() async throws -> BlackPointDebug
     func clearBlackPoint() async
 

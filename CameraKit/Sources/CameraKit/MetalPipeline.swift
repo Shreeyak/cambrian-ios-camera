@@ -55,7 +55,11 @@ struct ColorUniform: Hashable {
         let chromaR = p.wbChromaEnabled ? p.wbChromaR : 1.0
         let chromaG = p.wbChromaEnabled ? p.wbChromaG : 1.0
         let chromaB = p.wbChromaEnabled ? p.wbChromaB : 1.0
-        let level = p.whitePointEnabled ? p.whitePointLevel : 1.0
+        // White point is a level on top of chroma — "level without chroma" is not a
+        // valid state (design D4). Gate it by chroma here too, so even a hand-built
+        // ProcessingParameters with whitePointEnabled but wbChromaEnabled == false
+        // contributes identity instead of stretching an un-neutralized reference.
+        let level = (p.whitePointEnabled && p.wbChromaEnabled) ? p.whitePointLevel : 1.0
         let gainR = chromaR * level
         let gainG = chromaG * level
         let gainB = chromaB * level
@@ -69,9 +73,12 @@ struct ColorUniform: Hashable {
         // (kCVImageBufferTransferFunctionKey) lands with §2.1's Swift side.
         transferFn = 0
         // Gate: run the normalization block only when an op is actually active, so
-        // the off-path stays byte-identical to the legacy grade (§2.3).
+        // the off-path stays byte-identical to the legacy grade (§2.3). White point
+        // is intentionally NOT a trigger on its own — it's inert without chroma
+        // (gated above), so an orphan whitePointEnabled must not switch on the linear
+        // round-trip and break the byte-identical off-path guarantee.
         normalizeEnabled =
-            (p.blackPointEnabled || p.wbChromaEnabled || p.whitePointEnabled) ? 1 : 0
+            (p.blackPointEnabled || p.wbChromaEnabled) ? 1 : 0
     }
 
     static let identity = ColorUniform(.identity)

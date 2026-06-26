@@ -145,6 +145,55 @@ struct Stage11CalibrationComputeTests {
         let expected = mean + Constants.blackPointSigmaK * sigma
         #expect(abs(off.r - expected) < 1e-6, "offset \(off.r) != mean+kσ \(expected)")
     }
+
+    // MARK: - white-balance residual (§5.1) — chroma + white-point decomposition
+
+    @Test("white balance: neutral grey sample → identity chroma, level lifts to target")
+    func wbResidualNeutral() {
+        let res = CalibrationCompute.whiteBalanceResidual(
+            whiteSample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
+        // No cast ⇒ chroma is identity (channels already equal).
+        #expect(abs(res.chroma.r - 1.0) < 1e-9)
+        #expect(abs(res.chroma.g - 1.0) < 1e-9)
+        #expect(abs(res.chroma.b - 1.0) < 1e-9)
+        // Level lifts the neutral linear level to the white-point target.
+        let lin = CalibrationCompute.srgbToLinear(0.5)
+        let targetLin = CalibrationCompute.srgbToLinear(Constants.whitePointTargetDisplay)
+        #expect(abs(res.level - targetLin / lin) < 1e-9)
+    }
+
+    @Test("white balance: chroma·level maps each channel to the white target (brightfield)")
+    func wbResidualBrightfield() {
+        // Warm cast: R brightest, B dimmest.
+        let s = RgbSample(r: 0.62, g: 0.55, b: 0.48)
+        let res = CalibrationCompute.whiteBalanceResidual(whiteSample: s)
+        let targetLin = CalibrationCompute.srgbToLinear(Constants.whitePointTargetDisplay)
+        // The composite gain a = chroma·level must land every channel on the target,
+        // independent of how the mean was split between chroma and level.
+        for (gamma, chroma) in [(s.r, res.chroma.r), (s.g, res.chroma.g), (s.b, res.chroma.b)] {
+            let lin = CalibrationCompute.srgbToLinear(gamma)
+            #expect(abs(chroma * res.level * lin - targetLin) < 1e-9)
+        }
+    }
+
+    @Test("white balance: chroma alone equalizes channels and preserves linear level (phase contrast)")
+    func wbResidualChromaOnly() {
+        let s = RgbSample(r: 0.62, g: 0.55, b: 0.48)
+        let res = CalibrationCompute.whiteBalanceResidual(whiteSample: s)
+        let lr = CalibrationCompute.srgbToLinear(s.r)
+        let lg = CalibrationCompute.srgbToLinear(s.g)
+        let lb = CalibrationCompute.srgbToLinear(s.b)
+        let outR = res.chroma.r * lr
+        let outG = res.chroma.g * lg
+        let outB = res.chroma.b * lb
+        // Equalized: all three land on the shared linear mean (neutral).
+        let meanLin = (lr + lg + lb) / 3.0
+        #expect(abs(outR - meanLin) < 1e-9)
+        #expect(abs(outG - meanLin) < 1e-9)
+        #expect(abs(outB - meanLin) < 1e-9)
+        // Brightness-preserving: chroma conserves the linear sum (no stretch to white).
+        #expect(abs((outR + outG + outB) - (lr + lg + lb)) < 1e-9)
+    }
 }
 
 

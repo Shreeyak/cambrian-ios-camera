@@ -162,6 +162,16 @@ func stats(
 let n = Double(keptCount)
 let m = s / n
 let v = max(0, sq / n - m * m)
+⋮----
+public static func whiteBalanceResidual(
+⋮----
+let lr = max(eps, srgbToLinear(whiteSample.r))
+let lg = max(eps, srgbToLinear(whiteSample.g))
+let lb = max(eps, srgbToLinear(whiteSample.b))
+let meanLin = (lr + lg + lb) / 3.0
+let targetLin = srgbToLinear(Constants.whitePointTargetDisplay)
+let chroma = RgbSample(r: meanLin / lr, g: meanLin / lg, b: meanLin / lb)
+let level = targetLin / meanLin
 ```
 
 ## File: CameraKit/Sources/CameraKit/CalibrationResult.swift
@@ -352,6 +362,8 @@ let hooks = RecoveryCoordinator.Hooks(
 let deviceIsoRange = await device.isoRange
 var clamped = persisted
 ⋮----
+let effectiveWB = currentSettings?.wbMode ?? .auto
+⋮----
 let supportedSizes = await device.supportedSizes
 ⋮----
 let activeCropRegion = Self.activeCropRect(for: pipeline)
@@ -408,9 +420,19 @@ let resolved = try SettingsCoupling.apply(rules: merged, latched: latched)
 ⋮----
 let expRange = await device.exposureDurationRangeNs
 ⋮----
+let effectiveWB = resolved.wbMode ?? .auto
+⋮----
+let gated = Self.gateWBNormalization(cur, wbMode: effectiveWB)
+⋮----
 let toSave = resolved
 ⋮----
 private func settingsTouchesWhiteBalance(_ settings: CameraSettings) -> Bool {
+⋮----
+private static func gateWBNormalization(
+⋮----
+let locked = (wbMode == .manual || wbMode == .locked)
+⋮----
+var g = p
 ⋮----
 public func setResolution(size: Size) async throws {
 ⋮----
@@ -513,6 +535,9 @@ var manual = CameraSettings()
 ⋮----
 let after = try await sampleCenterPatchOnNatural()
 ⋮----
+let residual = CalibrationCompute.whiteBalanceResidual(whiteSample: after)
+var proc = currentProcessing ?? .identity
+⋮----
 var auto = CameraSettings()
 ⋮----
 public func calibrateBlackPoint() async throws -> BlackPointDebug {
@@ -526,6 +551,9 @@ let keptFraction =
 var next = currentProcessing ?? .identity
 ⋮----
 public func clearBlackPoint() async {
+⋮----
+public func applyWhiteBalance(whitePoint: Bool = false) async {
+let locked = (currentSettings?.wbMode == .manual || currentSettings?.wbMode == .locked)
 ⋮----
 public static var calibrationPatchSizePx: Int { Constants.centerPatchSizePx }
 ⋮----
@@ -740,6 +768,7 @@ func startRecording(options: RecordingOptions) async throws -> RecordingStart
 func stopRecording() async throws -> String
 ⋮----
 func calibrateWhiteBalance() async throws -> CalibrationResult
+func applyWhiteBalance(whitePoint: Bool) async
 func calibrateBlackPoint() async throws -> BlackPointDebug
 func clearBlackPoint() async
 ⋮----
@@ -1472,7 +1501,8 @@ let bpB = p.blackPointEnabled ? p.blackPointB : 0.0
 let chromaR = p.wbChromaEnabled ? p.wbChromaR : 1.0
 let chromaG = p.wbChromaEnabled ? p.wbChromaG : 1.0
 let chromaB = p.wbChromaEnabled ? p.wbChromaB : 1.0
-let level = p.whitePointEnabled ? p.whitePointLevel : 1.0
+⋮----
+let level = (p.whitePointEnabled && p.wbChromaEnabled) ? p.whitePointLevel : 1.0
 let gainR = chromaR * level
 let gainG = chromaG * level
 let gainB = chromaB * level
