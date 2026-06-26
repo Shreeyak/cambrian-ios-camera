@@ -29,15 +29,6 @@ enum Constants {
     /// hot pixels and specular highlights without sacrificing too much sample
     /// area on a 96² patch (~691 of 9216 px per side at 7.5 %).
     static let centerPatchTrimRatio: Double = 0.075
-    /// Multiplier applied to BB pedestal sample so the per-pixel noise above
-    /// the trimmed mean is also driven to the clamp floor on iPad HITL.
-    ///
-    /// **Deprecated** (linear-normalization-stage): the legacy post-grade
-    /// black-balance path multiplies the *mean* by this. It is superseded by the
-    /// statistical black point (`blackPointSigmaK`, a σ-multiplier) and is removed
-    /// when the linear black-point calibration lands (tasks.md §4).
-    static let blackBalanceOverscan: Double = 1.5
-
     // MARK: - linear-normalization-stage — color-normalization constants
 
     /// White-point calibration target in **display (gamma) space**: 250/255.
@@ -51,8 +42,8 @@ enum Constants {
 
     /// Black-point noise margin as a **σ-multiplier**: `offset = mean + k·σ`.
     ///
-    /// Replaces the legacy `blackBalanceOverscan` mean-multiplier (design D7).
-    /// `k = 1.5` drives ~93% of the (linear-light) noise band to the clamp floor,
+    /// Statistical noise margin (design D7). `k = 1.5` drives ~93% of the
+    /// (linear-light) noise band to the clamp floor,
     /// a deliberately gentle crush that preserves dim signal (fluorescence).
     static let blackPointSigmaK: Double = 1.5
 

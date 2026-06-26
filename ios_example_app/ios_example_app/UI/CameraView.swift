@@ -392,17 +392,6 @@ public struct CameraView: View {
                 }
             }
 
-            // Black balance row — two actions (legacy; superseded by Black Point).
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Black Balance").foregroundStyle(.white.opacity(0.7)).font(.caption)
-                HStack(spacing: 8) {
-                    Button("Calibrate") { viewModel.calibration.calibrateBB() }
-                        .buttonStyle(.borderedProminent)
-                    Button("Reset") { viewModel.calibration.resetBlackBalance() }
-                        .buttonStyle(.bordered)
-                }
-            }
-
             // Black point row (linear-normalization-stage) — point at a dark field
             // and tap; the engine derives the linear black point (mean + k·σ) and
             // enables it. The background should snap to solid black.
@@ -420,6 +409,12 @@ public struct CameraView: View {
                         Button("Clear") { viewModel.calibration.clearBP() }
                             .buttonStyle(.bordered)
                     }
+                }
+                if let err = viewModel.calibration.blackPointError {
+                    Text(err)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let dbg = viewModel.calibration.lastBlackPointDebug {
                     blackPointDebugPanel(dbg)
@@ -452,16 +447,6 @@ public struct CameraView: View {
                 range: 0.1...4.0,
                 push: viewModel.processing.pushGamma
             )
-            Divider().background(.white.opacity(0.5))
-            sliderRow(
-                label: "Black R", current: processing.blackR, range: 0.0...0.5,
-                push: viewModel.processing.pushBlackR)
-            sliderRow(
-                label: "Black G", current: processing.blackG, range: 0.0...0.5,
-                push: viewModel.processing.pushBlackG)
-            sliderRow(
-                label: "Black B", current: processing.blackB, range: 0.0...0.5,
-                push: viewModel.processing.pushBlackB)
             Spacer()
             Button("Reset All Sliders") {
                 Task { await viewModel.processing.resetProcessing() }

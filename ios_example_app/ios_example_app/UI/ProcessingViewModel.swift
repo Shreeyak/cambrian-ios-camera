@@ -2,16 +2,13 @@ import CameraKit
 import Foundation
 
 /// GPU color-pipeline shader-uniform sliders (brightness, contrast, saturation,
-/// gamma, per-channel black balance R/G/B).
+/// gamma).
 ///
 /// Sole owner of `currentProcessing`. Each push coalesces via a per-control
 /// `SliderDebouncer`; the dispatch closure mutates `currentProcessing`
 /// optimistically and forwards via `engine.setProcessingParams(_:)`. The
 /// engine's `Mutex<UniformStorage>` (D-17 / ADR-34 / Inv-6) is the single
 /// host-write path — this VM does not bypass it.
-///
-/// `applyBlackBalance(sample:)` is the public entry point used by
-/// `CalibrationViewModel` after a BB-Calibrate sample.
 @Observable @MainActor
 final class ProcessingViewModel {
 
@@ -21,9 +18,6 @@ final class ProcessingViewModel {
     @ObservationIgnored private var contrastDebouncer: SliderDebouncer?
     @ObservationIgnored private var saturationDebouncer: SliderDebouncer?
     @ObservationIgnored private var gammaDebouncer: SliderDebouncer?
-    @ObservationIgnored private var blackRDebouncer: SliderDebouncer?
-    @ObservationIgnored private var blackGDebouncer: SliderDebouncer?
-    @ObservationIgnored private var blackBDebouncer: SliderDebouncer?
 
     private let engine: CameraEngine
 
@@ -31,7 +25,7 @@ final class ProcessingViewModel {
         self.engine = engine
     }
 
-    /// Seed `currentProcessing` from persisted parameters + start 7 debouncers.
+    /// Seed `currentProcessing` from persisted parameters + start the debouncers.
     func start() async {
         if let persisted = engine.getPersistedProcessingParameters() {
             currentProcessing = persisted
@@ -41,23 +35,16 @@ final class ProcessingViewModel {
         contrastDebouncer = makeDebouncer { $0.contrast = $1 }
         saturationDebouncer = makeDebouncer { $0.saturation = $1 }
         gammaDebouncer = makeDebouncer { $0.gamma = $1 }
-        blackRDebouncer = makeDebouncer { $0.blackR = $1 }
-        blackGDebouncer = makeDebouncer { $0.blackG = $1 }
-        blackBDebouncer = makeDebouncer { $0.blackB = $1 }
 
         await brightnessDebouncer?.start()
         await contrastDebouncer?.start()
         await saturationDebouncer?.start()
         await gammaDebouncer?.start()
-        await blackRDebouncer?.start()
-        await blackGDebouncer?.start()
-        await blackBDebouncer?.start()
     }
 
     func stop() async {
         for d in [
             brightnessDebouncer, contrastDebouncer, saturationDebouncer, gammaDebouncer,
-            blackRDebouncer, blackGDebouncer, blackBDebouncer,
         ] {
             await d?.stop()
         }
@@ -65,9 +52,6 @@ final class ProcessingViewModel {
         contrastDebouncer = nil
         saturationDebouncer = nil
         gammaDebouncer = nil
-        blackRDebouncer = nil
-        blackGDebouncer = nil
-        blackBDebouncer = nil
     }
 
     // MARK: - Push entry points (called from view sliders)
@@ -76,53 +60,14 @@ final class ProcessingViewModel {
     func pushContrast(_ v: Double) { contrastDebouncer?.push(v) }
     func pushSaturation(_ v: Double) { saturationDebouncer?.push(v) }
     func pushGamma(_ v: Double) { gammaDebouncer?.push(v) }
-    func pushBlackR(_ v: Double) { blackRDebouncer?.push(v) }
-    func pushBlackG(_ v: Double) { blackGDebouncer?.push(v) }
-    func pushBlackB(_ v: Double) { blackBDebouncer?.push(v) }
 
     // MARK: - Calibration / reset entry points
 
-    /// Writes per-channel black-balance pedestal into `currentProcessing`
-    /// based on a dark-patch sample.
-    ///
-    /// The GPU pipeline subtracts these pedestals as the **final** color
-    /// step, after brightness/contrast/saturation/gamma — see
-    /// `Shaders/ColorShaders.metal`.
-    ///
-    /// **Sample lane requirement:** the sample must be read from a render
-    /// where BCSG is applied and BB is zeroed — typically via
-    /// `CameraEngine.sampleCenterPatchForBBCalibration`, which runs a
-    /// one-shot Pass-2 encode into a scratch texture with BB temporarily
-    /// zeroed. Rationale:
-    ///   - BB operates on the graded image, so the sample must be in the
-    ///     same color space (BCSG applied) for the offsets to correctly
-    ///     subtract a dark patch.
-    ///   - The sample must NOT include the previously-written BB pedestal,
-    ///     or each calibrate would stack on top of the prior result.
-    /// Sampling from `processedTex` would violate the second requirement;
-    /// sampling from `naturalTex` would violate the first.
-    ///
-    /// Mutates the mirror BEFORE dispatching so the MainActor read-modify-write is
-    /// atomic — `await engine.setProcessingParams` would otherwise suspend
-    /// MainActor between the read and the write, letting concurrent slider
-    /// debouncers clobber black-balance fields. The engine actor's mailbox
-    /// serializes the eventual GPU-side write.
-    func applyBlackBalance(sample: RgbSample) async {
-        let offsets = CalibrationCompute.blackBalanceOffsets(sample: sample)
-        var next = currentProcessing
-        next.blackR = offsets.r
-        next.blackG = offsets.g
-        next.blackB = offsets.b
-        currentProcessing = next
-        await engine.setProcessingParams(next)
-    }
-
     /// Refresh `currentProcessing` from the engine's authoritative snapshot.
     ///
-    /// Called by `CalibrationViewModel` after engine-side `calibrateBlackBalance()`
-    /// (Phase-2 §2b) so the slider mirror reflects the just-applied pedestal
-    /// without re-reading the sample. No engine dispatch — the engine already
-    /// has the values; this only updates the UI mirror.
+    /// Called by `CalibrationViewModel` after engine-side calibration so the
+    /// slider mirror reflects the just-applied parameters. No engine dispatch —
+    /// the engine already has the values; this only updates the UI mirror.
     func refreshFromEngineSnapshot(_ snap: ProcessingParameters) {
         currentProcessing = snap
     }
@@ -140,7 +85,7 @@ final class ProcessingViewModel {
     ///
     /// `SliderDebouncer`'s consumer task runs OFF MainActor, so we hop on with
     /// `MainActor.run` and perform the full read-modify-write inside that single
-    /// hop — guaranteeing each debouncer (and `applyBlackBalance`) observes a
+    /// hop — guaranteeing each debouncer observes a
     /// consistent prior state. The `engine.setProcessingParams` dispatch
     /// runs after the hop; the engine actor serializes downstream writes.
     private func makeDebouncer(

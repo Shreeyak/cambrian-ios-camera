@@ -17,16 +17,14 @@ private let wbCompletedDisplayMs: Int = 1500
 ///
 /// **Phase-2 §2b shrink** — the VM no longer drives the multi-step calibration
 /// algorithm itself; it just calls the engine's high-level
-/// `calibrateWhiteBalance()` / `calibrateBlackBalance()` and writes WB-mode
-/// deltas via `updateSettings`. After BB calibration the VM resyncs its
+/// `calibrateWhiteBalance()` / `calibrateBlackPoint()` and writes WB-mode
+/// deltas via `updateSettings`. After black-point calibration the VM resyncs its
 /// processing-params mirror via `currentProcessingParametersSnapshot()`.
 protocol CalibrationEngineProtocol: Sendable {
     func calibrateWhiteBalance() async throws -> CalibrationResult
-    func calibrateBlackBalance() async throws -> CalibrationResult
-    /// linear-normalization-stage: the new linear, pre-grade black point that
-    /// replaces black balance. Returns diagnostics (sampled patch + per-channel
-    /// stats) for the demo app to display. The clean-break removal of
-    /// `calibrateBlackBalance` lands once this is validated on device.
+    /// linear-normalization-stage: the linear, pre-grade black point. Returns
+    /// per-channel diagnostics for the demo app to display; throws
+    /// `EngineError.blackPointCalibrationFailed` when the field isn't dark enough.
     func calibrateBlackPoint() async throws -> BlackPointDebug
     /// Clears the applied black point (demo "undo").
     func clearBlackPoint() async
@@ -46,23 +44,23 @@ public enum WBCalibrationStatus: Sendable, Equatable {
     case completed
 }
 
-/// White-balance + black-balance calibrate / reset / lock actions.
+/// White-balance + black-point calibrate / reset / lock actions.
 ///
-/// **Phase-2 §2b move-down:** the engine now owns the calibration algorithms
-/// (`CameraEngine.calibrateWhiteBalance()` / `calibrateBlackBalance()`).
+/// **Phase-2 §2b move-down:** the engine owns the calibration algorithms
+/// (`CameraEngine.calibrateWhiteBalance()` / `calibrateBlackPoint()`).
 /// This VM is a thin caller — it triggers the engine method, surfaces
-/// in-progress / completed UI feedback for WB, and resyncs the
-/// `ProcessingViewModel` mirror after BB completes (via
+/// in-progress / completed UI feedback, and resyncs the `ProcessingViewModel`
+/// mirror after a calibration completes (via
 /// `engine.currentProcessingParametersSnapshot()`).
 ///
-/// Five user-facing actions:
-///   1. `calibrateWB()`        — invoke `engine.calibrateWhiteBalance()`; status feedback
-///   2. `resetToAutoWB()`      — return to AVFoundation continuous AWB
-///   3. `lockCurrentWB()`      — freeze whatever AVF currently has (`.locked` mode)
-///   4. `calibrateBB()`        — invoke `engine.calibrateBlackBalance()`; refresh VM mirror
-///   5. `resetBlackBalance()`  — zero the BB pedestal
+/// User-facing actions:
+///   1. `calibrateWB()`     — invoke `engine.calibrateWhiteBalance()`; status feedback
+///   2. `resetToAutoWB()`   — return to AVFoundation continuous AWB
+///   3. `lockCurrentWB()`   — freeze whatever AVF currently has (`.locked` mode)
+///   4. `calibrateBP()`     — invoke `engine.calibrateBlackPoint()`; refresh VM mirror
+///   5. `clearBP()`         — clear the applied black point
 ///
-/// Holds a reference to `ProcessingViewModel` so the BB-result mirror sync
+/// Holds a reference to `ProcessingViewModel` so the calibration mirror sync
 /// writes into the same `currentProcessing` source the sliders read from
 /// (single owner per the MVVM-decomposition ownership rules).
 @Observable @MainActor
@@ -92,6 +90,10 @@ final class CalibrationViewModel {
     /// per-channel stats) — surfaced in a debug panel so the operator can see what
     /// was measured (e.g. `keptCount == 0` ⇒ surface too bright). `nil` until first run.
     var lastBlackPointDebug: BlackPointDebug?
+
+    /// Operator-facing reason the most recent black-point calibration failed
+    /// (e.g. the field wasn't dark enough), or `nil` on success / not-yet-run.
+    var blackPointError: String?
 
     private let engine: any CalibrationEngineProtocol
     private let processingVM: ProcessingViewModel
@@ -148,45 +150,29 @@ final class CalibrationViewModel {
         }
     }
 
-    /// Triggers BB calibration via the engine's `calibrateBlackBalance()` (legacy).
-    ///
-    /// Resyncs the local `ProcessingViewModel` mirror from the engine's
-    /// authoritative snapshot. Phase-2 §2b. Superseded by `calibrateBP()` below;
-    /// removed in the clean break once the black point is validated on device.
-    func calibrateBB() {
-        let engine = self.engine
-        let processingVM = self.processingVM
-        Task {
-            do {
-                _ = try await engine.calibrateBlackBalance()
-                if let snap = await engine.currentProcessingParametersSnapshot() {
-                    await MainActor.run { processingVM.refreshFromEngineSnapshot(snap) }
-                }
-            } catch {
-                // Errors surface through errorStream → ErrorPresenterViewModel.
-            }
-        }
-    }
-
     /// Triggers black-point calibration via the engine's `calibrateBlackPoint()`.
     ///
-    /// linear-normalization-stage: the new linear, pre-grade black point (replaces
-    /// black balance). Point the camera at a dark field, then tap — the engine
-    /// reads back the frame, derives `mean + k·σ` per channel in linear light,
-    /// applies + enables the black point. Resyncs the `ProcessingViewModel` mirror.
+    /// linear-normalization-stage: the linear, pre-grade black point. Point the
+    /// camera at a dark field, then tap — the engine reads back the frame, derives
+    /// `mean + k·σ` per channel in linear light, applies + enables the black point.
+    /// Resyncs the `ProcessingViewModel` mirror. On failure (field not dark enough)
+    /// the operator-facing reason is published to `blackPointError` for display.
     func calibrateBP() {
         let engine = self.engine
         let processingVM = self.processingVM
         Task { @MainActor in
             self.bpCalibrating = true
+            self.blackPointError = nil
             defer { self.bpCalibrating = false }
             do {
                 self.lastBlackPointDebug = try await engine.calibrateBlackPoint()
                 if let snap = await engine.currentProcessingParametersSnapshot() {
                     processingVM.refreshFromEngineSnapshot(snap)
                 }
+            } catch let EngineError.blackPointCalibrationFailed(reason) {
+                self.blackPointError = reason
             } catch {
-                // Errors surface through errorStream → ErrorPresenterViewModel.
+                self.blackPointError = "Black-point calibration failed: \(error)"
             }
         }
     }
@@ -198,17 +184,10 @@ final class CalibrationViewModel {
         Task { @MainActor in
             await engine.clearBlackPoint()
             self.lastBlackPointDebug = nil
+            self.blackPointError = nil
             if let snap = await engine.currentProcessingParametersSnapshot() {
                 processingVM.refreshFromEngineSnapshot(snap)
             }
-        }
-    }
-
-    /// Zeroes the BB pedestal so the GPU pipeline subtracts nothing.
-    func resetBlackBalance() {
-        let processingVM = self.processingVM
-        Task {
-            await processingVM.applyBlackBalance(sample: RgbSample(r: 0, g: 0, b: 0))
         }
     }
 }

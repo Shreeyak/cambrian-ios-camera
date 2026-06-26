@@ -74,6 +74,7 @@ enum CameraErrorCode {
   invalidState,
   hardwareError,
   notOpen, // Adapter-injected — represents EngineError.notOpen, not an ErrorCode.
+  calibrationFailed, // Adapter-injected — a calibrate*() couldn't complete (e.g. black point: field not dark enough).
 }
 
 // ─── VALUE TYPES ────────────────────────────────────────────────────────────
@@ -179,17 +180,11 @@ class ProcessingParameters {
     required this.brightness,
     required this.contrast,
     required this.saturation,
-    required this.blackR,
-    required this.blackG,
-    required this.blackB,
     required this.gamma,
   });
   double brightness;
   double contrast;
   double saturation;
-  double blackR;
-  double blackG;
-  double blackB;
   double gamma;
 }
 
@@ -319,8 +314,12 @@ abstract class CameraEngineHostApi {
   // Calibration
   @async
   CalibrationResult calibrateWhiteBalance();
+
+  /// Calibrate the linear black point from a dark field. Returns nothing on
+  /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+  /// dark enough. Replaces the removed calibrateBlackBalance.
   @async
-  CalibrationResult calibrateBlackBalance();
+  void calibrateBlackPoint();
 
   // Texture bridge
   @async

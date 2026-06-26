@@ -116,7 +116,8 @@ struct Stage04Tests {
         p.contrast = 0.4
         p.saturation = -0.3
         p.gamma = 1.8
-        p.blackR = 0.05
+        p.blackPointR = 0.05
+        p.blackPointEnabled = true
         SettingsPersistence.saveProcessing(p, defaults: defaults)
         let loaded = SettingsPersistence.loadProcessing(defaults: defaults)
         #expect(loaded == p)

@@ -130,6 +130,7 @@ enum CameraErrorCode: Int {
   case invalidState = 17
   case hardwareError = 18
   case notOpen = 19
+  case calibrationFailed = 20
 }
 
 /// Generated class from Pigeon that represents data sent in messages.
@@ -369,9 +370,6 @@ struct ProcessingParameters {
   var brightness: Double
   var contrast: Double
   var saturation: Double
-  var blackR: Double
-  var blackG: Double
-  var blackB: Double
   var gamma: Double
 
 
@@ -380,18 +378,12 @@ struct ProcessingParameters {
     let brightness = pigeonVar_list[0] as! Double
     let contrast = pigeonVar_list[1] as! Double
     let saturation = pigeonVar_list[2] as! Double
-    let blackR = pigeonVar_list[3] as! Double
-    let blackG = pigeonVar_list[4] as! Double
-    let blackB = pigeonVar_list[5] as! Double
-    let gamma = pigeonVar_list[6] as! Double
+    let gamma = pigeonVar_list[3] as! Double
 
     return ProcessingParameters(
       brightness: brightness,
       contrast: contrast,
       saturation: saturation,
-      blackR: blackR,
-      blackG: blackG,
-      blackB: blackB,
       gamma: gamma
     )
   }
@@ -400,9 +392,6 @@ struct ProcessingParameters {
       brightness,
       contrast,
       saturation,
-      blackR,
-      blackG,
-      blackB,
       gamma,
     ]
   }
@@ -832,7 +821,10 @@ protocol CameraEngineHostApi {
   func startRecording(options: RecordingOptions, completion: @escaping (Result<RecordingStart, Error>) -> Void)
   func stopRecording(completion: @escaping (Result<String, Error>) -> Void)
   func calibrateWhiteBalance(completion: @escaping (Result<CalibrationResult, Error>) -> Void)
-  func calibrateBlackBalance(completion: @escaping (Result<CalibrationResult, Error>) -> Void)
+  /// Calibrate the linear black point from a dark field. Returns nothing on
+  /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+  /// dark enough. Replaces the removed calibrateBlackBalance.
+  func calibrateBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
   func createPreviewTexture(stream: StreamId, completion: @escaping (Result<Int64, Error>) -> Void)
   func destroyPreviewTexture(textureId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
 }
@@ -1071,20 +1063,23 @@ class CameraEngineHostApiSetup {
     } else {
       calibrateWhiteBalanceChannel.setMessageHandler(nil)
     }
-    let calibrateBlackBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    /// Calibrate the linear black point from a dark field. Returns nothing on
+    /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+    /// dark enough. Replaces the removed calibrateBlackBalance.
+    let calibrateBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      calibrateBlackBalanceChannel.setMessageHandler { _, reply in
-        api.calibrateBlackBalance { result in
+      calibrateBlackPointChannel.setMessageHandler { _, reply in
+        api.calibrateBlackPoint { result in
           switch result {
-          case .success(let res):
-            reply(wrapResult(res))
+          case .success:
+            reply(wrapResult(nil))
           case .failure(let error):
             reply(wrapError(error))
           }
         }
       }
     } else {
-      calibrateBlackBalanceChannel.setMessageHandler(nil)
+      calibrateBlackPointChannel.setMessageHandler(nil)
     }
     let createPreviewTextureChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.createPreviewTexture\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

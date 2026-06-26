@@ -80,11 +80,11 @@ public actor CameraEngine {
     ///
     /// `nil` until first apply / post-`close()`. Read by
     /// `currentProcessingParametersSnapshot()` (Phase-2 §2b — VM mirror sync
-    /// after engine-side `calibrateBlackBalance()`).
+    /// after engine-side calibration).
     private var currentProcessing: ProcessingParameters?
     /// In-flight calibration sentinel (Phase-2 §2b).
     ///
-    /// Non-nil while `calibrateWhiteBalance()` / `calibrateBlackBalance()` is
+    /// Non-nil while `calibrateWhiteBalance()` / `calibrateBlackPoint()` is
     /// running — `updateSettings()` (when WB fields are present) and
     /// `setResolution()` throw `.calibrationInProgress`. `close()` and the
     /// `.interrupted` `SessionState` route call `cancel()` here.
@@ -275,7 +275,7 @@ public actor CameraEngine {
     ///
     /// Symmetric with `currentSettingsSnapshot()`. Used by
     /// `CalibrationViewModel` to refresh its mirror after engine-side
-    /// `calibrateBlackBalance()`. Phase-2 §2b.
+    /// calibration. Phase-2 §2b.
     public func currentProcessingParametersSnapshot() -> ProcessingParameters? {
         currentProcessing
     }
@@ -932,14 +932,12 @@ public actor CameraEngine {
     /// architecture/07-settings.md §ProcessingParameters).
     ///
     /// **Pipeline order (`Shaders/ColorShaders.metal`):**
-    ///   1. Brightness → 2. Contrast → 3. Saturation → 4. Gamma → 5. Black balance.
+    ///   0. Normalization (linear light, pre-grade: black point / WB chroma /
+    ///      white point, fused affine) → 1. Brightness → 2. Contrast →
+    ///      3. Saturation → 4. Gamma.
     ///
-    /// Black balance is the **last** step — pedestal is subtracted from the
-    /// graded output, behaving like a final shadow lift rather than a
-    /// pre-grade noise-floor compensation. Calibration sampling for BB must
-    /// therefore read from a render where BCSG is applied and BB is zeroed
-    /// (see `MetalPipeline.dispatchBBCalibrationSample`) so each calibrate
-    /// isn't biased by the previously-applied pedestal.
+    /// The black point is part of the pre-grade normalization (linear light),
+    /// derived statistically by `calibrateBlackPoint()` from the raw natural lane.
     public func setProcessingParams(_ params: ProcessingParameters) async {
         // Route through the mutex so the delivery-queue snapshot in encode() is always coherent.
         metalPipeline?.uniforms.withLock { storage in
@@ -1213,17 +1211,6 @@ public actor CameraEngine {
         return try await pipeline.dispatchCenterPatchOnNatural()
     }
 
-    /// BB-calibration sampler — reads from a one-shot scratch render of current
-    /// BCSG with BB zeroed.
-    ///
-    /// See `MetalPipeline.dispatchBBCalibrationSample` for the rationale.
-    /// Phase-2 §2b: demoted to `internal` — callers go through
-    /// `calibrateBlackBalance()` instead.
-    func sampleCenterPatchForBBCalibration() async throws -> RgbSample {
-        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-        return try await pipeline.dispatchBBCalibrationSample()
-    }
-
     /// Test-only: the *measured* dimensions of the device's active capture
     /// format (`CMVideoFormatDescription`), not the echoed requested size.
     ///
@@ -1450,35 +1437,6 @@ public actor CameraEngine {
                 try? await _updateSettingsBypassingCalibrationGuard(auto)
                 throw CancellationError()
             }
-        }
-        calibrationTask = task
-        defer { calibrationTask = nil }
-        return try await task.value
-    }
-
-    /// Single-shot BB calibration (Phase-2 design §2b).
-    ///
-    /// Samples the center patch through the current BCSG with BB temporarily
-    /// zeroed, computes per-channel pedestal via `CalibrationCompute.blackBalanceOffsets`,
-    /// writes into `ProcessingParameters.blackR/G/B` via `setProcessingParams`.
-    /// Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
-    public func calibrateBlackBalance() async throws -> CalibrationResult {
-        if calibrationTask != nil { throw EngineError.calibrationInProgress }
-        let task = Task<CalibrationResult, Error> { [self] in
-            let beforeSample = try await sampleCenterPatchForBBCalibration()
-            try Task.checkCancellation()
-            let offsets = CalibrationCompute.blackBalanceOffsets(sample: beforeSample)
-            let prior = currentProcessing ?? .identity
-            var next = prior
-            next.blackR = offsets.r
-            next.blackG = offsets.g
-            next.blackB = offsets.b
-            await setProcessingParams(next)
-            try Task.checkCancellation()
-            let afterSample = try await sampleCenterPatchForBBCalibration()
-            return CalibrationResult(
-                before: beforeSample, after: afterSample,
-                converged: true, iterations: 1)
         }
         calibrationTask = task
         defer { calibrationTask = nil }

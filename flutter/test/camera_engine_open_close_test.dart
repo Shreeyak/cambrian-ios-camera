@@ -116,9 +116,6 @@ void main() {
         brightness: 0,
         contrast: 1,
         saturation: 1,
-        blackR: 0,
-        blackG: 0,
-        blackB: 0,
         gamma: 1,
       );
       when(api.currentProcessingParameters()).thenAnswer((_) async => p);

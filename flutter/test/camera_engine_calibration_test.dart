@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 import 'package:cambrian_ios_camera/cambrian_ios_camera.dart';
@@ -26,9 +27,24 @@ void main() {
     when(api.calibrateWhiteBalance()).thenAnswer((_) async => r);
     expect(await engine.calibrateWhiteBalance(), r);
   });
-  test('calibrateBlackBalance returns CalibrationResult', () async {
-    final r = _fakeResult();
-    when(api.calibrateBlackBalance()).thenAnswer((_) async => r);
-    expect(await engine.calibrateBlackBalance(), r);
+  test('calibrateBlackPoint completes on success', () async {
+    when(api.calibrateBlackPoint()).thenAnswer((_) async {});
+    await engine.calibrateBlackPoint();
+    verify(api.calibrateBlackPoint()).called(1);
+  });
+  test('calibrateBlackPoint surfaces failure as CameraException', () async {
+    when(api.calibrateBlackPoint()).thenThrow(
+      PlatformException(
+        code: 'calibrationFailed',
+        message: 'Only 5% of the sampled patch was near-black (need ≥ 40%).',
+      ),
+    );
+    await expectLater(
+      engine.calibrateBlackPoint(),
+      throwsA(
+        isA<CameraException>()
+            .having((e) => e.code, 'code', CameraErrorCode.calibrationFailed),
+      ),
+    );
   });
 }

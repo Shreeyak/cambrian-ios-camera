@@ -81,6 +81,7 @@ enum CameraErrorCode {
   invalidState,
   hardwareError,
   notOpen,
+  calibrationFailed,
 }
 
 class PSize {
@@ -358,9 +359,6 @@ class ProcessingParameters {
     required this.brightness,
     required this.contrast,
     required this.saturation,
-    required this.blackR,
-    required this.blackG,
-    required this.blackB,
     required this.gamma,
   });
 
@@ -370,12 +368,6 @@ class ProcessingParameters {
 
   double saturation;
 
-  double blackR;
-
-  double blackG;
-
-  double blackB;
-
   double gamma;
 
   Object encode() {
@@ -383,9 +375,6 @@ class ProcessingParameters {
       brightness,
       contrast,
       saturation,
-      blackR,
-      blackG,
-      blackB,
       gamma,
     ];
   }
@@ -396,10 +385,7 @@ class ProcessingParameters {
       brightness: result[0]! as double,
       contrast: result[1]! as double,
       saturation: result[2]! as double,
-      blackR: result[3]! as double,
-      blackG: result[4]! as double,
-      blackB: result[5]! as double,
-      gamma: result[6]! as double,
+      gamma: result[3]! as double,
     );
   }
 }
@@ -1160,8 +1146,11 @@ class CameraEngineHostApi {
     }
   }
 
-  Future<CalibrationResult> calibrateBlackBalance() async {
-    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackBalance$pigeonVar_messageChannelSuffix';
+  /// Calibrate the linear black point from a dark field. Returns nothing on
+  /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+  /// dark enough. Replaces the removed calibrateBlackBalance.
+  Future<void> calibrateBlackPoint() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -1177,13 +1166,8 @@ class CameraEngineHostApi {
         message: pigeonVar_replyList[1] as String?,
         details: pigeonVar_replyList[2],
       );
-    } else if (pigeonVar_replyList[0] == null) {
-      throw PlatformException(
-        code: 'null-error',
-        message: 'Host platform returned null value for non-null return value.',
-      );
     } else {
-      return (pigeonVar_replyList[0] as CalibrationResult?)!;
+      return;
     }
   }
 

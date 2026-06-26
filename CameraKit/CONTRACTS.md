@@ -124,9 +124,6 @@ private static func capLogRatio(_ ratio: Float, cap: Float) -> Float {
 let logR = log2(max(ratio, 1e-6))
 let cappedLog = max(-cap, min(cap, logR))
 ⋮----
-public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
-let k = Constants.blackBalanceOverscan
-⋮----
 static func srgbToLinear(_ c: Double) -> Double {
 ⋮----
 public static func blackPointOffsets(
@@ -474,8 +471,6 @@ public func sampleCenterPatch() async throws -> RgbSample {
 ⋮----
 func sampleCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
-func sampleCenterPatchForBBCalibration() async throws -> RgbSample {
-⋮----
 func _activeFormatSizeForTest() async throws -> Size {
 ⋮----
 func _activeCropRegionForTest() async throws -> Rect {
@@ -519,16 +514,6 @@ var manual = CameraSettings()
 let after = try await sampleCenterPatchOnNatural()
 ⋮----
 var auto = CameraSettings()
-⋮----
-public func calibrateBlackBalance() async throws -> CalibrationResult {
-⋮----
-let beforeSample = try await sampleCenterPatchForBBCalibration()
-⋮----
-let offsets = CalibrationCompute.blackBalanceOffsets(sample: beforeSample)
-let prior = currentProcessing ?? .identity
-var next = prior
-⋮----
-let afterSample = try await sampleCenterPatchForBBCalibration()
 ⋮----
 public func calibrateBlackPoint() async throws -> BlackPointDebug {
 ⋮----
@@ -755,7 +740,8 @@ func startRecording(options: RecordingOptions) async throws -> RecordingStart
 func stopRecording() async throws -> String
 ⋮----
 func calibrateWhiteBalance() async throws -> CalibrationResult
-func calibrateBlackBalance() async throws -> CalibrationResult
+func calibrateBlackPoint() async throws -> BlackPointDebug
+func clearBlackPoint() async
 ⋮----
 nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?
 ```
@@ -1001,10 +987,6 @@ public var brightness: Double
 ⋮----
 public var contrast: Double
 public var saturation: Double
-⋮----
-public var blackR: Double
-public var blackG: Double
-public var blackB: Double
 public var gamma: Double
 ⋮----
 public var blackPointR: Double
@@ -1273,8 +1255,6 @@ static let centerPatchSizePx: Int = 96
 ⋮----
 static let centerPatchTrimRatio: Double = 0.075
 ⋮----
-static let blackBalanceOverscan: Double = 1.5
-⋮----
 static let whitePointTargetDisplay: Double = 250.0 / 255.0
 ⋮----
 static let blackPointSigmaK: Double = 1.5
@@ -1472,9 +1452,6 @@ struct ColorUniform: Hashable {
 var brightness: Float
 var contrast: Float
 var saturation: Float
-var blackR: Float
-var blackG: Float
-var blackB: Float
 var gamma: Float
 ⋮----
 var aR: Float
@@ -1748,10 +1725,6 @@ let groups = MTLSize(width: (s + 15) / 16, height: (s + 15) / 16, depth: 1)
 ⋮----
 let half = buf.contents().bindMemory(to: UInt16.self, capacity: s * s * 4)
 var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: s * s)
-⋮----
-func dispatchBBCalibrationSample() async throws -> RgbSample {
-⋮----
-var params = uniforms.withLock { $0.color }
 ⋮----
 private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {
 let ptr = buffer.contents().bindMemory(to: Float.self, capacity: count)

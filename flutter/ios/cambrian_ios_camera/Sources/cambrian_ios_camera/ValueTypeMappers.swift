@@ -113,9 +113,6 @@ extension ProcessingParameters {
         p.brightness = brightness
         p.contrast = contrast
         p.saturation = saturation
-        p.blackR = blackR
-        p.blackG = blackG
-        p.blackB = blackB
         p.gamma = gamma
         return p
     }
@@ -127,9 +124,6 @@ extension CameraKit.ProcessingParameters {
             brightness: brightness,
             contrast: contrast,
             saturation: saturation,
-            blackR: blackR,
-            blackG: blackG,
-            blackB: blackB,
             gamma: gamma
         )
     }
@@ -404,6 +398,10 @@ extension Error {
                 pigeonCode = .invalidState
                 message = "Calibration is already in flight."
                 isFatal = false
+            case .blackPointCalibrationFailed(let reason):
+                pigeonCode = .calibrationFailed
+                message = reason
+                isFatal = false
             case .fatal(let cam):
                 // Re-enter the CameraError branch — preserves its code/message/isFatal.
                 return cam.asPigeonError()
@@ -416,6 +414,32 @@ extension Error {
                 code: "\(pigeonCode)",
                 message: message,
                 details: ["isFatal": isFatal]
+            )
+        }
+
+        // MetalError thrown bare from the calibration / readback paths.
+        if let metalErr = self as? MetalError {
+            let message: String
+            switch metalErr {
+            case .noFrameAvailable:
+                message =
+                    "No camera frame is available yet — wait for the preview to start, then retry."
+            default:
+                message = "Metal pipeline error: \(metalErr)"
+            }
+            return PigeonError(
+                code: "\(CameraErrorCode.invalidState)",
+                message: message,
+                details: ["isFatal": false]
+            )
+        }
+
+        // Cooperative cancellation (e.g. a calibrate aborted by a lifecycle change).
+        if self is CancellationError {
+            return PigeonError(
+                code: "\(CameraErrorCode.invalidState)",
+                message: "The operation was cancelled.",
+                details: ["isFatal": false]
             )
         }
 

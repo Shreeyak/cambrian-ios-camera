@@ -165,7 +165,6 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
     let canonicalSample: RgbSample
     var recordedDeltas: [CameraSettings] = []
     var calibrateWBCount: Int = 0
-    var calibrateBBCount: Int = 0
     var calibrateBPCount: Int = 0
     private var processingSnapshot: ProcessingParameters?
 
@@ -192,20 +191,6 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
         delta.wbGainG = 1.0
         delta.wbGainB = 1.0
         recordedDeltas.append(delta)
-        return CalibrationResult(
-            before: canonicalSample, after: canonicalSample,
-            converged: true, iterations: 1)
-    }
-
-    func calibrateBlackBalance() async throws -> CalibrationResult {
-        calibrateBBCount += 1
-        // Mimic the engine writing the pedestal via setProcessingParams.
-        let offsets = CalibrationCompute.blackBalanceOffsets(sample: canonicalSample)
-        var snap = processingSnapshot ?? .identity
-        snap.blackR = offsets.r
-        snap.blackG = offsets.g
-        snap.blackB = offsets.b
-        processingSnapshot = snap
         return CalibrationResult(
             before: canonicalSample, after: canonicalSample,
             converged: true, iterations: 1)
@@ -330,64 +315,6 @@ struct Stage11CalibrationVMTests {
         #expect(deltas.last?.wbGainR == nil)
     }
 
-    @Test("calibrateBB invokes engine.calibrateBlackBalance and refreshes the VM mirror")
-    @MainActor
-    func bbCalibrateUpdatesProcessingParams() async {
-        // Phase-2 §2b: engine owns the algorithm. The stub mirrors the
-        // engine's apply (CalibrationCompute.blackBalanceOffsets → snapshot);
-        // the VM resyncs `processingVM.currentProcessing` via
-        // `currentProcessingParametersSnapshot()`.
-        let sample = RgbSample(r: 0.02, g: 0.03, b: 0.05)
-        let stub = CalibrationEngineStub(sample: sample)
-        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
-        let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
-        let k = Constants.blackBalanceOverscan
-
-        vm.calibrateBB()
-
-        let deadline = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline,
-            processingVM.currentProcessing.blackR == 0
-        {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-
-        let calibrateCount = await stub.calibrateBBCount
-        #expect(calibrateCount == 1, "engine.calibrateBlackBalance should be called once")
-        #expect(abs(processingVM.currentProcessing.blackR - 0.02 * k) < 1e-9)
-        #expect(abs(processingVM.currentProcessing.blackG - 0.03 * k) < 1e-9)
-        #expect(abs(processingVM.currentProcessing.blackB - 0.05 * k) < 1e-9)
-    }
-
-    @Test("resetBlackBalance zeroes the pedestal")
-    @MainActor
-    func resetBlackBalanceZeroesPedestal() async {
-        let stub = CalibrationEngineStub(sample: RgbSample(r: 0.02, g: 0.03, b: 0.05))
-        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
-        let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
-
-        // Set a non-zero pedestal first.
-        vm.calibrateBB()
-        let deadline1 = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline1,
-            processingVM.currentProcessing.blackR == 0
-        {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(processingVM.currentProcessing.blackR > 0)
-
-        // Reset.
-        vm.resetBlackBalance()
-        let deadline2 = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline2,
-            processingVM.currentProcessing.blackR != 0
-        {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(processingVM.currentProcessing.blackR == 0)
-        #expect(processingVM.currentProcessing.blackG == 0)
-        #expect(processingVM.currentProcessing.blackB == 0)
-    }
 }
 
 // MARK: - Stage 11 — Error presenter view model

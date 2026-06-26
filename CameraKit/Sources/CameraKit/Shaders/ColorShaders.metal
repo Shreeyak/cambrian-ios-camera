@@ -12,20 +12,16 @@ using namespace metal;
 //   2. Contrast       (linear scale around 0.5 midpoint, multiplier 1+contrast)
 //   3. Saturation     (luma-based mix, COLOR_LUMA_WEIGHT R/G/B per G-18)
 //   4. Gamma          (pow(x, 1/gamma))
-//   5. Black balance  (subtract per channel, clamp ≥ 0) — applied to graded output
 //
 // Contrast/brightness/saturation share one [-1,1] convention with 0.0 = identity
 // (contrast uses a 1+contrast multiplier, structurally identical to saturation's
 // 1+saturation mix factor). Identity when ColorUniform = { brightness:0,
-// contrast:0, saturation:0, gamma:1, blackR:0, blackG:0, blackB:0 }.
+// contrast:0, saturation:0, gamma:1 }.
 //
 struct ColorUniform {
     float brightness;
     float contrast;
     float saturation;
-    float blackR;
-    float blackG;
-    float blackB;
     float gamma;
     // linear-normalization-stage: fused per-channel affine in LINEAR light,
     // applied BEFORE the gamma-space grade above. `out = a·x + b` per channel.
@@ -126,13 +122,6 @@ kernel void colorTransform(texture2d<float, access::read>  inTex  [[texture(0)]]
     //    defensively in case host passes a stale 0 from an uninitialised slider.
     float safeGamma = max(u.gamma, 1e-3);
     c = pow(max(c, 0.0), float3(1.0 / safeGamma));
-
-    // 5. Black balance — subtract per-channel pedestal from graded output, clamp at 0.
-    //    User-directed final-stage subtraction (behaves like a colorist's "lift" on
-    //    shadows of the already-graded image rather than a noise-floor compensation).
-    c.r = max(0.0, c.r - u.blackR);
-    c.g = max(0.0, c.g - u.blackG);
-    c.b = max(0.0, c.b - u.blackB);
 
     outTex.write(float4(c, srgb.a), gid);
 }

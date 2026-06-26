@@ -83,16 +83,6 @@ struct Stage11CalibrationComputeTests {
         #expect(gains.red >= 1.0)
     }
 
-    @Test("black-balance offsets scale per-channel sample by overscan multiplier")
-    func blackBalanceOffsetsOverscan() {
-        let sample = RgbSample(r: 0.02, g: 0.03, b: 0.05)
-        let offsets = CalibrationCompute.blackBalanceOffsets(sample: sample)
-        let k = Constants.blackBalanceOverscan
-        #expect(abs(offsets.r - 0.02 * k) < 1e-9)
-        #expect(abs(offsets.g - 0.03 * k) < 1e-9)
-        #expect(abs(offsets.b - 0.05 * k) < 1e-9)
-    }
-
     // MARK: - linear-normalization-stage: statistical black point
 
     @Test("black point: uniform dark field → offset = linearized value (σ = 0, no margin)")
@@ -158,45 +148,10 @@ struct Stage11CalibrationComputeTests {
 }
 
 
-// MARK: - Stage 11 — BB calibration scratch encode
+// MARK: - Stage 11 — center-patch sizing
 
-@Suite("Stage 11 — BB calibration scratch encode", .progressLogged)
-struct Stage11BBCalibrationScratchTests {
-
-    @Test("dispatchBBCalibrationSample ignores live BB pedestal (sample = BCSG-only)")
-    func bbScratchZeroesPedestal() async throws {
-        let device = try #require(MTLCreateSystemDefaultDevice())
-        let size = Size(width: 256, height: 256)
-        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
-
-        // Identity BCSG with a NON-zero BB pedestal in the live uniforms.
-        // If the scratch path failed to zero BB, the sample would read
-        // 0.5 - 0.2 = 0.3 per channel. With BB zeroed in the scratch, sample
-        // should be 0.5 (identity BCSG passes the input through).
-        pipeline.setColorUniformsForTest(
-            ProcessingParameters(
-                brightness: 0,
-                contrast: 0,
-                saturation: 0,
-                blackR: 0.2,
-                blackG: 0.2,
-                blackB: 0.2,
-                gamma: 1
-            ))
-
-        // Inject a uniform 0.5 into naturalTex.
-        let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
-            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
-        try fillBufferUniform(nBuf, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
-        pipeline.setLatestNaturalForTest(texture: nTex)
-
-        let sample = try await pipeline.dispatchBBCalibrationSample()
-
-        // BB = 0 in the scratch → sample equals the BCSG-passthrough value.
-        #expect(abs(sample.r - 0.5) < 1e-2)
-        #expect(abs(sample.g - 0.5) < 1e-2)
-        #expect(abs(sample.b - 0.5) < 1e-2)
-    }
+@Suite("Stage 11 — center-patch sizing", .progressLogged)
+struct Stage11CenterPatchSizingTests {
 
     @Test("scaledCenterPatchSize: default → 96, fallback → ≥16, tiny → clamped to 16")
     func scaledCenterPatchSize() {
@@ -242,23 +197,6 @@ struct Stage11FamilyBFollowupCalibrationTests {
 
         await #expect(throws: MetalError.noFrameAvailable) {
             _ = try await pipeline.dispatchCenterPatchOnNatural()
-        }
-    }
-
-    /// `dispatchBBCalibrationSample` must refuse to sample when no frame has
-    /// arrived. (Pre-rework this threw `.unsupportedFormat`, which collapsed two
-    /// distinct failure modes into one case.)
-    @Test("dispatchBBCalibrationSample throws .noFrameAvailable before any frame")
-    func bbCalibrationSampleThrowsBeforeFirstFrame() async throws {
-        let device = try #require(MTLCreateSystemDefaultDevice())
-        let pipeline = try MetalPipeline(
-            device: device,
-            captureSize: Size(width: 256, height: 256),
-            gateOpen: true
-        )
-
-        await #expect(throws: MetalError.noFrameAvailable) {
-            _ = try await pipeline.dispatchBBCalibrationSample()
         }
     }
 

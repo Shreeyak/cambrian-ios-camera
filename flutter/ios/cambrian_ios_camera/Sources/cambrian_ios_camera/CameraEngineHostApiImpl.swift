@@ -215,12 +215,14 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    func calibrateBlackBalance(
-        completion: @escaping (Result<CalibrationResult, any Error>) -> Void
+    func calibrateBlackPoint(
+        completion: @escaping (Result<Void, any Error>) -> Void
     ) {
-        guardOpenReturning(completion) { engine in
-            let r = try await engine.calibrateBlackBalance()
-            return r.toPigeon()
+        guardOpen(completion) { engine in
+            // Discard the per-channel diagnostics — the Dart surface only needs
+            // success/failure. Failure throws EngineError.blackPointCalibrationFailed,
+            // mapped to CameraErrorCode.calibrationFailed by `asPigeonError()`.
+            _ = try await engine.calibrateBlackPoint()
         }
     }
 

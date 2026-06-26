@@ -274,21 +274,14 @@ class MockCameraEngineHostApi extends _i1.Mock
       ) as _i4.Future<_i2.CalibrationResult>);
 
   @override
-  _i4.Future<_i2.CalibrationResult> calibrateBlackBalance() =>
-      (super.noSuchMethod(
+  _i4.Future<void> calibrateBlackPoint() => (super.noSuchMethod(
         Invocation.method(
-          #calibrateBlackBalance,
+          #calibrateBlackPoint,
           [],
         ),
-        returnValue:
-            _i4.Future<_i2.CalibrationResult>.value(_FakeCalibrationResult_2(
-          this,
-          Invocation.method(
-            #calibrateBlackBalance,
-            [],
-          ),
-        )),
-      ) as _i4.Future<_i2.CalibrationResult>);
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
 
   @override
   _i4.Future<int> createPreviewTexture(_i2.StreamId? stream) =>

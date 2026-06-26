@@ -54,7 +54,8 @@ public protocol CameraEngineProtocol: Actor {
 
     // MARK: Calibration
     func calibrateWhiteBalance() async throws -> CalibrationResult
-    func calibrateBlackBalance() async throws -> CalibrationResult
+    func calibrateBlackPoint() async throws -> BlackPointDebug
+    func clearBlackPoint() async
 
     // MARK: Texture bridge
     nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?

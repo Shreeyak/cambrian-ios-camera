@@ -257,16 +257,6 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
     /// `Shaders/ColorShaders.metal`.
     public var contrast: Double
     public var saturation: Double
-    /// Per-channel black-balance pedestal.
-    ///
-    /// **Deprecated** (linear-normalization-stage): the legacy post-grade
-    /// subtraction. Superseded by the linear, pre-grade black point
-    /// (`blackPointR/G/B` + `blackPointEnabled`). Retained while the migration
-    /// lands (tasks.md §4) so existing behavior is unchanged. See
-    /// `Shaders/ColorShaders.metal`.
-    public var blackR: Double
-    public var blackG: Double
-    public var blackB: Double
     public var gamma: Double
 
     // MARK: - linear-normalization-stage (applied in linear light, pre-grade)
@@ -303,9 +293,6 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
         brightness: Double = 0.0,
         contrast: Double = 0.0,
         saturation: Double = 0.0,
-        blackR: Double = 0.0,
-        blackG: Double = 0.0,
-        blackB: Double = 0.0,
         gamma: Double = 1.0,
         blackPointR: Double = 0.0,
         blackPointG: Double = 0.0,
@@ -321,9 +308,6 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation
-        self.blackR = blackR
-        self.blackG = blackG
-        self.blackB = blackB
         self.gamma = gamma
         self.blackPointR = blackPointR
         self.blackPointG = blackPointG
@@ -342,7 +326,7 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
     // MARK: - Back-compatible decoding (linear-normalization-stage)
 
     private enum CodingKeys: String, CodingKey {
-        case brightness, contrast, saturation, blackR, blackG, blackB, gamma
+        case brightness, contrast, saturation, gamma
         case blackPointR, blackPointG, blackPointB, blackPointEnabled
         case wbChromaR, wbChromaG, wbChromaB, wbChromaEnabled
         case whitePointLevel, whitePointEnabled
@@ -353,22 +337,17 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
     ///
     /// Decoding every field via `decodeIfPresent` with the identity default keeps
     /// persisted brightness/contrast/saturation/gamma *values* (so settings don't
-    /// reset) while new normalization fields default to identity/disabled. This
-    /// does NOT preserve the old operation order or the old black behavior: the
-    /// new order is linear normalization (WB / white point / black point) then the
-    /// gamma-space grade. The legacy `blackR/G/B` pedestal is decoded here only
-    /// transitionally; the legacy black-balance (fields, API, and post-grade
-    /// subtraction) is removed entirely in tasks.md §4 — a breaking change. The
-    /// new linear black point is recalibrated fresh.
+    /// reset) while normalization fields default to identity/disabled. This does
+    /// NOT preserve the old operation order: the order is linear normalization
+    /// (WB / white point / black point) then the gamma-space grade. Legacy
+    /// `blackR/G/B` keys in old blobs are ignored (the legacy black-balance was
+    /// removed — a breaking change); the linear black point is recalibrated fresh.
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = ProcessingParameters.identity
         brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? d.brightness
         contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? d.contrast
         saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? d.saturation
-        blackR = try c.decodeIfPresent(Double.self, forKey: .blackR) ?? d.blackR
-        blackG = try c.decodeIfPresent(Double.self, forKey: .blackG) ?? d.blackG
-        blackB = try c.decodeIfPresent(Double.self, forKey: .blackB) ?? d.blackB
         gamma = try c.decodeIfPresent(Double.self, forKey: .gamma) ?? d.gamma
         blackPointR = try c.decodeIfPresent(Double.self, forKey: .blackPointR) ?? d.blackPointR
         blackPointG = try c.decodeIfPresent(Double.self, forKey: .blackPointG) ?? d.blackPointG

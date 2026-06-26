@@ -14,9 +14,6 @@ struct ColorUniform: Hashable {
     var brightness: Float
     var contrast: Float
     var saturation: Float
-    var blackR: Float
-    var blackG: Float
-    var blackB: Float
     var gamma: Float
     // linear-normalization-stage: fused per-channel affine (linear light), applied
     // pre-grade. Field order MUST match struct ColorUniform in ColorShaders.metal
@@ -40,9 +37,6 @@ struct ColorUniform: Hashable {
         brightness = Float(p.brightness)
         contrast = Float(p.contrast)
         saturation = Float(p.saturation)
-        blackR = Float(p.blackR)
-        blackG = Float(p.blackG)
-        blackB = Float(p.blackB)
         gamma = Float(p.gamma)
         // linear-normalization-stage §2.2 — fuse the per-channel normalization into
         // ONE affine evaluated in LINEAR light (the shader undoes gamma first):
@@ -174,8 +168,8 @@ final class MetalPipeline: @unchecked Sendable {
     /// Internal RGBA16F "latest" textures — Metal-compute intermediates, NOT a
     /// delivery surface.
     ///
-    /// `_latestNaturalTex16F` is the Pass-1 output sampled by WB/BB calibration
-    /// (`dispatchCenterPatchOnNatural` / `dispatchBBCalibrationSample`);
+    /// `_latestNaturalTex16F` is the Pass-1 output sampled by WB / black-point
+    /// calibration (`dispatchCenterPatchOnNatural` / `readbackNaturalCenterRegion`);
     /// `_latestProcessedTex16F` is the Pass-2 graded output sampled by the
     /// diagnostic center-patch (`dispatchCenterPatch` / `sampleCenterPatch`).
     /// They stay 16F because the math wants float headroom — the camera is
@@ -1163,87 +1157,6 @@ final class MetalPipeline: @unchecked Sendable {
                 Float(Float16(bitPattern: half[i * 4 + 2])))
         }
         return (pixels, s, s)
-    }
-
-    /// BB calibration entry point — samples a one-shot scratch render of
-    /// **current BCSG with BB zeroed**.
-    ///
-    /// Why this lane: BB is applied at the end of the GPU color pipeline (post
-    /// brightness/contrast/saturation/gamma) per `Shaders/ColorShaders.metal`.
-    /// For BB to correctly subtract a dark patch in the *graded* image, the
-    /// sample must be read from the same color space — i.e. with BCSG
-    /// applied — but without the previously-written BB pedestal feeding back
-    /// into the math.
-    ///
-    /// Implementation: snapshot the current `ColorUniform`, zero its BB
-    /// triple, dispatch a one-shot Pass-2 encode from `naturalTex` into a
-    /// scratch texture, then run the center-patch sampler on the scratch.
-    /// Visually invisible to the user — the live `processedTex` mailbox is
-    /// not touched.
-    func dispatchBBCalibrationSample() async throws -> RgbSample {
-        // Single-writer invariant (delivery queue) + Metal command-buffer
-        // retention through encode make this nonisolated(unsafe) read race-free.
-        guard let naturalTex = latestNaturalTex16F else {
-            throw MetalError.noFrameAvailable
-        }
-
-        // Allocate scratch texture (released at function exit).
-        // P2a — match the natural texture being graded, i.e. `outputSize`.
-        let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba16Float,
-            width: outputSize.width,
-            height: outputSize.height,
-            mipmapped: false
-        )
-        desc.usage = [.shaderWrite, .shaderRead]
-        desc.storageMode = .private
-        guard let scratchTex = commandQueue.device.makeTexture(descriptor: desc) else {
-            throw MetalError.textureAllocationFailed
-        }
-
-        // Snapshot current BCSG uniforms; zero BB.
-        //
-        // Correctness: `uniforms.withLock { $0.color }` returns a *value copy*
-        // of the ColorUniform struct. Mutating `params.blackR/G/B` writes to
-        // the local copy only — the live Mutex is unmodified, so the regular
-        // encode loop continues to use the user's actual BB. The shader below
-        // reads from `&params` via setBytes (not from the Mutex), so it sees
-        // the zeroed BB. Integration test in Stage11Tests proves this.
-        var params = uniforms.withLock { $0.color }
-        params.blackR = 0
-        params.blackG = 0
-        params.blackB = 0
-
-        guard let cb = commandQueue.makeCommandBuffer(),
-            let encoder = cb.makeComputeCommandEncoder()
-        else {
-            throw MetalError.commandBufferFailed(code: -11)
-        }
-        encoder.setComputePipelineState(colorTransformPSO)
-        encoder.setTexture(naturalTex, index: 0)
-        encoder.setTexture(scratchTex, index: 1)
-        encoder.setBytes(&params, length: MemoryLayout<ColorUniform>.stride, index: 0)
-        let tg = MTLSize(width: 16, height: 16, depth: 1)
-        let groups = MTLSize(
-            width: (scratchTex.width + 15) / 16,
-            height: (scratchTex.height + 15) / 16,
-            depth: 1
-        )
-        encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        encoder.endEncoding()
-
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            cb.addCompletedHandler { c in
-                if c.status == .error {
-                    cont.resume(throwing: MetalError.commandBufferFailed(code: -12))
-                } else {
-                    cont.resume()
-                }
-            }
-            cb.commit()
-        }
-
-        return try await dispatchCenterPatch(on: scratchTex)
     }
 
     private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {

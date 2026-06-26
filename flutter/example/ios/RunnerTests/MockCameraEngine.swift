@@ -73,10 +73,11 @@ actor MockCameraEngine: CameraEngineProtocol {
         let s = RgbSample(r: 0.5, g: 0.5, b: 0.5)
         return CalibrationResult(before: s, after: s, converged: true, iterations: 1)
     }
-    func calibrateBlackBalance() async throws -> CalibrationResult {
-        let s = RgbSample(r: 0.0, g: 0.0, b: 0.0)
-        return CalibrationResult(before: s, after: s, converged: true, iterations: 1)
+    func calibrateBlackPoint() async throws -> BlackPointDebug {
+        let s = BlackPointChannelStats(offsetLinear: 0, meanGamma: 0, minGamma: 0, maxGamma: 0)
+        return BlackPointDebug(keptCount: 1, totalCount: 1, r: s, g: s, b: s)
     }
+    func clearBlackPoint() async {}
     nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? { nil }
     nonisolated var consumers: ConsumerRegistry { ConsumerRegistry() }
 }

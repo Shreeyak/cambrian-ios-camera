@@ -153,7 +153,8 @@ enum class CameraErrorCode(val raw: Int) {
   AE_CONVERGENCE_TIMEOUT(16),
   INVALID_STATE(17),
   HARDWARE_ERROR(18),
-  NOT_OPEN(19);
+  NOT_OPEN(19),
+  CALIBRATION_FAILED(20);
 
   companion object {
     fun ofRaw(raw: Int): CameraErrorCode? {
@@ -356,9 +357,6 @@ data class ProcessingParameters (
   val brightness: Double,
   val contrast: Double,
   val saturation: Double,
-  val blackR: Double,
-  val blackG: Double,
-  val blackB: Double,
   val gamma: Double
 )
  {
@@ -367,11 +365,8 @@ data class ProcessingParameters (
       val brightness = pigeonVar_list[0] as Double
       val contrast = pigeonVar_list[1] as Double
       val saturation = pigeonVar_list[2] as Double
-      val blackR = pigeonVar_list[3] as Double
-      val blackG = pigeonVar_list[4] as Double
-      val blackB = pigeonVar_list[5] as Double
-      val gamma = pigeonVar_list[6] as Double
-      return ProcessingParameters(brightness, contrast, saturation, blackR, blackG, blackB, gamma)
+      val gamma = pigeonVar_list[3] as Double
+      return ProcessingParameters(brightness, contrast, saturation, gamma)
     }
   }
   fun toList(): List<Any?> {
@@ -379,9 +374,6 @@ data class ProcessingParameters (
       brightness,
       contrast,
       saturation,
-      blackR,
-      blackG,
-      blackB,
       gamma,
     )
   }
@@ -814,7 +806,12 @@ interface CameraEngineHostApi {
   fun startRecording(options: RecordingOptions, callback: (Result<RecordingStart>) -> Unit)
   fun stopRecording(callback: (Result<String>) -> Unit)
   fun calibrateWhiteBalance(callback: (Result<CalibrationResult>) -> Unit)
-  fun calibrateBlackBalance(callback: (Result<CalibrationResult>) -> Unit)
+  /**
+   * Calibrate the linear black point from a dark field. Returns nothing on
+   * success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+   * dark enough. Replaces the removed calibrateBlackBalance.
+   */
+  fun calibrateBlackPoint(callback: (Result<Unit>) -> Unit)
   fun createPreviewTexture(stream: StreamId, callback: (Result<Long>) -> Unit)
   fun destroyPreviewTexture(textureId: Long, callback: (Result<Unit>) -> Unit)
 
@@ -1093,16 +1090,15 @@ interface CameraEngineHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackBalance$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            api.calibrateBlackBalance{ result: Result<CalibrationResult> ->
+            api.calibrateBlackPoint{ result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
               } else {
-                val data = result.getOrNull()
-                reply.reply(wrapResult(data))
+                reply.reply(wrapResult(null))
               }
             }
           }

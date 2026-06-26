@@ -229,8 +229,14 @@ class CameraEngine {
   Future<g.CalibrationResult> calibrateWhiteBalance() =>
       _guard(_api.calibrateWhiteBalance);
 
-  Future<g.CalibrationResult> calibrateBlackBalance() =>
-      _guard(_api.calibrateBlackBalance);
+  /// Calibrate the linear black point from a dark field.
+  ///
+  /// Point the camera at a uniformly dark/black field, then call this. Completes
+  /// with no value on success. Throws a [CameraException] with
+  /// [CameraErrorCode.calibrationFailed] (the message explains why — e.g. the
+  /// field wasn't dark enough) when a valid black point can't be derived.
+  /// Replaces the removed `calibrateBlackBalance`.
+  Future<void> calibrateBlackPoint() => _guard(_api.calibrateBlackPoint);
 
   // MARK: - Texture bridge
 

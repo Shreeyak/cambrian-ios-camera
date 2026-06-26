@@ -94,29 +94,6 @@ public enum CalibrationCompute {
         return exp2(cappedLog)
     }
 
-    /// Black-balance pedestal: per-channel dark-patch sample passes through as offsets.
-    ///
-    /// **Important:** the BB pedestal is subtracted at the *end* of the GPU color
-    /// pipeline (after brightness/contrast/saturation/gamma) per `ColorShaders.metal`
-    /// step 5. The sample fed in here MUST come from a render where **BCSG is
-    /// applied and BB is zeroed** — typically `CameraEngine.sampleCenterPatchForBBCalibration`,
-    /// which runs a one-shot Pass-2 encode into a scratch texture with BB
-    /// temporarily zeroed. This satisfies two requirements simultaneously:
-    /// the sample is in the same color space the pedestal will operate on
-    /// (BCSG applied), and it isn't biased by the prior pedestal (BB zeroed).
-    /// Caller writes these into `ProcessingParameters.blackR/G/B`.
-    ///
-    /// `Constants.blackBalanceOverscan` (1.5×) over-subtracts the trimmed-mean
-    /// sample. The sample is the *average* of the patch, but per-pixel noise
-    /// means many pixels sit above the mean — subtracting only the mean leaves
-    /// the brighter end of the dark-patch distribution above zero. Multiplying
-    /// by 1.5 drives roughly the upper σ of pixel noise to the clamp floor,
-    /// making the calibrated dark patch render as actual black on iPad HITL.
-    public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
-        let k = Constants.blackBalanceOverscan
-        return (sample.r * k, sample.g * k, sample.b * k)
-    }
-
     // MARK: - linear-normalization-stage: statistical black point
 
     /// sRGB EOTF (gamma → linear) — the TRUE piecewise curve (IEC 61966-2-1).
