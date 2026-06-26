@@ -390,6 +390,20 @@ public struct CameraView: View {
                             .buttonStyle(.bordered)
                     }
                 }
+                // White point (linear-normalization-stage §5.2): off = phase contrast
+                // (chroma neutralize only, grey preserved); on = brightfield (chroma +
+                // level, white field → solid white). Only meaningful once WB is locked/
+                // calibrated — the engine gates it off in auto, so disable it there too.
+                Toggle(isOn: Binding(
+                    get: { viewModel.calibration.whitePointEnabled },
+                    set: { viewModel.calibration.setWhitePoint($0) }
+                )) {
+                    Text("White point (brightfield)")
+                        .foregroundStyle(.white).font(.caption)
+                }
+                .tint(.blue)
+                .disabled(!lockActive)
+                .opacity(lockActive ? 1.0 : 0.5)
             }
 
             // Black point row (linear-normalization-stage) — point at a dark field

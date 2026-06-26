@@ -225,6 +225,15 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
         processingSnapshot = snap
     }
 
+    func applyWhiteBalance(whitePoint: Bool) async {
+        // Mimic the engine: enable the chroma residual and select the white-point
+        // level on the snapshot the VM reads back.
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaEnabled = true
+        snap.whitePointEnabled = whitePoint
+        processingSnapshot = snap
+    }
+
     func updateSettings(_ settings: CameraSettings) async throws {
         recordedDeltas.append(settings)
     }

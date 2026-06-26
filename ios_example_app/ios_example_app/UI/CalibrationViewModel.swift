@@ -28,6 +28,10 @@ protocol CalibrationEngineProtocol: Sendable {
     func calibrateBlackPoint() async throws -> BlackPointDebug
     /// Clears the applied black point (demo "undo").
     func clearBlackPoint() async
+    /// linear-normalization-stage §5.2: selects chroma-only (phase contrast) vs
+    /// chroma + white-point level (brightfield). A no-op in auto WB (engine-gated
+    /// to a locked WB).
+    func applyWhiteBalance(whitePoint: Bool) async
     func updateSettings(_ settings: CameraSettings) async throws
     func currentProcessingParametersSnapshot() async -> ProcessingParameters?
 }
@@ -95,6 +99,13 @@ final class CalibrationViewModel {
     /// (e.g. the field wasn't dark enough), or `nil` on success / not-yet-run.
     var blackPointError: String?
 
+    /// Whether the white-point level (brightfield) is applied on top of the WB
+    /// chroma residual (linear-normalization-stage §5.2). `false` = phase contrast
+    /// (chroma only, neutralize without stretching to white). Mirrors the engine's
+    /// gated truth — read back from the processing snapshot after each WB action,
+    /// so it reads `false` whenever WB is in auto (the engine disables it there).
+    var whitePointEnabled: Bool = false
+
     private let engine: any CalibrationEngineProtocol
     private let processingVM: ProcessingViewModel
 
@@ -115,6 +126,13 @@ final class CalibrationViewModel {
             do {
                 _ = try await engine.calibrateWhiteBalance()
                 self.wbMode = .manual
+                // Calibration stores + enables the WB chroma residual (white point
+                // stays off — phase-contrast default). Resync the processing mirror
+                // and the white-point toggle from the engine's snapshot.
+                if let snap = await engine.currentProcessingParametersSnapshot() {
+                    self.whitePointEnabled = snap.whitePointEnabled
+                    self.processingVM.refreshFromEngineSnapshot(snap)
+                }
                 self.wbCalibrationStatus = .completed
                 try? await Task.sleep(for: .milliseconds(wbCompletedDisplayMs))
                 if self.wbCalibrationStatus == .completed {
@@ -128,6 +146,9 @@ final class CalibrationViewModel {
     }
 
     /// Returns to AVFoundation continuous auto white balance.
+    ///
+    /// The engine gates the WB chroma residual + white point off in auto WB
+    /// (§5.3), so resync the toggle + processing mirror to reflect that.
     func resetToAutoWB() {
         let engine = self.engine
         Task { @MainActor in
@@ -135,6 +156,27 @@ final class CalibrationViewModel {
             delta.wbMode = .auto
             try? await engine.updateSettings(delta)
             self.wbMode = .auto
+            if let snap = await engine.currentProcessingParametersSnapshot() {
+                self.whitePointEnabled = snap.whitePointEnabled  // engine forces false in auto
+                self.processingVM.refreshFromEngineSnapshot(snap)
+            }
+        }
+    }
+
+    /// Selects brightfield (chroma + white-point level) vs phase contrast (chroma
+    /// only) via the engine's `applyWhiteBalance(whitePoint:)` (§5.2).
+    ///
+    /// A no-op while WB is in auto (the engine gates chroma/white point to a locked
+    /// WB), so the toggle reflects the engine's gated truth read back from the
+    /// snapshot rather than the requested value.
+    func setWhitePoint(_ enabled: Bool) {
+        let engine = self.engine
+        Task { @MainActor in
+            await engine.applyWhiteBalance(whitePoint: enabled)
+            if let snap = await engine.currentProcessingParametersSnapshot() {
+                self.whitePointEnabled = snap.whitePointEnabled
+                self.processingVM.refreshFromEngineSnapshot(snap)
+            }
         }
     }
 
