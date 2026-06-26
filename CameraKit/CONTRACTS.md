@@ -1571,6 +1571,12 @@ private let trackerNeedsResize: Bool
 ⋮----
 private var frameNumber: UInt64 = 0
 ⋮----
+private static let gpuProfilingEnabled = false
+private static let gpuProfileWindow = 120
+private let gpuProfileSumMicros = ManagedAtomic<Int64>(0)
+private let gpuProfileMaxMicros = ManagedAtomic<Int64>(0)
+private let gpuProfileCount = ManagedAtomic<Int64>(0)
+⋮----
 let consumers: ConsumerRegistry
 ⋮----
 private let deviceSnapshot: Mailbox<DeviceStateSnapshot>
@@ -1685,9 +1691,37 @@ let liveToken = self.engineSessionToken.load(ordering: .acquiring)
 ⋮----
 let code = (cb.error as NSError?)?.code ?? -1
 ⋮----
-let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+let micros = Int64((cb.gpuEndTime - cb.gpuStartTime) * 1_000_000)
 ⋮----
+var curMax = self.gpuProfileMaxMicros.load(ordering: .relaxed)
+⋮----
+let n = self.gpuProfileCount.wrappingIncrementThenLoad(
+⋮----
+let sum = self.gpuProfileSumMicros.exchange(0, ordering: .relaxed)
+let mx = self.gpuProfileMaxMicros.exchange(0, ordering: .relaxed)
+let avgMs = Double(sum) / Double(Self.gpuProfileWindow) / 1000.0
+let maxMs = Double(mx) / 1000.0
+let rec = self.isRecording.load(ordering: .acquiring)
+⋮----
+// Publish per-lane Frames (nonisolated — no actor hop). Each Frame
+// carries a PixelHandle lease that locks the pool buffer until the
+// consumer releases it (the holdable lease, §4.1). Both lanes share
+// `fn` (the cross-lane correlation index) and `tsNs`.
+let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+// frame-metadata-signals: build typed convergence metadata from the
+// latest device KVO snapshot. `nil` before the first snapshot →
+// all-unknown → `settled == false` (fail-safe: never seed pre-snapshot).
 let frameMeta =
+⋮----
+// Tracker only when produced (a subscriber existed at dequeue time).
+⋮----
+// Update lane mailboxes. The processed lane delivers BGRA8: the buffer
+// mailbox (via the core's pack step) and the BGRA8 texture mailbox
+// (sharing the buffer's IOSurface); tracker via the fused Pass-4 pool.
+// The natural 16F texture mailbox is kept as an internal compute
+// intermediate for calibration/diagnostic sampling — never delivered
+// (remove-natural-lane). `captureImage` reads the processed BGRA8 buffer
+// mailbox; `captureNaturalPicture` converts on demand via `renderStill`.
 ⋮----
 let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
 var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)

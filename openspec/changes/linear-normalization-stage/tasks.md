@@ -40,9 +40,9 @@
 
 ## 7. Kernel fusion (profile-driven)
 
-- [ ] 7.1 Profile the current pipeline on device to establish a baseline before fusing.
-- [ ] 7.2 Fuse the pointwise passes (YUV→RGB+crop → linearize → normalize → re-encode → grade → BGRA8) into fewer kernels to cut intermediate-texture bandwidth; keep tracker (MPS Lanczos) and NV12 encode separate; no MPSGraph.
-- [ ] 7.3 Confirm the calibration tap and all outputs remain correct after fusion.
+- [x] 7.1 Profiled on device (Shreeyak's iPad, Release, 2026-06-26). Total GPU wall-time of the single shared command buffer (`gpuEndTime − gpuStartTime`, whole pointwise chain + tracker + NV12 — measured through the GPU's own timestamps, no command-buffer splits that would rig the baseline; flag-gated `gpuProfilingEnabled` profiler in `MetalPipeline`'s completion handler). **At full-frame 4032×3024 (heaviest; demo default), no recording: ~12 ms avg, ~17–18 ms max settled** (one 22.6 ms launch-time outlier) vs the **33.3 ms** budget — **~21 ms (~63%) headroom**. NV12 (recording) + tracker would add only ~2–3 ms, so headroom holds. Conclusion: the pipeline is **comfortably under budget even at 12 MP**, so fusion is a power/thermal-headroom optimization, not a correctness/budget necessity (see §7.2 go/no-go).
+- [~] 7.2 **Deferred** (user decision 2026-06-26, on the §7.1 data). The fusion shape is mapped — one kernel reading YUV once and writing all three live intermediates (`naturalTex` calibration tap + `processedTex16F` for NV12/still + BGRA8 for tracker/delivery), eliminating the two full-frame RGBA16F re-reads (grade re-reading natural, pack re-reading processed); tracker (MPS) and NV12 stay separate; a no-pack PSO variant covers the `packedTex == nil` still path. Estimated saving ~1–3 ms of GPU load. **Not done because §7.1 shows ~21 ms headroom even at 12 MP** — fusion is a power/thermal optimization, not a budget necessity. Revisit if a heavier pipeline (higher res/fps, more lanes) or a sustained-thermal need appears.
+- [~] 7.3 **Deferred with §7.2.** When fusion lands, the acceptance gate is the existing golden tests — `fusedNormalizationPatchCases`, `normalizationAffineInLinearLight`, the off-path identity test — plus a `naturalTex` (calibration tap) byte-identity check, re-run with the flag-gated GPU profiler to confirm the saving.
 
 ## 8. Flutter surface
 

@@ -257,6 +257,25 @@ final class MetalPipeline: @unchecked Sendable {
     /// Delivery-queue only.
     private var frameNumber: UInt64 = 0
 
+    // MARK: - linear-normalization-stage §7.1 — GPU-time profiler (temporary)
+    //
+    // Establishes the pre-fusion baseline (task 7.1) before any kernel fusion
+    // (7.2). The whole pipeline shares ONE command buffer, so `gpuEndTime −
+    // gpuStartTime` read in the completion handler is the total GPU wall-time for
+    // the entire pointwise chain (decode → grade → pack) PLUS tracker (MPS) and
+    // NV12 — i.e. the headroom-vs-budget number, measured through the GPU's own
+    // timestamps. Deliberately NOT split into per-pass command buffers: that would
+    // inject the very flushes/barriers fusion removes and rig the baseline toward
+    // fusing (CLAUDE.md §8, tautological-evidence trap). Windowed average + max are
+    // logged every `gpuProfileWindow` frames via `CameraKitLog` (.public) for the
+    // `ipad-logs` skill. Flip `gpuProfilingEnabled` to true to capture; left off in
+    // committed code. Remove (or keep flag-off) once §7.2/§7.3 land.
+    private static let gpuProfilingEnabled = false
+    private static let gpuProfileWindow = 120  // ~4 s at 30 fps
+    private let gpuProfileSumMicros = ManagedAtomic<Int64>(0)
+    private let gpuProfileMaxMicros = ManagedAtomic<Int64>(0)
+    private let gpuProfileCount = ManagedAtomic<Int64>(0)
+
     /// Consumer registry handed in from CameraEngine.
     let consumers: ConsumerRegistry
 
@@ -767,6 +786,37 @@ final class MetalPipeline: @unchecked Sendable {
             // Stage 10: deliver NV12 encoder buffer if Pass 5 ran and command buffer succeeded.
             if let encBuf = encoderBufForCompletion, cb.status == .completed {
                 self.onEncodedBufferReady?(encBuf, captureTime)
+            }
+            // §7.1 baseline profiler — total GPU wall-time of the shared command
+            // buffer (whole pointwise chain + tracker + NV12). See the property block.
+            if Self.gpuProfilingEnabled, cb.status == .completed {
+                let micros = Int64((cb.gpuEndTime - cb.gpuStartTime) * 1_000_000)
+                if micros > 0 {
+                    self.gpuProfileSumMicros.wrappingIncrement(by: micros, ordering: .relaxed)
+                    var curMax = self.gpuProfileMaxMicros.load(ordering: .relaxed)
+                    while micros > curMax {
+                        let (ok, actual) = self.gpuProfileMaxMicros.compareExchange(
+                            expected: curMax, desired: micros, ordering: .relaxed)
+                        if ok { break }
+                        curMax = actual
+                    }
+                    let n = self.gpuProfileCount.wrappingIncrementThenLoad(
+                        by: 1, ordering: .relaxed)
+                    if n % Int64(Self.gpuProfileWindow) == 0 {
+                        let sum = self.gpuProfileSumMicros.exchange(0, ordering: .relaxed)
+                        let mx = self.gpuProfileMaxMicros.exchange(0, ordering: .relaxed)
+                        let avgMs = Double(sum) / Double(Self.gpuProfileWindow) / 1000.0
+                        let maxMs = Double(mx) / 1000.0
+                        let rec = self.isRecording.load(ordering: .acquiring)
+                        CameraKitLog.notice(
+                            .metal,
+                            "[gpuprofile] avg=\(String(format: "%.2f", avgMs))ms "
+                                + "max=\(String(format: "%.2f", maxMs))ms over "
+                                + "\(Self.gpuProfileWindow) frames "
+                                + "out=\(naturalTexI.width)x\(naturalTexI.height) "
+                                + "recording=\(rec) (budget 33.3ms)")
+                    }
+                }
             }
             // Publish per-lane Frames (nonisolated — no actor hop). Each Frame
             // carries a PixelHandle lease that locks the pool buffer until the
