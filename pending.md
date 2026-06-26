@@ -36,24 +36,26 @@ pass over every error type is its own change.
 
 Tracked as task #1.
 
-## Finish the remove-natural-lane Flutter port
+## Consumer docs still describe the removed black-balance API
 
-**What.** Remove the dangling natural-lane references from the Flutter layer:
-`SessionCapabilities.naturalTextureId` in the Pigeon DSL (+ regen), the adapter's
-`ValueTypeMappers.swift` mapping (~line 152), and the stale
-`StreamId.processed/.natural` usages in `camera_engine_texture_test.dart`,
-`camera_engine_open_close_test.dart`, and `example/integration_test/plugin_test.dart`.
+**What.** The generated consumer docs under `Documentation/` (and their `.docc`
+source) still document `calibrateBlackBalance()` and the legacy
+`ProcessingParameters.blackR/G/B` as if current — e.g.
+`Documentation/reference/camera-engine.md` (two `calibrateBlackBalance()`
+sections), `Documentation/reference/image-processing.md` (blackR/G/B fields),
+`Documentation/reference/calibration.md`, and the calibration guide source
+`CameraKit/Sources/CameraKit/CameraKit.docc/guides/08-calibration.md`.
 
-**Why deferred.** CameraKit's `remove-natural-lane` migration dropped the natural
-lane and renamed `StreamId` to `{primary, tracker}`, but the Flutter port was
-never finished — so `flutter build ios` and the Dart texture test have been red
-since *before* the black-balance clean break, for an unrelated reason. Fixing it
-is the natural-lane migration's concern, not the black-point change's.
+**Why it matters.** These are user-facing; they'll mislead consumers into calling
+a removed API. (Hand-written source/tests are clean — confirmed by a repo-wide
+scan; only docs lag.)
 
-**Impact now.** The black-point Flutter wiring is complete and correct (Dart unit
-tests pass; the Swift adapter signatures match the regenerated Pigeon protocol),
-but the Flutter iOS plugin cannot be *build-verified* until this debt is cleared.
+**Why deferred.** Regenerating consumer docs (`scripts/regen-docs.sh`) needs a
+device symbol-graph build and a manual prose pass over the `.docc` calibration
+guide — a distinct chunk from the code clean break.
 
-**Acceptance bar.** `flutter build ios` and `flutter test` both green.
-
-Tracked as task #5.
+**Acceptance bar.** No `calibrateBlackBalance` / legacy `blackR/G/B` references in
+`Documentation/` or the `.docc` guides; the calibration guide describes black
+point. (Historical ledgers — `CameraKit/state.md`, append-only `DECISIONS.md` —
+and the `openspec/changes/linear-normalization-stage/` design/spec are records of
+the migration and are left as-is, except `tasks.md` §4.4 which is now done.)
