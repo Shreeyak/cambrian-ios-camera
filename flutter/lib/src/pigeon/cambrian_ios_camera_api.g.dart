@@ -186,7 +186,6 @@ class SessionCapabilities {
   SessionCapabilities({
     required this.supportedSizes,
     required this.previewTextureId,
-    required this.naturalTextureId,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
     required this.streamPixelFormat,
@@ -205,8 +204,6 @@ class SessionCapabilities {
   List<PSize?> supportedSizes;
 
   int previewTextureId;
-
-  int naturalTextureId;
 
   PSize activeCaptureResolution;
 
@@ -238,7 +235,6 @@ class SessionCapabilities {
     return <Object?>[
       supportedSizes,
       previewTextureId,
-      naturalTextureId,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,
@@ -260,20 +256,19 @@ class SessionCapabilities {
     return SessionCapabilities(
       supportedSizes: (result[0] as List<Object?>?)!.cast<PSize?>(),
       previewTextureId: result[1]! as int,
-      naturalTextureId: result[2]! as int,
-      activeCaptureResolution: result[3]! as PSize,
-      activeCropRegion: result[4]! as PRect,
-      streamPixelFormat: result[5]! as String,
-      isoMin: result[6]! as double,
-      isoMax: result[7]! as double,
-      exposureDurationMinNs: result[8]! as int,
-      exposureDurationMaxNs: result[9]! as int,
-      focusMin: result[10]! as double,
-      focusMax: result[11]! as double,
-      zoomMin: result[12]! as double,
-      zoomMax: result[13]! as double,
-      evMin: result[14]! as double,
-      evMax: result[15]! as double,
+      activeCaptureResolution: result[2]! as PSize,
+      activeCropRegion: result[3]! as PRect,
+      streamPixelFormat: result[4]! as String,
+      isoMin: result[5]! as double,
+      isoMax: result[6]! as double,
+      exposureDurationMinNs: result[7]! as int,
+      exposureDurationMaxNs: result[8]! as int,
+      focusMin: result[9]! as double,
+      focusMax: result[10]! as double,
+      zoomMin: result[11]! as double,
+      zoomMax: result[12]! as double,
+      evMin: result[13]! as double,
+      evMax: result[14]! as double,
     );
   }
 }

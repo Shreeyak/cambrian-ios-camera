@@ -113,7 +113,6 @@ class SessionCapabilities {
   SessionCapabilities({
     required this.supportedSizes,
     required this.previewTextureId,
-    required this.naturalTextureId,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
     required this.streamPixelFormat,
@@ -130,7 +129,6 @@ class SessionCapabilities {
   });
   List<PSize?> supportedSizes;
   int previewTextureId;
-  int naturalTextureId;
   PSize activeCaptureResolution;
   PRect activeCropRegion;
   String streamPixelFormat;

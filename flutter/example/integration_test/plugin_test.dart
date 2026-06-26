@@ -42,7 +42,7 @@ void main() {
     final stateLog = <SessionState>[];
     final stateSub = e.stateStream().listen(stateLog.add);
 
-    final textureId = await e.createPreviewTexture(stream: StreamId.processed);
+    final textureId = await e.createPreviewTexture(stream: StreamId.primary);
     // 0 is a valid FlutterTextureRegistry id (first-registered texture gets it
     // on a real device; a failed create throws instead).
     expect(textureId, greaterThanOrEqualTo(0));

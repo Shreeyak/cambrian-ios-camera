@@ -225,7 +225,6 @@ struct OpenConfiguration {
 struct SessionCapabilities {
   var supportedSizes: [PSize?]
   var previewTextureId: Int64
-  var naturalTextureId: Int64
   var activeCaptureResolution: PSize
   var activeCropRegion: PRect
   var streamPixelFormat: String
@@ -245,25 +244,23 @@ struct SessionCapabilities {
   static func fromList(_ pigeonVar_list: [Any?]) -> SessionCapabilities? {
     let supportedSizes = pigeonVar_list[0] as! [PSize?]
     let previewTextureId = pigeonVar_list[1] as! Int64
-    let naturalTextureId = pigeonVar_list[2] as! Int64
-    let activeCaptureResolution = pigeonVar_list[3] as! PSize
-    let activeCropRegion = pigeonVar_list[4] as! PRect
-    let streamPixelFormat = pigeonVar_list[5] as! String
-    let isoMin = pigeonVar_list[6] as! Double
-    let isoMax = pigeonVar_list[7] as! Double
-    let exposureDurationMinNs = pigeonVar_list[8] as! Int64
-    let exposureDurationMaxNs = pigeonVar_list[9] as! Int64
-    let focusMin = pigeonVar_list[10] as! Double
-    let focusMax = pigeonVar_list[11] as! Double
-    let zoomMin = pigeonVar_list[12] as! Double
-    let zoomMax = pigeonVar_list[13] as! Double
-    let evMin = pigeonVar_list[14] as! Double
-    let evMax = pigeonVar_list[15] as! Double
+    let activeCaptureResolution = pigeonVar_list[2] as! PSize
+    let activeCropRegion = pigeonVar_list[3] as! PRect
+    let streamPixelFormat = pigeonVar_list[4] as! String
+    let isoMin = pigeonVar_list[5] as! Double
+    let isoMax = pigeonVar_list[6] as! Double
+    let exposureDurationMinNs = pigeonVar_list[7] as! Int64
+    let exposureDurationMaxNs = pigeonVar_list[8] as! Int64
+    let focusMin = pigeonVar_list[9] as! Double
+    let focusMax = pigeonVar_list[10] as! Double
+    let zoomMin = pigeonVar_list[11] as! Double
+    let zoomMax = pigeonVar_list[12] as! Double
+    let evMin = pigeonVar_list[13] as! Double
+    let evMax = pigeonVar_list[14] as! Double
 
     return SessionCapabilities(
       supportedSizes: supportedSizes,
       previewTextureId: previewTextureId,
-      naturalTextureId: naturalTextureId,
       activeCaptureResolution: activeCaptureResolution,
       activeCropRegion: activeCropRegion,
       streamPixelFormat: streamPixelFormat,
@@ -283,7 +280,6 @@ struct SessionCapabilities {
     return [
       supportedSizes,
       previewTextureId,
-      naturalTextureId,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,

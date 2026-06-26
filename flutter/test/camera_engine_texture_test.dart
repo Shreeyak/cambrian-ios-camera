@@ -16,18 +16,18 @@ void main() {
   });
 
   test('createPreviewTexture returns the textureId from HostApi', () async {
-    when(api.createPreviewTexture(g.StreamId.processed))
+    when(api.createPreviewTexture(g.StreamId.primary))
         .thenAnswer((_) async => 42);
-    expect(await engine.createPreviewTexture(stream: g.StreamId.processed), 42);
+    expect(await engine.createPreviewTexture(stream: g.StreamId.primary), 42);
   });
 
-  test('createPreviewTexture for natural lane returns its own id', () async {
-    when(api.createPreviewTexture(g.StreamId.processed))
+  test('createPreviewTexture for a second lane returns its own id', () async {
+    when(api.createPreviewTexture(g.StreamId.primary))
         .thenAnswer((_) async => 42);
-    when(api.createPreviewTexture(g.StreamId.natural))
+    when(api.createPreviewTexture(g.StreamId.tracker))
         .thenAnswer((_) async => 43);
-    final a = await engine.createPreviewTexture(stream: g.StreamId.processed);
-    final b = await engine.createPreviewTexture(stream: g.StreamId.natural);
+    final a = await engine.createPreviewTexture(stream: g.StreamId.primary);
+    final b = await engine.createPreviewTexture(stream: g.StreamId.tracker);
     expect(a, isNot(b));
   });
 
@@ -55,7 +55,7 @@ void main() {
     when(api.createPreviewTexture(any)).thenThrow(
         PlatformException(code: 'hardwareError', message: 'metal init failed'));
     expect(
-      () => engine.createPreviewTexture(stream: g.StreamId.processed),
+      () => engine.createPreviewTexture(stream: g.StreamId.primary),
       throwsA(isA<CameraException>().having(
           (e) => e.code, 'code', CameraErrorCode.hardwareError)),
     );

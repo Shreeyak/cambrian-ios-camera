@@ -149,7 +149,6 @@ extension CameraKit.SessionCapabilities {
         SessionCapabilities(
             supportedSizes: supportedSizes.map { $0.toPigeon() as PSize? },
             previewTextureId: Int64(previewTextureId),
-            naturalTextureId: Int64(naturalTextureId),
             activeCaptureResolution: activeCaptureResolution.toPigeon(),
             activeCropRegion: activeCropRegion.toPigeon(),
             streamPixelFormat: streamPixelFormat,

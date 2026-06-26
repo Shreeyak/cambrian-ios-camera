@@ -10,7 +10,6 @@ import 'mocks/mocks.mocks.dart';
 g.SessionCapabilities _fakeCaps() => g.SessionCapabilities(
       supportedSizes: [g.PSize(width: 1920, height: 1080)],
       previewTextureId: 1,
-      naturalTextureId: 2,
       activeCaptureResolution: g.PSize(width: 1920, height: 1080),
       activeCropRegion: g.PRect(x: 0, y: 0, width: 1920, height: 1080),
       streamPixelFormat: 'BGRA8',
