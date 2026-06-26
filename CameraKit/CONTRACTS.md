@@ -81,20 +81,12 @@ public init(offsetLinear: Double, meanGamma: Double, minGamma: Double, maxGamma:
 ⋮----
 public struct BlackPointDebug: Sendable {
 ⋮----
-public let side: Int
-⋮----
-public let patchRGBA: [UInt8]
-⋮----
 public let keptCount: Int
 ⋮----
 public let totalCount: Int
 public let r: BlackPointChannelStats
 public let g: BlackPointChannelStats
 public let b: BlackPointChannelStats
-⋮----
-public let contextRGBA: [UInt8]
-⋮----
-public let contextSide: Int
 ⋮----
 public init(
 ```
@@ -143,7 +135,6 @@ let d = blackPointDebug(
 ⋮----
 public static func blackPointDebug(
 ⋮----
-let imageSource = imagePixels ?? pixels
 let kSig = Constants.blackPointSigmaK
 let maxSample = Constants.blackPointMaxSampleGamma
 let half = patch / 2
@@ -157,30 +148,17 @@ let pw = max(0, x1 - x0)
 let ph = max(0, y1 - y0)
 let emptyStats = BlackPointChannelStats(
 ⋮----
-var rgba: [UInt8] = includeImage ? [UInt8](repeating: 0, count: pw * ph * 4) : []
 var sum = SIMD3<Double>(repeating: 0)
 var sumSq = SIMD3<Double>(repeating: 0)
 var gammaSum = SIMD3<Double>(repeating: 0)
 var minG = SIMD3<Double>(repeating: 1)
 var maxG = SIMD3<Double>(repeating: 0)
 var keptCount = 0
-var idx = 0
 ⋮----
 let p = pixels[y * width + x]
 let g = SIMD3<Double>(Double(p.x), Double(p.y), Double(p.z))
 ⋮----
-let q = imageSource[y * width + x]
-⋮----
 let l = SIMD3<Double>(srgbToLinear(g.x), srgbToLinear(g.y), srgbToLinear(g.z))
-⋮----
-var contextRGBA: [UInt8] = []
-var contextSideOut = 0
-⋮----
-let cside = min(requestedContext, width, height)
-let cx0 = max(0, min(width - cside, cx - cside / 2))
-let cy0 = max(0, min(height - cside, cy - cside / 2))
-⋮----
-var ci = 0
 ⋮----
 func stats(
 ⋮----
@@ -554,12 +532,11 @@ let afterSample = try await sampleCenterPatchForBBCalibration()
 ⋮----
 public func calibrateBlackPoint() async throws -> BlackPointDebug {
 ⋮----
-let rb = try await pipeline.readbackNaturalRGB()
-⋮----
-let proc = try? await pipeline.readbackProcessedRGB()
-let imagePixels =
+let rb = try await pipeline.readbackNaturalCenterRegion(
 ⋮----
 let debug = CalibrationCompute.blackPointDebug(
+⋮----
+let keptFraction =
 ⋮----
 var next = currentProcessing ?? .identity
 ⋮----
@@ -1304,6 +1281,8 @@ static let blackPointSigmaK: Double = 1.5
 ⋮----
 static let blackPointMaxSampleGamma: Double = 0.3
 ⋮----
+static let blackPointMinKeptFraction: Double = 0.4
+⋮----
 static let wbGrayWorldLogCap: Float = 0.25
 ⋮----
 static let frameLatencyBudgetMs: Int = 33
@@ -1544,6 +1523,8 @@ private let eightBitNaturalPool: CVPixelBufferPool
 private let eightBitProcessedPool: CVPixelBufferPool
 private let rgba16fToBgra8PSO: MTLComputePipelineState
 ⋮----
+private let extractCenterRegionPSO: MTLComputePipelineState
+⋮----
 private(set) var captureSize: Size
 ⋮----
 private(set) var outputSize: Size
@@ -1752,23 +1733,23 @@ func dispatchCenterPatch() async throws -> RgbSample {
 ⋮----
 func dispatchCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
-func readbackNaturalRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+func readbackNaturalCenterRegion(
 ⋮----
-func readbackProcessedRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+private func readbackCenterRegion(
 ⋮----
-private func readbackRGBA16F(
+let s = max(1, min(side, source.width, source.height))
+let desc = MTLTextureDescriptor.texture2DDescriptor(
 ⋮----
-let w = natTex.width
-let h = natTex.height
-let bytesPerRow = w * 4 * MemoryLayout<UInt16>.size
-let length = bytesPerRow * h
+let bytesPerRow = s * 4 * MemoryLayout<UInt16>.size
+let length = bytesPerRow * s
 ⋮----
-let half = buf.contents().bindMemory(to: UInt16.self, capacity: w * h * 4)
-var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: w * h)
+let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+let groups = MTLSize(width: (s + 15) / 16, height: (s + 15) / 16, depth: 1)
+⋮----
+let half = buf.contents().bindMemory(to: UInt16.self, capacity: s * s * 4)
+var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: s * s)
 ⋮----
 func dispatchBBCalibrationSample() async throws -> RgbSample {
-⋮----
-let desc = MTLTextureDescriptor.texture2DDescriptor(
 ⋮----
 var params = uniforms.withLock { $0.color }
 ⋮----

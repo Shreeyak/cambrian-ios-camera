@@ -140,12 +140,12 @@ public enum CalibrationCompute {
         pixels: [SIMD3<Float>], width: Int, height: Int, patch: Int
     ) -> (r: Double, g: Double, b: Double) {
         let d = blackPointDebug(
-            pixels: pixels, width: width, height: height, patch: patch, includeImage: false)
+            pixels: pixels, width: width, height: height, patch: patch)
         return (d.r.offsetLinear, d.g.offsetLinear, d.b.offsetLinear)
     }
 
-    /// Full black-point diagnostics from a dark-field readback: the per-channel
-    /// linear offset PLUS the sampled patch (for display) and per-channel stats.
+    /// Per-channel black-point diagnostics from a dark-field readback: the linear
+    /// offset and per-channel statistics.
     ///
     /// Patch-only + near-black per-pixel gate (design D8, revised 2026-06-23), all
     /// offset statistics in LINEAR light:
@@ -164,18 +164,9 @@ public enum CalibrationCompute {
     ///   - pixels: row-major gamma-encoded RGB, one entry per pixel.
     ///   - width, height: frame dimensions (`pixels.count == width * height`).
     ///   - patch: center-patch side length in pixels (the only region sampled).
-    ///   - includeImage: when `true`, fills `patchRGBA` for display; `false` skips
-    ///     that allocation for the offset-only path.
     public static func blackPointDebug(
-        pixels: [SIMD3<Float>], imagePixels: [SIMD3<Float>]? = nil,
-        width: Int, height: Int, patch: Int, includeImage: Bool = true,
-        contextSide requestedContext: Int = 0
+        pixels: [SIMD3<Float>], width: Int, height: Int, patch: Int
     ) -> BlackPointDebug {
-        // Stats (offsets, per-channel gamma) come from `pixels` (the raw natural
-        // lane); the thumbnail is rendered from `imagePixels` when supplied (the
-        // graded processed lane, for WYSIWYG with the preview) and falls back to
-        // `pixels` otherwise. Both must share `width × height`.
-        let imageSource = imagePixels ?? pixels
         let kSig = Constants.blackPointSigmaK
         let maxSample = Constants.blackPointMaxSampleGamma
         let half = patch / 2
@@ -189,36 +180,24 @@ public enum CalibrationCompute {
         let ph = max(0, y1 - y0)
         let emptyStats = BlackPointChannelStats(
             offsetLinear: 0, meanGamma: 0, minGamma: 0, maxGamma: 0)
-        guard width > 0, height > 0, pixels.count == width * height,
-            imageSource.count == width * height, pw > 0, ph > 0
+        guard width > 0, height > 0, pixels.count == width * height, pw > 0, ph > 0
         else {
             return BlackPointDebug(
-                side: 0, patchRGBA: [], keptCount: 0, totalCount: 0,
-                r: emptyStats, g: emptyStats, b: emptyStats)
+                keptCount: 0, totalCount: 0, r: emptyStats, g: emptyStats, b: emptyStats)
         }
 
-        var rgba: [UInt8] = includeImage ? [UInt8](repeating: 0, count: pw * ph * 4) : []
         var sum = SIMD3<Double>(repeating: 0)
         var sumSq = SIMD3<Double>(repeating: 0)
         var gammaSum = SIMD3<Double>(repeating: 0)
         var minG = SIMD3<Double>(repeating: 1)
         var maxG = SIMD3<Double>(repeating: 0)
         var keptCount = 0
-        var idx = 0
         for y in y0..<y1 {
             for x in x0..<x1 {
                 let p = pixels[y * width + x]
                 let g = SIMD3<Double>(Double(p.x), Double(p.y), Double(p.z))
                 minG = SIMD3(min(minG.x, g.x), min(minG.y, g.y), min(minG.z, g.z))
                 maxG = SIMD3(max(maxG.x, g.x), max(maxG.y, g.y), max(maxG.z, g.z))
-                if includeImage {
-                    let q = imageSource[y * width + x]
-                    rgba[idx * 4 + 0] = UInt8(max(0, min(255, Double(q.x) * 255)))
-                    rgba[idx * 4 + 1] = UInt8(max(0, min(255, Double(q.y) * 255)))
-                    rgba[idx * 4 + 2] = UInt8(max(0, min(255, Double(q.z) * 255)))
-                    rgba[idx * 4 + 3] = 255
-                }
-                idx += 1
                 // Per-pixel near-black gate: keep only if every channel is dark.
                 if g.x < maxSample && g.y < maxSample && g.z < maxSample {
                     let l = SIMD3<Double>(srgbToLinear(g.x), srgbToLinear(g.y), srgbToLinear(g.z))
@@ -228,30 +207,6 @@ public enum CalibrationCompute {
                     keptCount += 1
                 }
             }
-        }
-
-        // Optional context window: a wider centered crop (from the image source)
-        // so the demo app can show the sampled patch in its surroundings. The
-        // sample patch stays centered within it (origin = center − cside/2).
-        var contextRGBA: [UInt8] = []
-        var contextSideOut = 0
-        if includeImage, requestedContext > 0 {
-            let cside = min(requestedContext, width, height)
-            let cx0 = max(0, min(width - cside, cx - cside / 2))
-            let cy0 = max(0, min(height - cside, cy - cside / 2))
-            contextRGBA = [UInt8](repeating: 0, count: cside * cside * 4)
-            var ci = 0
-            for y in cy0..<(cy0 + cside) {
-                for x in cx0..<(cx0 + cside) {
-                    let q = imageSource[y * width + x]
-                    contextRGBA[ci * 4 + 0] = UInt8(max(0, min(255, Double(q.x) * 255)))
-                    contextRGBA[ci * 4 + 1] = UInt8(max(0, min(255, Double(q.y) * 255)))
-                    contextRGBA[ci * 4 + 2] = UInt8(max(0, min(255, Double(q.z) * 255)))
-                    contextRGBA[ci * 4 + 3] = 255
-                    ci += 1
-                }
-            }
-            contextSideOut = cside
         }
 
         // Per channel: mean + k·σ over kept pixels (population var = E[x²]−E[x]²,
@@ -271,11 +226,10 @@ public enum CalibrationCompute {
                 meanGamma: gSum / n, minGamma: minc, maxGamma: maxc)
         }
         return BlackPointDebug(
-            side: pw, patchRGBA: rgba, keptCount: keptCount, totalCount: pw * ph,
+            keptCount: keptCount, totalCount: pw * ph,
             r: stats(sum.x, sumSq.x, gammaSum.x, minG.x, maxG.x),
             g: stats(sum.y, sumSq.y, gammaSum.y, minG.y, maxG.y),
-            b: stats(sum.z, sumSq.z, gammaSum.z, minG.z, maxG.z),
-            contextRGBA: contextRGBA, contextSide: contextSideOut)
+            b: stats(sum.z, sumSq.z, gammaSum.z, minG.z, maxG.z))
     }
 
 }

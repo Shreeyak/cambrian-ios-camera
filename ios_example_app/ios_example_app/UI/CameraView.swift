@@ -477,73 +477,24 @@ public struct CameraView: View {
         .opacity(enablement.isCalibrateEnabled ? 1.0 : 0.4)
     }
 
-    /// Black-point diagnostics: the sampled patch (magnified, no interpolation) +
-    /// per-channel stats. `kept 0/…` with a high γ-max means the surface was too
-    /// bright to black-point.
+    /// Black-point diagnostics: per-channel stats. `kept 0/…` (or a low kept
+    /// fraction) with a high γ-max means the surface was too bright to black-point.
     @ViewBuilder
     private func blackPointDebugPanel(_ d: BlackPointDebug) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Context view: the sampled patch shown in its surroundings, oriented
-            // to match the live preview, with the exact sampled region outlined in
-            // yellow at the center — so the operator can confirm where (and in what
-            // orientation) the sample was taken vs the on-screen reticle.
-            if d.contextSide > 0, let ctx = contextCGImage(d) {
-                let frac = CGFloat(d.side) / CGFloat(d.contextSide)
-                ZStack {
-                    Image(decorative: ctx, scale: 1.0)
-                        .interpolation(.none)
-                        .resizable()
-                        .frame(width: 120, height: 120)
-                    Rectangle()
-                        .stroke(Color.yellow, lineWidth: 1)
-                        .frame(width: 120 * frac, height: 120 * frac)
-                }
-                .border(.white.opacity(0.3))
-            } else if let img = patchCGImage(d) {
-                Image(decorative: img, scale: 1.0)
-                    .interpolation(.none)
-                    .resizable()
-                    .frame(width: 72, height: 72)
-                    .border(.white.opacity(0.3))
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text("kept \(d.keptCount)/\(d.totalCount)")
-                Text(bpLine("R", d.r))
-                Text(bpLine("G", d.g))
-                Text(bpLine("B", d.b))
-            }
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.85))
+        VStack(alignment: .leading, spacing: 2) {
+            Text("kept \(d.keptCount)/\(d.totalCount)")
+            Text(bpLine("R", d.r))
+            Text(bpLine("G", d.g))
+            Text(bpLine("B", d.b))
         }
+        .font(.system(size: 10, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.85))
     }
 
     private func bpLine(_ name: String, _ s: BlackPointChannelStats) -> String {
         String(
             format: "%@ off %.4f  γ[%.2f–%.2f]",
             name, s.offsetLinear, s.minGamma, s.maxGamma)
-    }
-
-    private func patchCGImage(_ d: BlackPointDebug) -> CGImage? {
-        guard d.side > 0, d.patchRGBA.count == d.side * d.side * 4 else { return nil }
-        guard let provider = CGDataProvider(data: Data(d.patchRGBA) as CFData) else { return nil }
-        return CGImage(
-            width: d.side, height: d.side,
-            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: d.side * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-    }
-
-    private func contextCGImage(_ d: BlackPointDebug) -> CGImage? {
-        let n = d.contextSide
-        guard n > 0, d.contextRGBA.count == n * n * 4 else { return nil }
-        guard let provider = CGDataProvider(data: Data(d.contextRGBA) as CFData) else { return nil }
-        return CGImage(
-            width: n, height: n,
-            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     private func sliderRow(

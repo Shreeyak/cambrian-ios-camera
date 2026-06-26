@@ -64,6 +64,16 @@ enum Constants {
     /// the image). `0.3` ≈ 76/255: comfortably above a real dark field yet well
     /// below any mid-tone. Build-time tunable (design D8, revised 2026-06-23).
     static let blackPointMaxSampleGamma: Double = 0.3
+
+    /// Minimum fraction of the sampled patch that must pass the near-black gate
+    /// for a black-point calibration to be accepted (0…1).
+    ///
+    /// Guards against a sliver of dark pixels on an otherwise bright/non-uniform
+    /// surface driving the black point: unless at least this fraction of the patch
+    /// is genuinely near-black, calibration fails rather than applying an offset
+    /// derived from a non-representative minority. `0.4` ≈ require the patch to be
+    /// mostly (not merely partly) dark. Build-time tunable.
+    static let blackPointMinKeptFraction: Double = 0.4
     /// Per-step log2-space cap retained on `CalibrationCompute.grayWorldGains`
     /// for unit-test stability. `calibrateWB` itself no longer iterates —
     /// the helper is kept as a pure utility but isn't in the live path.

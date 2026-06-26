@@ -86,6 +86,10 @@ public enum EngineError: Error, Sendable {
     /// (`updateSettings(...)` touching white balance, `setResolution(...)`)
     /// must not race with it. Phase-2 design §2b concurrency contract.
     case calibrationInProgress
+    /// A `calibrateBlackPoint()` call could not derive a valid black point —
+    /// the sampled patch was not dark enough (too few near-black pixels). The
+    /// `reason` is operator-facing (e.g. "point at a uniformly dark field").
+    case blackPointCalibrationFailed(reason: String)
 }
 
 public enum MetalError: Error, Sendable, Equatable {

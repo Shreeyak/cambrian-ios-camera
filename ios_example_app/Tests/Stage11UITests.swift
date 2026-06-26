@@ -227,7 +227,7 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
             BlackPointChannelStats(offsetLinear: off, meanGamma: mg, minGamma: mg, maxGamma: mg)
         }
         return BlackPointDebug(
-            side: 0, patchRGBA: [], keptCount: 1, totalCount: 1,
+            keptCount: 1, totalCount: 1,
             r: st(r, canonicalSample.r), g: st(g, canonicalSample.g), b: st(b, canonicalSample.b))
     }
 

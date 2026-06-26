@@ -136,3 +136,26 @@ kernel void colorTransform(texture2d<float, access::read>  inTex  [[texture(0)]]
 
     outTex.write(float4(c, srgb.a), gid);
 }
+
+// Copies the centered `dst`-sized square window of `src` into `dst`, so
+// black-point calibration can read back only the sampled neighborhood (the
+// center patch plus its surrounding context) instead of the full
+// multi-megapixel frame. `dst` is square and centered on `src`'s geometric
+// center. This is a kernel *read* at an offset (not a blit), so it is safe on
+// the IOSurface-backed lane textures regardless of the offset.
+kernel void extractCenterRegion(
+    texture2d<float, access::read>  src [[texture(0)]],
+    texture2d<float, access::write> dst [[texture(1)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint sw = dst.get_width();
+    uint sh = dst.get_height();
+    if (gid.x >= sw || gid.y >= sh) {
+        return;
+    }
+    int cx = int(src.get_width()) / 2;
+    int cy = int(src.get_height()) / 2;
+    int sx = clamp(cx - int(sw) / 2 + int(gid.x), 0, int(src.get_width()) - 1);
+    int sy = clamp(cy - int(sh) / 2 + int(gid.y), 0, int(src.get_height()) - 1);
+    dst.write(src.read(uint2(uint(sx), uint(sy))), gid);
+}

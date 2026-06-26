@@ -1487,14 +1487,17 @@ public actor CameraEngine {
 
     /// Calibrates the linear black point from a dark-field readback (linear-normalization-stage).
     ///
-    /// Reads back the full natural (pre-grade) frame, derives per-channel **linear**
-    /// offsets via `CalibrationCompute.blackPointOffsets` (patch-seeded value mask,
-    /// `mean + k·σ` in linear light), writes them into
-    /// `ProcessingParameters.blackPoint{R,G,B}`, and enables the black point. The
-    /// shader folds the offset into the normalization affine pre-grade.
+    /// Reads back the centered sampled patch of the natural (pre-grade) lane —
+    /// extracted on the GPU, so calibration never touches the full-frame CPU path —
+    /// derives per-channel **linear** offsets (`mean + k·σ` over the near-black
+    /// pixels), writes them into `ProcessingParameters.blackPoint{R,G,B}`, and
+    /// enables the black point. The shader folds the offset into the normalization
+    /// affine pre-grade.
     ///
-    /// `before` is the raw natural center patch (the dark field as captured);
-    /// `after` is the post-normalization processed center patch (background → ~0).
+    /// Fails (throwing `EngineError.blackPointCalibrationFailed`) when too little of
+    /// the patch is near-black — `keptFraction < Constants.blackPointMinKeptFraction`
+    /// — so a sliver of dark pixels on an otherwise bright surface can't drive the
+    /// black point. On failure the existing black point is left untouched.
     /// Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
     public func calibrateBlackPoint() async throws -> BlackPointDebug {
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
@@ -1502,45 +1505,46 @@ public actor CameraEngine {
         // the real payload (BlackPointDebug) is stashed in `lastBlackPointDebug`.
         let task = Task<CalibrationResult, Error> { [self] in
             guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-            let rb = try await pipeline.readbackNaturalRGB()
+            // Read back only the centered sampled patch (not the full frame) — the
+            // GPU extracts it, so calibration never touches the multi-megapixel CPU
+            // path.
+            let rb = try await pipeline.readbackNaturalCenterRegion(
+                side: Constants.centerPatchSizePx)
             try Task.checkCancellation()
-            // Thumbnail is rendered from the processed (graded) lane so it matches
-            // the on-screen preview under the reticle (WYSIWYG); the math stays on
-            // the raw natural `rb`. Only use the processed pixels when they share
-            // the natural lane's dimensions (they always do — both `outputSize`);
-            // fall back to natural on any mismatch or readback failure.
-            let proc = try? await pipeline.readbackProcessedRGB()
-            let imagePixels =
-                (proc?.width == rb.width && proc?.height == rb.height) ? proc?.pixels : nil
             let debug = CalibrationCompute.blackPointDebug(
-                pixels: rb.pixels, imagePixels: imagePixels,
-                width: rb.width, height: rb.height,
-                patch: Constants.centerPatchSizePx,
-                contextSide: 4 * Constants.centerPatchSizePx)
+                pixels: rb.pixels, width: rb.width, height: rb.height,
+                patch: Constants.centerPatchSizePx)
             lastBlackPointDebug = debug
+            let keptFraction =
+                debug.totalCount > 0 ? Double(debug.keptCount) / Double(debug.totalCount) : 0
             CameraKitLog.notice(
                 .engine,
                 "[blackpoint] kept \(debug.keptCount)/\(debug.totalCount) "
+                    + "(\(Int((keptFraction * 100).rounded()))%) "
                     + "offsets r=\(debug.r.offsetLinear) g=\(debug.g.offsetLinear) "
                     + "b=\(debug.b.offsetLinear) maxγ r=\(debug.r.maxGamma) "
-                    + "g=\(debug.g.maxGamma) b=\(debug.b.maxGamma) from \(rb.width)x\(rb.height)")
-            // Apply + enable ONLY when near-black pixels were found. A too-bright
-            // surface (keptCount == 0) leaves any existing black point untouched.
-            if debug.keptCount > 0 {
-                var next = currentProcessing ?? .identity
-                next.blackPointR = debug.r.offsetLinear
-                next.blackPointG = debug.g.offsetLinear
-                next.blackPointB = debug.b.offsetLinear
-                next.blackPointEnabled = true
-                await setProcessingParams(next)
-            } else {
-                CameraKitLog.notice(
-                    .engine,
-                    "[blackpoint] no near-black pixels (surface too bright) — black point unchanged")
+                    + "g=\(debug.g.maxGamma) b=\(debug.b.maxGamma) region \(rb.width)x\(rb.height)")
+            // Require most of the patch to be near-black; otherwise a stray sliver
+            // of dark pixels on a bright surface would set a bogus black point.
+            // Below the floor ⇒ fail with an operator-facing reason; leave any
+            // existing black point untouched.
+            guard keptFraction >= Constants.blackPointMinKeptFraction else {
+                throw EngineError.blackPointCalibrationFailed(
+                    reason:
+                        "Only \(Int((keptFraction * 100).rounded()))% of the sampled patch "
+                        + "was near-black (need ≥ "
+                        + "\(Int(Constants.blackPointMinKeptFraction * 100))%). Point the "
+                        + "camera at a uniformly dark field and try again.")
             }
+            var next = currentProcessing ?? .identity
+            next.blackPointR = debug.r.offsetLinear
+            next.blackPointG = debug.g.offsetLinear
+            next.blackPointB = debug.b.offsetLinear
+            next.blackPointEnabled = true
+            await setProcessingParams(next)
             return CalibrationResult(
                 before: RgbSample(r: 0, g: 0, b: 0), after: RgbSample(r: 0, g: 0, b: 0),
-                converged: debug.keptCount > 0, iterations: 1)
+                converged: true, iterations: 1)
         }
         calibrationTask = task
         defer { calibrationTask = nil }

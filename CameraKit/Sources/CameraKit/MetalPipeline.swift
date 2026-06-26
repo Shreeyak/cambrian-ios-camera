@@ -142,6 +142,8 @@ final class MetalPipeline: @unchecked Sendable {
     private let eightBitNaturalPool: CVPixelBufferPool
     private let eightBitProcessedPool: CVPixelBufferPool
     private let rgba16fToBgra8PSO: MTLComputePipelineState
+    /// Extracts a small centered region from a lane texture (black-point readback).
+    private let extractCenterRegionPSO: MTLComputePipelineState
 
     private(set) var captureSize: Size
 
@@ -486,6 +488,10 @@ final class MetalPipeline: @unchecked Sendable {
             throw MetalError.pipelineStateCompilation("rgba16fToBgra8 missing")
         }
         self.rgba16fToBgra8PSO = try device.makeComputePipelineState(function: fnConvert)
+        guard let fnExtract = library.makeFunction(name: "extractCenterRegion") else {
+            throw MetalError.pipelineStateCompilation("extractCenterRegion missing")
+        }
+        self.extractCenterRegionPSO = try device.makeComputePipelineState(function: fnExtract)
 
         // 9. Stage 10: encoder NV12 pool + rgba16fToNV12 PSO (Pass 5).
         //    P2a — Pass-5 encodes processedTexI (outputSize); NV12 pool follows.
@@ -1070,53 +1076,74 @@ final class MetalPipeline: @unchecked Sendable {
         return try await dispatchCenterPatch(on: naturalTex)
     }
 
-    /// Reads the full **natural** (pre-grade) frame back to the CPU as
+    /// Reads back a centered square region of the **natural** (pre-grade) lane as
     /// gamma-encoded RGB, for one-shot black-point calibration stats.
     ///
-    /// Blits the latest natural texture into a shared buffer, awaits completion,
-    /// and unpacks RGBA16F → `[SIMD3<Float>]` (RGB; alpha dropped). This is the
-    /// full-frame sample `CalibrationCompute.blackPointOffsets` needs for the
-    /// patch-seeded value mask — done on the CPU because calibration is a
-    /// one-shot button press, not a per-frame path (design D8a). The returned
-    /// values are gamma-encoded; the stats helper linearizes them.
-    ///
-    /// Single-writer invariant (delivery queue) + Metal command-buffer ordering
-    /// make the read race-free, as for `dispatchCenterPatchOnNatural`.
-    func readbackNaturalRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
-        guard let natTex = latestNaturalTex16F else { throw MetalError.noFrameAvailable }
-        return try await readbackRGBA16F(from: natTex)
-    }
-
-    /// Reads back the full processed (post-grade) frame as RGB floats.
-    ///
-    /// Same shape as `readbackNaturalRGB` but sources the graded lane, so the
-    /// black-point debug thumbnail can be rendered WYSIWYG with the on-screen
-    /// preview (which shows the processed lane) while the calibration *math*
-    /// still runs on the raw natural lane.
-    func readbackProcessedRGB() async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
-        guard let procTex = latestProcessedTex16F else { throw MetalError.noFrameAvailable }
-        return try await readbackRGBA16F(from: procTex)
-    }
-
-    private func readbackRGBA16F(
-        from natTex: MTLTexture
+    /// Only the `side × side` window centered on the frame is read back — not the
+    /// full multi-megapixel frame — so calibration stays cheap (it samples a
+    /// small patch). Returned values are gamma-encoded; the stats helper
+    /// linearizes them. `side` is clamped to the lane's dimensions.
+    func readbackNaturalCenterRegion(
+        side: Int
     ) async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
-        let w = natTex.width
-        let h = natTex.height
-        let bytesPerRow = w * 4 * MemoryLayout<UInt16>.size  // RGBA16F = 8 B/px
-        let length = bytesPerRow * h
+        guard let natTex = latestNaturalTex16F else { throw MetalError.noFrameAvailable }
+        return try await readbackCenterRegion(from: natTex, side: side)
+    }
+
+    /// Extracts the centered `side × side` window of `source` on the GPU, then
+    /// reads back only that small region.
+    ///
+    /// `extractCenterRegion` copies the window (a kernel read at an offset — safe
+    /// on the IOSurface-backed lane, unlike a non-zero-origin blit) into a small
+    /// private texture; that texture is blitted (origin 0) into shared memory and
+    /// unpacked RGBA16F → `[SIMD3<Float>]` (alpha dropped). Avoiding the
+    /// full-frame readback keeps calibration off the multi-megapixel CPU path.
+    /// `side` is clamped to the source dimensions. Single-writer invariant
+    /// (delivery queue) + command-buffer ordering make the read race-free.
+    private func readbackCenterRegion(
+        from source: MTLTexture, side: Int
+    ) async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+        let s = max(1, min(side, source.width, source.height))
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba16Float, width: s, height: s, mipmapped: false)
+        desc.usage = [.shaderRead, .shaderWrite]
+        desc.storageMode = .private
+        guard let region = commandQueue.device.makeTexture(descriptor: desc) else {
+            throw MetalError.textureAllocationFailed
+        }
+        let bytesPerRow = s * 4 * MemoryLayout<UInt16>.size  // RGBA16F = 8 B/px
+        let length = bytesPerRow * s
         guard
             let buf = commandQueue.device.makeBuffer(length: length, options: .storageModeShared)
         else { throw MetalError.textureAllocationFailed }
-        guard let cb = commandQueue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder()
-        else { throw MetalError.commandBufferFailed(code: -4) }
+        guard let cb = commandQueue.makeCommandBuffer() else {
+            throw MetalError.commandBufferFailed(code: -5)
+        }
+
+        // GPU step 1: copy the centered window from the full lane into `region`.
+        guard let extract = cb.makeComputeCommandEncoder() else {
+            throw MetalError.commandBufferFailed(code: -5)
+        }
+        extract.setComputePipelineState(extractCenterRegionPSO)
+        extract.setTexture(source, index: 0)
+        extract.setTexture(region, index: 1)
+        let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(width: (s + 15) / 16, height: (s + 15) / 16, depth: 1)
+        extract.dispatchThreadgroups(groups, threadsPerThreadgroup: tgSize)
+        extract.endEncoding()
+
+        // GPU step 2: copy the small region (origin 0 — safe) into shared memory.
+        guard let blit = cb.makeBlitCommandEncoder() else {
+            throw MetalError.commandBufferFailed(code: -4)
+        }
         blit.copy(
-            from: natTex, sourceSlice: 0, sourceLevel: 0,
+            from: region, sourceSlice: 0, sourceLevel: 0,
             sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-            sourceSize: MTLSize(width: w, height: h, depth: 1),
+            sourceSize: MTLSize(width: s, height: s, depth: 1),
             to: buf, destinationOffset: 0,
             destinationBytesPerRow: bytesPerRow, destinationBytesPerImage: length)
         blit.endEncoding()
+
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             cb.addCompletedHandler { cb in
                 cb.status == .error
@@ -1127,15 +1154,15 @@ final class MetalPipeline: @unchecked Sendable {
             }
             cb.commit()
         }
-        let half = buf.contents().bindMemory(to: UInt16.self, capacity: w * h * 4)
-        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: w * h)
-        for i in 0..<(w * h) {
+        let half = buf.contents().bindMemory(to: UInt16.self, capacity: s * s * 4)
+        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: s * s)
+        for i in 0..<(s * s) {
             pixels[i] = SIMD3<Float>(
                 Float(Float16(bitPattern: half[i * 4 + 0])),
                 Float(Float16(bitPattern: half[i * 4 + 1])),
                 Float(Float16(bitPattern: half[i * 4 + 2])))
         }
-        return (pixels, w, h)
+        return (pixels, s, s)
     }
 
     /// BB calibration entry point — samples a one-shot scratch render of
