@@ -233,7 +233,7 @@ public enum CalibrationCompute {
     ///   4. **Level** `targetLin / meanLin`, with `targetLin =
     ///      srgbToLinear(Constants.whitePointTargetDisplay)`: lifts the neutralized
     ///      reference to the configured white target. Optional, applied only in
-    ///      brightfield (see `applyWhiteBalance(whitePoint:)`).
+    ///      brightfield (see `enableWhitePoint() / disableWhitePoint()`).
     ///
     /// Near-zero channels are eps-clamped so a (degenerate) black sample can't
     /// divide by zero; on a real white field every channel is bright.

@@ -118,38 +118,71 @@ chroma is also active (level without chroma is not a valid state).
 
 ### Requirement: Single white-field calibration
 
-A single white-field calibration gesture (`calibrateWhiteBalance()`) SHALL, from one white-field
-sample, derive and store all of: the hardware white-balance gains, the per-channel chroma residual,
-and the per-channel white-point level. The calibration entry point SHALL NOT take a white-point
-argument; the white-point selection is made at apply time so the operator can switch between
-brightfield and phase contrast without recalibrating.
+A single white-field calibration procedure (`calibrateWhite(whitePoint:)`) SHALL, from one
+white-field sample, derive and store all of: the hardware white-balance gains, the per-channel
+chroma residual, and the per-channel white-point level, and enable the chroma residual. The
+`whitePoint` argument (default `true`) SHALL select the initial look — `true` enables the white-point
+level (brightfield), `false` leaves it disabled (phase contrast) — and the operator MAY switch
+between the two afterward without recalibrating (see *Apply-time white-point selection*). The
+procedure SHALL fail — surfacing an error and leaving prior state unchanged — when the sampled patch
+is not bright enough to be a white reference (below `whiteFieldMinSampleGamma`).
 
 #### Scenario: One sample, three coefficient sets
 
 - **WHEN** the operator calibrates against a white field
-- **THEN** hardware gains, chroma residual, and white-point level are all derived and stored from that one sample
+- **THEN** hardware gains, chroma residual, and white-point level are all derived and stored from that one sample, and the chroma residual is enabled
+
+#### Scenario: Initial look selected by the calibrate argument
+
+- **WHEN** the operator calibrates with `whitePoint: true` (default)
+- **THEN** the white-point level is enabled (brightfield); with `whitePoint: false` only the chroma residual is enabled (phase contrast)
 
 #### Scenario: Mode switch without recalibration
 
 - **WHEN** the operator has calibrated and switches between brightfield and phase contrast
-- **THEN** no new white-field capture is required; only the apply-time white-point selection changes
+- **THEN** no new white-field capture is required; only the white-point toggle changes
 
-### Requirement: Apply-time white-point selection
+#### Scenario: Non-white field fails calibration
 
-White balance SHALL be applied through a single operation that takes an optional white-point flag
-(`applyWhiteBalance(whitePoint: Bool = false)`). With the flag off, only the chroma residual
-applies; with the flag on, chroma residual and white-point level both apply. The API SHALL make the
-invalid "level without chroma" state unrepresentable.
+- **WHEN** the sampled patch is too dark to be a white reference (below `whiteFieldMinSampleGamma`)
+- **THEN** calibration fails with an error whose reason is surfaced to the caller, and prior white-balance state is left unchanged
 
-#### Scenario: Phase contrast applies chroma only
+### Requirement: Independent normalization toggles with calibration guards
 
-- **WHEN** `applyWhiteBalance()` is called without the white-point flag
+Beyond the full `calibrate*` procedures, each normalization setting SHALL be independently
+enable/disable-able on its stored coefficients without resampling: white-balance chroma
+(`enableWhiteBalance()` / `disableWhiteBalance()`), white point (`enableWhitePoint()` /
+`disableWhitePoint()`), and black point (`enableBlackPoint()` / `disableBlackPoint()`); and each
+field's calibration SHALL be discardable (`clearWhiteBalance()`, `clearBlackPoint()`). The API SHALL
+make the invalid "level without chroma" state unrepresentable: white point SHALL only be enable-able
+while chroma is active, and disabling chroma SHALL also disable white point. `enable*` SHALL **throw**
+when the setting has not been calibrated (or, for white balance, while hardware WB is in auto), rather
+than silently doing nothing.
+
+#### Scenario: Phase contrast — chroma only
+
+- **WHEN** the operator disables the white point (or calibrated with `whitePoint: false`)
 - **THEN** the chroma residual applies and the white-point level does not
 
-#### Scenario: Brightfield applies chroma and level
+#### Scenario: Brightfield — chroma and level
 
-- **WHEN** `applyWhiteBalance(whitePoint: true)` is called
+- **WHEN** the operator enables the white point after calibration
 - **THEN** both the chroma residual and the white-point level apply
+
+#### Scenario: Enabling before calibration throws
+
+- **WHEN** `enableWhitePoint()` / `enableWhiteBalance()` / `enableBlackPoint()` is called before the corresponding field has been calibrated
+- **THEN** it throws a calibration-required error (operator-facing) instead of silently no-op'ing
+
+#### Scenario: White point cannot apply without chroma
+
+- **WHEN** white-balance chroma is disabled
+- **THEN** the white-point level is also disabled, and it cannot be enabled until chroma is active again
+
+#### Scenario: Toggling does not resample
+
+- **WHEN** the operator enables/disables any setting after calibration
+- **THEN** the stored coefficients are reused (no new patch sample / readback)
 
 ### Requirement: Creative grade unchanged; endpoints not pinned
 

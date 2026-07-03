@@ -127,11 +127,26 @@ of dark pixels on an otherwise bright surface cannot drive a bogus black point.
 > is simpler and behaved better on device; `blackPointSelectSigmaK` was never shipped.
 
 ### D9. Calibration & apply surface; clean-break black-balance removal
-- **White balance**: one `calibrateWhiteBalance()` (no white-point arg) derives device gains +
-  chroma residual + level from one white-field sample and stores all three. `applyWhiteBalance(
-  whitePoint: Bool = false)` selects at use time — chroma only (phase contrast) or chroma + level
-  (brightfield). A single function with the flag makes "level without chroma" unrepresentable; order
-  is moot (D2), so no two-function ordering hazard.
+- **Two-layer surface (revised 2026-06-26).** Each field has a full one-call procedure plus
+  independent toggles, with verbs that say what they do:
+  - **Procedures (sample → compute → enable):** `calibrateWhite(whitePoint: Bool = true)` samples a
+    white field, locks hardware WB, derives device gains + chroma residual + white-point level,
+    enables chroma, and enables white point iff `whitePoint` (default `true` = brightfield; `false`
+    = phase contrast). `calibrateBlack()` samples a dark field, derives + enables the black point.
+    Both validate their field and throw on a bad one (`whiteBalanceCalibrationFailed` /
+    `blackPointCalibrationFailed`).
+  - **Toggles (no resampling):** `enableWhiteBalance()`/`disableWhiteBalance()`,
+    `enableWhitePoint()`/`disableWhitePoint()`, `enableBlackPoint()`/`disableBlackPoint()`, and
+    `clearWhiteBalance()`/`clearBlackPoint()` (discard coefficients). `enable*` **throws**
+    `…NotCalibrated` rather than silently no-op'ing.
+  - **"Level without chroma" stays unrepresentable:** white point can only be enabled while chroma
+    is active; `disableWhiteBalance()` also disables white point; `ColorUniform.init` gates the level
+    term by chroma defensively. (Supersedes the original single `applyWhiteBalance(whitePoint:)`
+    selector — same invariants, but honest names and independent enable/disable, per user
+    decision 2026-06-26.)
+  - **Software vs hardware WB are separate axes:** the toggles/`clear*` touch only the software
+    normalization; returning the camera to continuous auto WB is the existing `wbMode = .auto`
+    control (which the §5.3 gate then uses to force the software residual off).
 - **Black point**: clean break — the legacy `calibrateBlackBalance` (Swift/Pigeon/Dart),
   `ProcessingParameters.blackR/G/B` (+ `ColorUniform` mirror), and the post-grade shader subtraction
   are **removed entirely**. No deprecated alias, no forwarding. `calibrateBlackPoint` is the only

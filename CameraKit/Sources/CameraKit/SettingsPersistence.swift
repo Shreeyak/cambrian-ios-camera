@@ -57,7 +57,7 @@ enum SettingsPersistence {
     /// *values* instead of resetting, while new normalization fields come up at
     /// identity/disabled. The legacy black-balance is removed entirely (breaking,
     /// tasks.md §4): its persisted keys are ignored (not applied, not migrated) and
-    /// the black point is recalibrated fresh via the new `calibrateBlackPoint`.
+    /// the black point is recalibrated fresh via the new `calibrateBlack`.
     static func loadProcessing(defaults: UserDefaults = .standard) -> ProcessingParameters? {
         guard let data = defaults.data(forKey: processingKey) else { return nil }
         return try? JSONDecoder().decode(ProcessingParameters.self, from: data)

@@ -210,7 +210,9 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         completion: @escaping (Result<CalibrationResult, any Error>) -> Void
     ) {
         guardOpenReturning(completion) { engine in
-            let r = try await engine.calibrateWhiteBalance()
+            // White point is not yet surfaced to Flutter (§8.2), so calibrate
+            // chroma only (whitePoint: false) — preserves the prior Dart behavior.
+            let r = try await engine.calibrateWhite(whitePoint: false)
             return r.toPigeon()
         }
     }
@@ -222,7 +224,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
             // Discard the per-channel diagnostics — the Dart surface only needs
             // success/failure. Failure throws EngineError.blackPointCalibrationFailed,
             // mapped to CameraErrorCode.calibrationFailed by `asPigeonError()`.
-            _ = try await engine.calibrateBlackPoint()
+            _ = try await engine.calibrateBlack()
         }
     }
 

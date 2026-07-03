@@ -53,9 +53,17 @@ public protocol CameraEngineProtocol: Actor {
     func stopRecording() async throws -> String
 
     // MARK: Calibration
-    func calibrateWhiteBalance() async throws -> CalibrationResult
-    func applyWhiteBalance(whitePoint: Bool) async
-    func calibrateBlackPoint() async throws -> BlackPointDebug
+    // Full procedures: sample → compute → enable.
+    func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult
+    func calibrateBlack() async throws -> BlackPointDebug
+    // Independent toggles on the stored coefficients (no resampling).
+    func enableWhiteBalance() async throws
+    func disableWhiteBalance() async
+    func enableWhitePoint() async throws
+    func disableWhitePoint() async
+    func clearWhiteBalance() async
+    func enableBlackPoint() async throws
+    func disableBlackPoint() async
     func clearBlackPoint() async
 
     // MARK: Texture bridge

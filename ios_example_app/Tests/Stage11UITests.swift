@@ -182,21 +182,26 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
 
     // MARK: - CalibrationEngineProtocol
 
-    func calibrateWhiteBalance() async throws -> CalibrationResult {
+    func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult {
         calibrateWBCount += 1
-        // Record the .manual delta as the engine would after a real apply.
+        // Record the .manual delta as the engine would after a real apply, and
+        // mimic enabling chroma (+ white point per the arg) on the snapshot.
         var delta = CameraSettings()
         delta.wbMode = .manual
         delta.wbGainR = 1.0
         delta.wbGainG = 1.0
         delta.wbGainB = 1.0
         recordedDeltas.append(delta)
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaEnabled = true
+        snap.whitePointEnabled = whitePoint
+        processingSnapshot = snap
         return CalibrationResult(
             before: canonicalSample, after: canonicalSample,
             converged: true, iterations: 1)
     }
 
-    func calibrateBlackPoint() async throws -> BlackPointDebug {
+    func calibrateBlack() async throws -> BlackPointDebug {
         calibrateBPCount += 1
         // Mimic the engine: write a linear black point + enable it.
         let r = CalibrationCompute.srgbToLinear(canonicalSample.r)
@@ -225,12 +230,15 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
         processingSnapshot = snap
     }
 
-    func applyWhiteBalance(whitePoint: Bool) async {
-        // Mimic the engine: enable the chroma residual and select the white-point
-        // level on the snapshot the VM reads back.
+    func enableWhitePoint() async throws {
         var snap = processingSnapshot ?? .identity
-        snap.wbChromaEnabled = true
-        snap.whitePointEnabled = whitePoint
+        snap.whitePointEnabled = true
+        processingSnapshot = snap
+    }
+
+    func disableWhitePoint() async {
+        var snap = processingSnapshot ?? .identity
+        snap.whitePointEnabled = false
         processingSnapshot = snap
     }
 
@@ -259,10 +267,10 @@ struct Stage11CalibrationVMTests {
         return deltas
     }
 
-    @Test("calibrateWB invokes engine.calibrateWhiteBalance and records a .manual delta")
+    @Test("calibrateWB invokes engine.calibrateWhite and records a .manual delta")
     @MainActor
     func wbCalibrateInvokesEngineAndWritesManualDelta() async {
-        // Phase-2 §2b: VM is a thin caller. The stub's calibrateWhiteBalance()
+        // Phase-2 §2b: VM is a thin caller. The stub's calibrateWhite()
         // appends a `.manual` delta as a real engine apply would. The VM
         // doesn't drive the algorithm itself any more.
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
@@ -273,7 +281,7 @@ struct Stage11CalibrationVMTests {
         let deltas = await awaitDeltas(stub, count: 1)
         let calibrateCount = await stub.calibrateWBCount
 
-        #expect(calibrateCount == 1, "engine.calibrateWhiteBalance should be called once; got \(calibrateCount)")
+        #expect(calibrateCount == 1, "engine.calibrateWhite should be called once; got \(calibrateCount)")
         #expect(deltas.count == 1, "expected one .manual delta from the engine apply")
         #expect(deltas.last?.wbMode == .manual)
     }

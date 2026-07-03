@@ -86,10 +86,50 @@ public enum EngineError: Error, Sendable {
     /// (`updateSettings(...)` touching white balance, `setResolution(...)`)
     /// must not race with it. Phase-2 design §2b concurrency contract.
     case calibrationInProgress
-    /// A `calibrateBlackPoint()` call could not derive a valid black point —
-    /// the sampled patch was not dark enough (too few near-black pixels). The
+    /// A `calibrateBlack()` call could not derive a valid black point — the
+    /// sampled patch was not dark enough (too few near-black pixels). The
     /// `reason` is operator-facing (e.g. "point at a uniformly dark field").
     case blackPointCalibrationFailed(reason: String)
+    /// A `calibrateWhite()` call could not derive a valid white reference — the
+    /// sampled patch was not bright enough to be a white field. The `reason` is
+    /// operator-facing (e.g. "point at a bright, evenly-lit white field").
+    case whiteBalanceCalibrationFailed(reason: String)
+    /// `enableWhiteBalance()` / `enableWhitePoint()` was called before a white
+    /// reference was calibrated (or while white balance is in auto, where a
+    /// software residual can't sit on moving hardware gains). Run
+    /// `calibrateWhite()` first.
+    case whiteBalanceNotCalibrated
+    /// `enableBlackPoint()` was called before a dark field was calibrated (the
+    /// stored offsets are still identity). Run `calibrateBlack()` first.
+    case blackPointNotCalibrated
+}
+
+// MARK: - LocalizedError (focused slice — calibration surface; full sweep is Task #1)
+//
+// Only the calibration-related cases get operator-facing descriptions here; the
+// rest fall through to the default (nil ⇒ generic). The comprehensive pass over
+// every EngineError case (and the other four error enums) is tracked separately
+// as the LocalizedError rework (pending.md / Task #1). Surfaced so the demo's
+// `error.localizedDescription` and the Flutter `asPigeonError()` message read
+// like instructions, not enum-case names.
+extension EngineError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .blackPointCalibrationFailed(let reason),
+            .whiteBalanceCalibrationFailed(let reason):
+            return reason
+        case .whiteBalanceNotCalibrated:
+            return
+                "White balance isn't calibrated. Point at a white field and run "
+                + "white-balance calibration before enabling white balance or white point."
+        case .blackPointNotCalibrated:
+            return
+                "Black point isn't calibrated. Point at a dark field and run "
+                + "black-point calibration before enabling the black point."
+        default:
+            return nil
+        }
+    }
 }
 
 public enum MetalError: Error, Sendable, Equatable {

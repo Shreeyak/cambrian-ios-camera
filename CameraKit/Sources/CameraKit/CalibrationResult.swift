@@ -1,6 +1,6 @@
 import Foundation
 
-/// Returned by `CameraEngine.calibrateWhiteBalance()`.
+/// Returned by `CameraEngine.calibrateWhite()`.
 ///
 /// Fields mirror the Pigeon contract's `CamCalibrationResult` (Phase-2 design
 /// §2d.8). For the Phase-2 single-shot iOS algorithm, `converged = true` and

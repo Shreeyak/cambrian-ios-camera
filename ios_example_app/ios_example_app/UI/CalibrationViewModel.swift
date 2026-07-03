@@ -17,21 +17,26 @@ private let wbCompletedDisplayMs: Int = 1500
 ///
 /// **Phase-2 §2b shrink** — the VM no longer drives the multi-step calibration
 /// algorithm itself; it just calls the engine's high-level
-/// `calibrateWhiteBalance()` / `calibrateBlackPoint()` and writes WB-mode
+/// `calibrateWhite(whitePoint:)` / `calibrateBlack()` and writes WB-mode
 /// deltas via `updateSettings`. After black-point calibration the VM resyncs its
 /// processing-params mirror via `currentProcessingParametersSnapshot()`.
 protocol CalibrationEngineProtocol: Sendable {
-    func calibrateWhiteBalance() async throws -> CalibrationResult
+    /// Full white calibration (sample → compute → enable). `whitePoint: true` =
+    /// brightfield (chroma + level); `false` = phase contrast (chroma only).
+    /// Throws if the patch isn't a bright white field.
+    func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult
     /// linear-normalization-stage: the linear, pre-grade black point. Returns
     /// per-channel diagnostics for the demo app to display; throws
     /// `EngineError.blackPointCalibrationFailed` when the field isn't dark enough.
-    func calibrateBlackPoint() async throws -> BlackPointDebug
+    func calibrateBlack() async throws -> BlackPointDebug
     /// Clears the applied black point (demo "undo").
     func clearBlackPoint() async
-    /// linear-normalization-stage §5.2: selects chroma-only (phase contrast) vs
-    /// chroma + white-point level (brightfield). A no-op in auto WB (engine-gated
-    /// to a locked WB).
-    func applyWhiteBalance(whitePoint: Bool) async
+    /// linear-normalization-stage §5.2: enable/disable the white-point level
+    /// (brightfield) on top of the chroma residual, without recalibrating.
+    /// `enableWhitePoint` throws `EngineError.whiteBalanceNotCalibrated` if WB
+    /// isn't calibrated/active.
+    func enableWhitePoint() async throws
+    func disableWhitePoint() async
     func updateSettings(_ settings: CameraSettings) async throws
     func currentProcessingParametersSnapshot() async -> ProcessingParameters?
 }
@@ -51,17 +56,17 @@ public enum WBCalibrationStatus: Sendable, Equatable {
 /// White-balance + black-point calibrate / reset / lock actions.
 ///
 /// **Phase-2 §2b move-down:** the engine owns the calibration algorithms
-/// (`CameraEngine.calibrateWhiteBalance()` / `calibrateBlackPoint()`).
+/// (`CameraEngine.calibrateWhite(whitePoint:)` / `calibrateBlack()`).
 /// This VM is a thin caller — it triggers the engine method, surfaces
 /// in-progress / completed UI feedback, and resyncs the `ProcessingViewModel`
 /// mirror after a calibration completes (via
 /// `engine.currentProcessingParametersSnapshot()`).
 ///
 /// User-facing actions:
-///   1. `calibrateWB()`     — invoke `engine.calibrateWhiteBalance()`; status feedback
+///   1. `calibrateWB()`     — invoke `engine.calibrateWhite(whitePoint:)`; status feedback
 ///   2. `resetToAutoWB()`   — return to AVFoundation continuous AWB
 ///   3. `lockCurrentWB()`   — freeze whatever AVF currently has (`.locked` mode)
-///   4. `calibrateBP()`     — invoke `engine.calibrateBlackPoint()`; refresh VM mirror
+///   4. `calibrateBP()`     — invoke `engine.calibrateBlack()`; refresh VM mirror
 ///   5. `clearBP()`         — clear the applied black point
 ///
 /// Holds a reference to `ProcessingViewModel` so the calibration mirror sync
@@ -114,7 +119,7 @@ final class CalibrationViewModel {
         self.processingVM = processingVM
     }
 
-    /// Triggers single-shot WB calibration via the engine's `calibrateWhiteBalance()`.
+    /// Triggers single-shot WB calibration via the engine's `calibrateWhite(whitePoint:)`.
     ///
     /// Phase-2 §2b move-down: the algorithm now lives engine-side. The VM
     /// becomes a thin caller that sets `wbCalibrationStatus` for in-progress /
@@ -124,11 +129,12 @@ final class CalibrationViewModel {
         Task { @MainActor in
             self.wbCalibrationStatus = .calibrating
             do {
-                _ = try await engine.calibrateWhiteBalance()
+                // Full white calibration; brightfield by default (white point on).
+                // Toggle to phase contrast afterward via the white-point switch.
+                _ = try await engine.calibrateWhite(whitePoint: true)
                 self.wbMode = .manual
-                // Calibration stores + enables the WB chroma residual (white point
-                // stays off — phase-contrast default). Resync the processing mirror
-                // and the white-point toggle from the engine's snapshot.
+                // Calibration stores + enables chroma + white point. Resync the
+                // processing mirror and the white-point toggle from the snapshot.
                 if let snap = await engine.currentProcessingParametersSnapshot() {
                     self.whitePointEnabled = snap.whitePointEnabled
                     self.processingVM.refreshFromEngineSnapshot(snap)
@@ -163,16 +169,24 @@ final class CalibrationViewModel {
         }
     }
 
-    /// Selects brightfield (chroma + white-point level) vs phase contrast (chroma
-    /// only) via the engine's `applyWhiteBalance(whitePoint:)` (§5.2).
+    /// Toggles the white-point level (brightfield) on top of the chroma residual
+    /// via the engine's `enableWhitePoint()` / `disableWhitePoint()` (§5.2).
     ///
-    /// A no-op while WB is in auto (the engine gates chroma/white point to a locked
-    /// WB), so the toggle reflects the engine's gated truth read back from the
-    /// snapshot rather than the requested value.
+    /// `enableWhitePoint()` throws if WB isn't calibrated/active; the toggle then
+    /// reflects the engine's gated truth read back from the snapshot rather than the
+    /// requested value (so it stays off if the enable was rejected).
     func setWhitePoint(_ enabled: Bool) {
         let engine = self.engine
         Task { @MainActor in
-            await engine.applyWhiteBalance(whitePoint: enabled)
+            do {
+                if enabled {
+                    try await engine.enableWhitePoint()
+                } else {
+                    await engine.disableWhitePoint()
+                }
+            } catch {
+                CameraKitLog.error(.engine, "[wb] setWhitePoint(\(enabled)) threw: \(error)")
+            }
             if let snap = await engine.currentProcessingParametersSnapshot() {
                 self.whitePointEnabled = snap.whitePointEnabled
                 self.processingVM.refreshFromEngineSnapshot(snap)
@@ -192,7 +206,7 @@ final class CalibrationViewModel {
         }
     }
 
-    /// Triggers black-point calibration via the engine's `calibrateBlackPoint()`.
+    /// Triggers black-point calibration via the engine's `calibrateBlack()`.
     ///
     /// linear-normalization-stage: the linear, pre-grade black point. Point the
     /// camera at a dark field, then tap — the engine reads back the frame, derives
@@ -207,7 +221,7 @@ final class CalibrationViewModel {
             self.blackPointError = nil
             defer { self.bpCalibrating = false }
             do {
-                self.lastBlackPointDebug = try await engine.calibrateBlackPoint()
+                self.lastBlackPointDebug = try await engine.calibrateBlack()
                 if let snap = await engine.currentProcessingParametersSnapshot() {
                     processingVM.refreshFromEngineSnapshot(snap)
                 }

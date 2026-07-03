@@ -65,6 +65,16 @@ enum Constants {
     /// derived from a non-representative minority. `0.4` ≈ require the patch to be
     /// mostly (not merely partly) dark. Build-time tunable.
     static let blackPointMinKeptFraction: Double = 0.4
+
+    /// Minimum patch brightness (mean of the trimmed per-channel sample, in
+    /// gamma/display space, 0…1) for `calibrateWhite()` to accept a white field.
+    ///
+    /// The symmetric guard to `blackPointMinKeptFraction`: calibrating white
+    /// against a dark/garbage field would compute huge, meaningless chroma gains.
+    /// `0.2` ≈ 51/255 cleanly separates a real white field (bright) from a dark
+    /// field (near-black) while staying lenient enough not to reject a dimly-lit
+    /// but valid white reference. Build-time tunable.
+    static let whiteFieldMinSampleGamma: Double = 0.2
     /// Per-step log2-space cap retained on `CalibrationCompute.grayWorldGains`
     /// for unit-test stability. `calibrateWB` itself no longer iterates —
     /// the helper is kept as a pure utility but isn't in the live path.

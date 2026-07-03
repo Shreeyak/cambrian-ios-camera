@@ -84,12 +84,12 @@ public actor CameraEngine {
     private var currentProcessing: ProcessingParameters?
     /// In-flight calibration sentinel (Phase-2 §2b).
     ///
-    /// Non-nil while `calibrateWhiteBalance()` / `calibrateBlackPoint()` is
+    /// Non-nil while `calibrateWhite()` / `calibrateBlack()` is
     /// running — `updateSettings()` (when WB fields are present) and
     /// `setResolution()` throw `.calibrationInProgress`. `close()` and the
     /// `.interrupted` `SessionState` route call `cancel()` here.
     private var calibrationTask: Task<CalibrationResult, Error>?
-    /// Diagnostics from the most recent `calibrateBlackPoint()` — the calibration
+    /// Diagnostics from the most recent `calibrateBlack()` — the calibration
     /// task shares the `calibrationTask` exclusivity guard (typed `CalibrationResult`),
     /// so the black-point debug payload is stashed here and returned by the caller.
     private var lastBlackPointDebug: BlackPointDebug?
@@ -494,7 +494,7 @@ public actor CameraEngine {
         // strips `.manual`), so WB is auto here unless `initialSettings` set a lock;
         // a persisted `wbChromaEnabled == true` must therefore start disabled rather
         // than applying chroma on top of moving auto gains. Coefficients are kept, so
-        // a later `calibrateWhiteBalance()`/lock re-activates them.
+        // a later `calibrateWhite()`/lock re-activates them.
         if let persistedProcessing = SettingsPersistence.loadProcessing() {
             let effectiveWB = currentSettings?.wbMode ?? .auto
             await self.setProcessingParams(
@@ -736,7 +736,7 @@ public actor CameraEngine {
 
     /// Same body as `updateSettings(_:)` but skips the calibration-guard.
     ///
-    /// Used by `calibrateWhiteBalance()` so the in-flight calibration can
+    /// Used by `calibrateWhite()` so the in-flight calibration can
     /// commit its own `.manual` lock without tripping its own guard.
     private func _updateSettingsBypassingCalibrationGuard(_ settings: CameraSettings) async throws {
         guard let session = cameraSession, let device = session.device else {
@@ -982,7 +982,7 @@ public actor CameraEngine {
     ///      3. Saturation → 4. Gamma.
     ///
     /// The black point is part of the pre-grade normalization (linear light),
-    /// derived statistically by `calibrateBlackPoint()` from the raw natural lane.
+    /// derived statistically by `calibrateBlack()` from the raw natural lane.
     public func setProcessingParams(_ params: ProcessingParameters) async {
         // Route through the mutex so the delivery-queue snapshot in encode() is always coherent.
         metalPipeline?.uniforms.withLock { storage in
@@ -1250,7 +1250,7 @@ public actor CameraEngine {
     ///
     /// See `MetalPipeline.dispatchCenterPatchOnNatural` for the rationale.
     /// Phase-2 §2b: demoted to `internal` — callers go through
-    /// `calibrateWhiteBalance()` instead.
+    /// `calibrateWhite()` instead.
     func sampleCenterPatchOnNatural() async throws -> RgbSample {
         guard let pipeline = metalPipeline else { throw EngineError.notOpen }
         return try await pipeline.dispatchCenterPatchOnNatural()
@@ -1320,7 +1320,7 @@ public actor CameraEngine {
     /// Switches WB to continuous auto, awaits AWB convergence, then reads
     /// Apple's gray-world gains for the now-settled scene.
     ///
-    /// `calibrateWhiteBalance()`'s seed. Phase-2 §2b: demoted to `internal`.
+    /// `calibrateWhite()`'s seed. Phase-2 §2b: demoted to `internal`.
     func freshGrayWorldDeviceWBGains() async throws -> WhiteBalanceGains {
         guard let device = cameraSession?.device else {
             throw EngineError.notOpen
@@ -1445,12 +1445,26 @@ public actor CameraEngine {
     /// - **Abort on lifecycle**: `close()` and the `.interrupted` SessionState
     ///   transition cancel the in-flight task. The task's catch path returns
     ///   WB to `.auto` before propagating `CancellationError`.
-    public func calibrateWhiteBalance() async throws -> CalibrationResult {
+    public func calibrateWhite(whitePoint: Bool = true) async throws -> CalibrationResult {
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
         let task = Task<CalibrationResult, Error> { [self] in
             do {
                 let before = try await sampleCenterPatchOnNatural()
                 try Task.checkCancellation()
+                // White-field validation (symmetric with calibrateBlack's dark gate):
+                // reject a dark/garbage field up front — before locking any gains —
+                // since chroma derived from a non-white field is meaningless (huge
+                // gains). Brightness is judged on the pre-lock scene sample.
+                let beforeMeanGamma = (before.r + before.g + before.b) / 3.0
+                guard beforeMeanGamma >= Constants.whiteFieldMinSampleGamma else {
+                    throw EngineError.whiteBalanceCalibrationFailed(
+                        reason:
+                            "The sampled patch was too dark (mean "
+                            + "\(Int((beforeMeanGamma * 100).rounded()))% < "
+                            + "\(Int(Constants.whiteFieldMinSampleGamma * 100))%) to be a white "
+                            + "reference. Point the camera at a bright, evenly-lit white field "
+                            + "and try again.")
+                }
                 let maxGain = try await maxWhiteBalanceGain()
                 let raw = try await freshGrayWorldDeviceWBGains()
                 try Task.checkCancellation()
@@ -1474,10 +1488,11 @@ public actor CameraEngine {
                 // §5.1 — decompose the locked white field into the per-channel chroma
                 // residual + scalar white-point level and store all three (the
                 // hardware gains are already committed above). Chroma is enabled now
-                // that WB is locked to manual (it neutralizes the residual cast);
-                // white point stays at whatever it was (off by default — phase
-                // contrast) and is selected later via `applyWhiteBalance(whitePoint:)`
-                // without recalibrating.
+                // that WB is locked to manual (it neutralizes the residual cast). The
+                // `whitePoint` argument selects the resulting look: true (default) =
+                // brightfield (white → solid white); false = phase contrast (chroma
+                // only, grey preserved). Toggle later without recalibrating via
+                // `enableWhitePoint()` / `disableWhitePoint()`.
                 let residual = CalibrationCompute.whiteBalanceResidual(whiteSample: after)
                 var proc = currentProcessing ?? .identity
                 proc.wbChromaR = residual.chroma.r
@@ -1485,10 +1500,11 @@ public actor CameraEngine {
                 proc.wbChromaB = residual.chroma.b
                 proc.whitePointLevel = residual.level
                 proc.wbChromaEnabled = true
+                proc.whitePointEnabled = whitePoint
                 await setProcessingParams(proc)
                 CameraKitLog.notice(
                     .engine,
-                    "[wb] calibrate done chroma=(\(residual.chroma.r), \(residual.chroma.g), \(residual.chroma.b)) level=\(residual.level)"
+                    "[wb] calibrate done chroma=(\(residual.chroma.r), \(residual.chroma.g), \(residual.chroma.b)) level=\(residual.level) whitePoint=\(whitePoint)"
                 )
                 return CalibrationResult(
                     before: before, after: after,
@@ -1519,8 +1535,11 @@ public actor CameraEngine {
     /// the patch is near-black — `keptFraction < Constants.blackPointMinKeptFraction`
     /// — so a sliver of dark pixels on an otherwise bright surface can't drive the
     /// black point. On failure the existing black point is left untouched.
-    /// Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
-    public func calibrateBlackPoint() async throws -> BlackPointDebug {
+    /// Same exclusive + abort-on-lifecycle contract as `calibrateWhite()`.
+    ///
+    /// Toggle the calibrated black point on/off without recalibrating via
+    /// `enableBlackPoint()` / `disableBlackPoint()`; `clearBlackPoint()` discards it.
+    public func calibrateBlack() async throws -> BlackPointDebug {
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
         // The task returns `CalibrationResult` to share `calibrationTask`'s type;
         // the real payload (BlackPointDebug) is stashed in `lastBlackPointDebug`.
@@ -1574,40 +1593,128 @@ public actor CameraEngine {
             ?? CalibrationCompute.blackPointDebug(pixels: [], width: 0, height: 0, patch: 0)
     }
 
-    /// Clears the applied black point — zeroes the per-channel offsets and disables it.
+    // MARK: - Normalization toggles (independent enable/disable, no resampling)
+    //
+    // The `calibrate*` procedures above do the full job (sample → compute → enable).
+    // These let a caller live with the result afterward: toggle each setting on/off,
+    // or clear it, operating only on the already-stored coefficients (no patch
+    // resampling). `enable*` throws if the setting was never calibrated. The three
+    // settings — WB chroma, white point, black point — map to the fused affine in
+    // `ColorUniform.init` (chroma·level → `a`, black point → `b`). White point is a
+    // child of chroma: it can't be enabled without it, and disabling chroma disables
+    // it too ("level without chroma" is not a valid state — design D4).
+
+    /// True when white balance is locked (manual/locked) — software chroma/white
+    /// point can only apply on non-moving hardware gains (§5.3).
+    private var isWhiteBalanceLocked: Bool {
+        currentSettings?.wbMode == .manual || currentSettings?.wbMode == .locked
+    }
+
+    /// True once a white field has been calibrated (chroma differs from identity).
+    private var isWhiteBalanceCalibrated: Bool {
+        guard let p = currentProcessing else { return false }
+        return p.wbChromaR != 1.0 || p.wbChromaG != 1.0 || p.wbChromaB != 1.0
+    }
+
+    /// Enables the white-balance chroma residual (neutralizes the cast).
     ///
-    /// The demo app's "undo". Other processing parameters are untouched.
+    /// Throws `EngineError.whiteBalanceNotCalibrated` if no white field has been
+    /// calibrated, or if white balance is in auto (a software residual can't sit on
+    /// continuously-moving hardware gains — lock or `calibrateWhite()` first).
+    public func enableWhiteBalance() async throws {
+        guard isWhiteBalanceCalibrated, isWhiteBalanceLocked else {
+            throw EngineError.whiteBalanceNotCalibrated
+        }
+        var next = currentProcessing ?? .identity
+        next.wbChromaEnabled = true
+        await setProcessingParams(next)
+    }
+
+    /// Disables the white-balance chroma residual.
+    ///
+    /// Also disables the white point (it is meaningless without chroma — design D4).
+    /// Coefficients are kept, so `enableWhiteBalance()` restores them without
+    /// recalibrating. The hardware WB mode is untouched (use the WB-mode control to
+    /// return the camera to auto).
+    public func disableWhiteBalance() async {
+        var next = currentProcessing ?? .identity
+        next.wbChromaEnabled = false
+        next.whitePointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Enables the white-point level (brightfield: lifts the neutralized white to the
+    /// target).
+    ///
+    /// Throws `EngineError.whiteBalanceNotCalibrated` unless the chroma residual is
+    /// active — white point is a child of white balance ("level without chroma" is
+    /// not valid). Toggle freely after a `calibrateWhite()`; no resampling.
+    public func enableWhitePoint() async throws {
+        guard currentProcessing?.wbChromaEnabled == true else {
+            throw EngineError.whiteBalanceNotCalibrated
+        }
+        var next = currentProcessing ?? .identity
+        next.whitePointEnabled = true
+        await setProcessingParams(next)
+    }
+
+    /// Disables the white-point level (back to phase contrast: chroma only).
+    public func disableWhitePoint() async {
+        var next = currentProcessing ?? .identity
+        next.whitePointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Discards the white-balance + white-point coefficients (software only) and
+    /// disables both. The inverse of `calibrateWhite()`'s normalization effect.
+    ///
+    /// The hardware WB mode is left as-is — to return the camera to continuous auto
+    /// white balance use the WB-mode control (`updateSettings(wbMode: .auto)`); the
+    /// §5.3 gate then keeps these off until the next `calibrateWhite()`.
+    public func clearWhiteBalance() async {
+        var next = currentProcessing ?? .identity
+        next.wbChromaR = 1.0
+        next.wbChromaG = 1.0
+        next.wbChromaB = 1.0
+        next.wbChromaEnabled = false
+        next.whitePointLevel = 1.0
+        next.whitePointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Re-enables a previously-calibrated black point without recalibrating.
+    ///
+    /// Throws `EngineError.blackPointNotCalibrated` if the stored offsets are still
+    /// identity (never calibrated, or cleared) — there is nothing to enable.
+    public func enableBlackPoint() async throws {
+        guard let p = currentProcessing,
+            p.blackPointR != 0 || p.blackPointG != 0 || p.blackPointB != 0
+        else {
+            throw EngineError.blackPointNotCalibrated
+        }
+        var next = p
+        next.blackPointEnabled = true
+        await setProcessingParams(next)
+    }
+
+    /// Disables the black point, keeping its offsets so `enableBlackPoint()` can
+    /// restore them without recalibrating.
+    public func disableBlackPoint() async {
+        var next = currentProcessing ?? .identity
+        next.blackPointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Discards the black-point offsets and disables it (full reset).
+    ///
+    /// The demo app's "undo". Distinct from `disableBlackPoint()`, which keeps the
+    /// offsets. Other processing parameters are untouched.
     public func clearBlackPoint() async {
         var next = currentProcessing ?? .identity
         next.blackPointR = 0
         next.blackPointG = 0
         next.blackPointB = 0
         next.blackPointEnabled = false
-        await setProcessingParams(next)
-    }
-
-    /// Selects how the calibrated white balance is applied (linear-normalization-stage §5.2).
-    ///
-    /// White balance decomposes into a brightness-preserving **chroma residual**
-    /// (neutralizes the cast) and an optional **white-point level** (lifts the
-    /// neutralized reference to the white target). This is the apply-time selector
-    /// between the two microscopy modes, switchable without recalibrating:
-    /// - `whitePoint: false` (default) — **phase contrast**: chroma only. The grey
-    ///   field is neutralized but its level is preserved (not stretched to white).
-    /// - `whitePoint: true` — **brightfield**: chroma + level. The white field maps
-    ///   to the configured target as solid neutral white.
-    ///
-    /// The white point is never applied without chroma ("level without chroma" is
-    /// not a valid state — design D4), so it is enabled only alongside chroma.
-    /// Both toggles are gated to a locked white balance (§5.3): in **auto** WB this
-    /// is a no-op (the toggles stay off), since a software residual can't sit on top
-    /// of continuously-moving hardware gains. Call `calibrateWhiteBalance()` first —
-    /// it locks WB and derives the coefficients this selects between.
-    public func applyWhiteBalance(whitePoint: Bool = false) async {
-        let locked = (currentSettings?.wbMode == .manual || currentSettings?.wbMode == .locked)
-        var next = currentProcessing ?? .identity
-        next.wbChromaEnabled = locked
-        next.whitePointEnabled = locked && whitePoint
         await setProcessingParams(next)
     }
 

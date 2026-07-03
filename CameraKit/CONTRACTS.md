@@ -520,11 +520,13 @@ let deadline = ContinuousClock.now + .seconds(1)
 ⋮----
 func awaitAESettled() async {
 ⋮----
-public func calibrateWhiteBalance() async throws -> CalibrationResult {
+public func calibrateWhite(whitePoint: Bool = true) async throws -> CalibrationResult {
 ⋮----
 let task = Task<CalibrationResult, Error> { [self] in
 ⋮----
 let before = try await sampleCenterPatchOnNatural()
+⋮----
+let beforeMeanGamma = (before.r + before.g + before.b) / 3.0
 ⋮----
 let maxGain = try await maxWhiteBalanceGain()
 let raw = try await freshGrayWorldDeviceWBGains()
@@ -540,7 +542,7 @@ var proc = currentProcessing ?? .identity
 ⋮----
 var auto = CameraSettings()
 ⋮----
-public func calibrateBlackPoint() async throws -> BlackPointDebug {
+public func calibrateBlack() async throws -> BlackPointDebug {
 ⋮----
 let rb = try await pipeline.readbackNaturalCenterRegion(
 ⋮----
@@ -550,10 +552,27 @@ let keptFraction =
 ⋮----
 var next = currentProcessing ?? .identity
 ⋮----
-public func clearBlackPoint() async {
+private var isWhiteBalanceLocked: Bool {
 ⋮----
-public func applyWhiteBalance(whitePoint: Bool = false) async {
-let locked = (currentSettings?.wbMode == .manual || currentSettings?.wbMode == .locked)
+private var isWhiteBalanceCalibrated: Bool {
+⋮----
+public func enableWhiteBalance() async throws {
+⋮----
+public func disableWhiteBalance() async {
+⋮----
+public func enableWhitePoint() async throws {
+⋮----
+public func disableWhitePoint() async {
+⋮----
+public func clearWhiteBalance() async {
+⋮----
+public func enableBlackPoint() async throws {
+⋮----
+var next = p
+⋮----
+public func disableBlackPoint() async {
+⋮----
+public func clearBlackPoint() async {
 ⋮----
 public static var calibrationPatchSizePx: Int { Constants.centerPatchSizePx }
 ⋮----
@@ -767,9 +786,16 @@ func captureNaturalPicture(
 func startRecording(options: RecordingOptions) async throws -> RecordingStart
 func stopRecording() async throws -> String
 ⋮----
-func calibrateWhiteBalance() async throws -> CalibrationResult
-func applyWhiteBalance(whitePoint: Bool) async
-func calibrateBlackPoint() async throws -> BlackPointDebug
+func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult
+func calibrateBlack() async throws -> BlackPointDebug
+⋮----
+func enableWhiteBalance() async throws
+func disableWhiteBalance() async
+func enableWhitePoint() async throws
+func disableWhitePoint() async
+func clearWhiteBalance() async
+func enableBlackPoint() async throws
+func disableBlackPoint() async
 func clearBlackPoint() async
 ⋮----
 nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?
@@ -1292,6 +1318,8 @@ static let blackPointMaxSampleGamma: Double = 0.3
 ⋮----
 static let blackPointMinKeptFraction: Double = 0.4
 ⋮----
+static let whiteFieldMinSampleGamma: Double = 0.2
+⋮----
 static let wbGrayWorldLogCap: Float = 0.25
 ⋮----
 static let frameLatencyBudgetMs: Int = 33
@@ -1357,6 +1385,8 @@ public let isFatal: Bool
 public init(code: ErrorCode, message: String, isFatal: Bool) {
 ⋮----
 public enum EngineError: Error, Sendable {
+⋮----
+public var errorDescription: String? {
 ⋮----
 public enum MetalError: Error, Sendable, Equatable {
 ⋮----
