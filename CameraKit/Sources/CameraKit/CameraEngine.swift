@@ -568,6 +568,14 @@ public actor CameraEngine {
         CameraKitLog.notice(.engine, "close: tearing down pipeline")
         // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
         submissionGate.store(false, ordering: .sequentiallyConsistent)
+        // Reset the reconcile decision so a later open() re-issues startRunning.
+        // Without this, `startSessionIfNeeded` sees `reconciledSessionRunning == true`
+        // (set on the first open, never cleared by close) and SKIPS startRunning on
+        // reopen — the new AVCaptureSession is configured but never started, so it
+        // delivers no frames. This is the structural close→reopen stall that broke
+        // every engine reuse (setTargetFps, setResolution-via-reopen) at all
+        // resolutions, independent of timing (a settle gap did not help).
+        reconciledSessionRunning = false
         if let session = cameraSession {
             session.sessionQueue.sync { session.stopRunning() }
         }

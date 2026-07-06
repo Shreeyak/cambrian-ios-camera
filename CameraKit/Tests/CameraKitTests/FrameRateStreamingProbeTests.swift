@@ -43,6 +43,8 @@ struct FrameRateStreamingProbeTests {
             Combo(size: Size(width: 4032, height: 3024), fps: 15, label: "4032x3024@15 (HDR-only)"),
             Combo(size: Size(width: 1920, height: 1440), fps: 15, label: "1920x1440@15"),
             Combo(size: Size(width: 1920, height: 1440), fps: 60, label: "1920x1440@60"),
+            Combo(size: Size(width: 3840, height: 2160), fps: 30, label: "3840x2160@30 (4K)"),
+            Combo(size: Size(width: 3840, height: 2160), fps: 60, label: "3840x2160@60 (4K60 — suspect)"),
         ]
 
         for combo in combos {
@@ -80,5 +82,73 @@ struct FrameRateStreamingProbeTests {
             await engine.close()
             try? await Task.sleep(for: .seconds(1))
         }
+    }
+
+    /// BISECTION control: does a back-to-back close→reopen at 4K60 (no reconfigure,
+    /// no settle gap) stall? Isolates the reopen dance from the resolution change.
+    @Test func reopen4K60BackToBack() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let s4k = Size(width: 3840, height: 2160)
+        _ = try await engine.open(configuration: OpenConfiguration(captureResolution: s4k, targetFps: 60))
+        let f1 = await countFrames(engine, seconds: 3)
+        await engine.close()
+        _ = try await engine.open(configuration: OpenConfiguration(captureResolution: s4k, targetFps: 60))
+        let f2 = await countFrames(engine, seconds: 3)
+        CameraKitLog.notice(.engine, "BISECT reopen4K60BackToBack: firstOpen=\(f1) reopen=\(f2)")
+        await engine.close()
+        #expect(f1 > 0)
+        #expect(f2 > 0)  // reopen must stream (reconciledSessionRunning reset in close)
+    }
+
+    /// BISECTION repro: the exact demo sequence — open 4032@30, setResolution to
+    /// 3840×2160 (reconfigure, keeps 30), then close+reopen at 3840×2160@60 (the
+    /// setTargetFps dance). Does step 3 stall like the demo?
+    @Test func demoSequenceReconfigureThenReopen4K60() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let s4k = Size(width: 3840, height: 2160)
+        _ = try await engine.open(
+            configuration: OpenConfiguration(captureResolution: Size(width: 4032, height: 3024), targetFps: 30))
+        let f1 = await countFrames(engine, seconds: 3)
+        try await engine.setResolution(size: s4k)
+        let f2 = await countFrames(engine, seconds: 3)
+        await engine.close()
+        _ = try await engine.open(configuration: OpenConfiguration(captureResolution: s4k, targetFps: 60))
+        let f3 = await countFrames(engine, seconds: 3)
+        CameraKitLog.notice(
+            .engine,
+            "BISECT demoSequence: open4032@30=\(f1) setRes3840=\(f2) reopen3840@60=\(f3)")
+        await engine.close()
+        #expect(f1 > 0)
+        #expect(f3 > 0)  // the fps-change reopen (setTargetFps dance) must stream
+    }
+
+    /// BISECTION: does a 2 s settle gap between close and reopen fix the 4K60 stall?
+    /// If yes → the cause is incomplete hardware teardown (timing); if no → structural.
+    @Test func reopen4K60WithSettleGap() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let s4k = Size(width: 3840, height: 2160)
+        _ = try await engine.open(configuration: OpenConfiguration(captureResolution: s4k, targetFps: 60))
+        let f1 = await countFrames(engine, seconds: 3)
+        await engine.close()
+        try? await Task.sleep(for: .seconds(2))
+        _ = try await engine.open(configuration: OpenConfiguration(captureResolution: s4k, targetFps: 60))
+        let f2 = await countFrames(engine, seconds: 3)
+        CameraKitLog.notice(.engine, "BISECT reopen4K60WithSettleGap: firstOpen=\(f1) reopenAfter2s=\(f2)")
+        await engine.close()
+        #expect(f1 > 0)
+    }
+
+    /// BISECTION: is close→reopen broken at a MODEST resolution too, or only 4K60?
+    @Test func reopenModestBackToBack() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let s = Size(width: 1920, height: 1440)
+        _ = try await engine.open(configuration: OpenConfiguration(captureResolution: s, targetFps: 30))
+        let f1 = await countFrames(engine, seconds: 3)
+        await engine.close()
+        _ = try await engine.open(configuration: OpenConfiguration(captureResolution: s, targetFps: 30))
+        let f2 = await countFrames(engine, seconds: 3)
+        CameraKitLog.notice(.engine, "BISECT reopenModestBackToBack: firstOpen=\(f1) reopen=\(f2)")
+        await engine.close()
+        #expect(f2 > 0)  // reopen must stream at a modest resolution too
     }
 }
