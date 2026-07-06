@@ -339,8 +339,14 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     }
 
     func setVideoFrameDurationRange(minFrameDurationFps: Int, maxFrameDurationFps: Int) throws {
-        avDevice.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: Int32(minFrameDurationFps))
-        avDevice.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: Int32(maxFrameDurationFps))
+        // Clamp to the active format's supported range — an fps beyond what the
+        // current format supports makes setActiveVideoMin/MaxFrameDuration: throw
+        // an uncaught NSException. See clampFrameDuration.
+        let ranges = avDevice.activeFormat.videoSupportedFrameRateRanges
+        avDevice.activeVideoMinFrameDuration = clampFrameDuration(
+            CMTimeMake(value: 1, timescale: Int32(minFrameDurationFps)), toSupportedRanges: ranges)
+        avDevice.activeVideoMaxFrameDuration = clampFrameDuration(
+            CMTimeMake(value: 1, timescale: Int32(maxFrameDurationFps)), toSupportedRanges: ranges)
     }
 
     private var kvoObserver: DeviceKVOObserver?
@@ -603,4 +609,31 @@ private func bitDepthRangeTag(_ pixelFormat: FourCharCode) -> String {
     case kCVPixelFormatType_32BGRA: return "8-bit BGRA"
     default: return "unknown"
     }
+}
+
+// MARK: - Frame-rate clamping (crash guard)
+
+/// Clamp a desired frame duration to what the active format actually supports.
+///
+/// `AVCaptureDevice.setActiveVideoMinFrameDuration:` throws an uncaught
+/// `NSInvalidArgumentException` — aborting the process — when the duration is
+/// shorter than the format's shortest supported frame duration (i.e. the
+/// requested fps exceeds the format's max). Some supported resolutions cap at
+/// 30 fps while the default 1920×1440 supports 60, so opening at such a
+/// resolution with the unclamped `frameRateTargetFPS` (60) crashed
+/// (`CameraCropConfigDeviceTests.appliesRequestedSupportedResolution`).
+/// Comparing `CMTime`s against the format's own bounds — rather than rounding a
+/// `Double` max-fps back into a timescale — avoids landing one tick past a
+/// non-integer supported edge (e.g. 29.97). `minFrameDuration` is the *shortest*
+/// supported duration (= max fps); `maxFrameDuration` the longest (= min fps).
+func clampFrameDuration(_ desired: CMTime, toSupportedRanges ranges: [AVFrameRateRange]) -> CMTime {
+    guard
+        let shortest = ranges.map(\.minFrameDuration).min(by: { CMTimeCompare($0, $1) < 0 }),
+        let longest = ranges.map(\.maxFrameDuration).max(by: { CMTimeCompare($0, $1) < 0 })
+    else {
+        return desired
+    }
+    if CMTimeCompare(desired, shortest) < 0 { return shortest }  // fps too high → cap to max
+    if CMTimeCompare(desired, longest) > 0 { return longest }  // fps too low → floor to min
+    return desired
 }

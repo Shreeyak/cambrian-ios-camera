@@ -912,7 +912,7 @@ let nearest = sortedByPreference.min { lhs, rhs in
 let lDist = abs(Int(lDims.width) - fallbackW) + abs(Int(lDims.height) - fallbackH)
 let rDist = abs(Int(rDims.width) - fallbackW) + abs(Int(rDims.height) - fallbackH)
 ⋮----
-let frameDuration = CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS))
+let frameDuration = clampFrameDuration(
 ⋮----
 let deviceInput = try AVCaptureDeviceInput(device: avDevice)
 ⋮----
@@ -1222,6 +1222,8 @@ func setExposureCompensation(_ steps: Int) throws {
 ⋮----
 func setVideoFrameDurationRange(minFrameDurationFps: Int, maxFrameDurationFps: Int) throws {
 ⋮----
+let ranges = avDevice.activeFormat.videoSupportedFrameRateRanges
+⋮----
 private var kvoObserver: DeviceKVOObserver?
 private var _lastSnapshot: DeviceStateSnapshot?
 private var ingestTask: Task<Void, Never>?
@@ -1267,6 +1269,8 @@ private func fourCC(_ code: FourCharCode) -> String {
 let bytes: [UInt8] = [
 ⋮----
 private func bitDepthRangeTag(_ pixelFormat: FourCharCode) -> String {
+⋮----
+func clampFrameDuration(_ desired: CMTime, toSupportedRanges ranges: [AVFrameRateRange]) -> CMTime {
 ```
 
 ## File: CameraKit/Sources/CameraKit/Clock.swift

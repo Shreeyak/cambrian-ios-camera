@@ -199,7 +199,15 @@ final class CameraSession: @unchecked Sendable {
         if let format = chosenFormat {
             avDevice.activeFormat = format
         }
-        let frameDuration = CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS))
+        // Clamp the locked preview fps to what the (possibly just-changed) active
+        // format supports. Unclamped `frameRateTargetFPS` (60) on a resolution
+        // whose format caps at 30 fps threw an uncaught NSException from
+        // setActiveVideoMinFrameDuration: — aborting the process
+        // (CameraCropConfigDeviceTests.appliesRequestedSupportedResolution).
+        // See clampFrameDuration.
+        let frameDuration = clampFrameDuration(
+            CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS)),
+            toSupportedRanges: avDevice.activeFormat.videoSupportedFrameRateRanges)
         avDevice.activeVideoMinFrameDuration = frameDuration
         avDevice.activeVideoMaxFrameDuration = frameDuration
 
