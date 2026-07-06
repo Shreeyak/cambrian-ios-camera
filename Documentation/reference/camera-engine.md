@@ -104,16 +104,13 @@ If `photosDestination` is `.copy` or `.move`, the file is also published to Phot
 func captureNaturalPicture(outputURL: URL? = nil, photosDestination: PhotosDestination = .none) async throws -> StillCaptureOutput
 ```
 
-ISP one-shot via `AVCapturePhotoOutput` → live Metal crop+grade → still cropped to the active region. Same device and grade settings as `captureImage`, differing only by source: this method fires an ISP one-shot rather than reading the latest processed-lane buffer. The graded output is encoded at `outputSize` in the format chosen by `outputURL`'s extension (see `OutputPathResolver.image`). EXIF carries `"lane": "natural"` inside the `CamPlugin/v1` envelope so consumers can distinguish natural-lane stills from processed-lane stills written by `captureImage` (`"lane": "processed"`). Errors cleanly when the session is not running (no last-frame fallback on pause — reverses D-2P-10).
+### captureNaturalPictureBuffer()
 
-- Parameters:
-- outputURL: Resolved per `OutputPathResolver.image`. `nil` → `<Documents>/<timestamp>.png` (PNG). A name's extension picks the format: `.png` / `.jpg`/`.jpeg` / `.tif`/`.tiff`. A name with no extension, or an unsupported one, throws.
-- photosDestination: See `PhotosDestination`. Independent of `outputURL`; defaults to `.none` (no Photos interaction).
-- Returns: A `StillCaptureOutput` with the on-disk file path. With `.move` and a successful Photos publish, that file no longer exists.
-- Throws: `EngineError.notOpen` if the engine is not open.
-- Throws: `EngineError.capture(.bufferUnavailable)` if the session is not running (paused or not yet started).
-- Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves outside the app sandbox.
-- Throws: `EngineError.capture(_:)` wrapping any other `StillCaptureError`.
+```swift
+func captureNaturalPictureBuffer() async throws -> PixelHandle
+```
+
+Captures the graded natural still as an in-memory buffer, skipping disk. still-capture-return-buffer: returns the graded still as an IOSurface-backed BGRA8 `CVPixelBuffer` in the processed-lane format — the same surface a downstream consumer treats like a `currentPixelBuffer(stream:)` frame — and does NOT encode, write a file, or publish to Photos. Same crop+grade as `captureNaturalPicture` (both share `renderNaturalStill`); same `notOpen` / `bufferUnavailable` guards. The buffer is delivered as a leased ``PixelHandle`` the caller owns and MUST release. The handle retains the underlying `CVPixelBuffer`, so its pooled IOSurface is not recycled until the handle is released (the `CVPixelBufferPool` only reclaims buffers with no external references). Hold at most a small number at once (typically one) to avoid pinning the still pool.
 
 ### clearBlackPoint()
 
@@ -137,7 +134,7 @@ Discards the white-balance + white-point coefficients (software only) and disabl
 func close() async
 ```
 
-Closes the camera session and releases all resources.
+Closes the camera session and releases all resources. Finishes consumer lane subscriptions cleanly (no throw). Recovery/restart uses `teardown(preserveConsumers:)` instead, which leaves them open.
 
 ### currentPixelBuffer(stream:)
 

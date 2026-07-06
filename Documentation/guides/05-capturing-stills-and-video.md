@@ -32,6 +32,37 @@ let output = try await engine.captureImage()        // snapshot of the live prev
 // output.filePath is the saved image.
 ```
 
+### In-memory capture: captureNaturalPictureBuffer
+
+`CameraEngine.captureNaturalPictureBuffer()` captures the same graded natural
+still but returns it **directly as an in-memory buffer** — no encode, no disk
+write, no Photos publish. Use it when a downstream consumer (a model, a stitcher,
+a custom renderer) needs the pixels immediately and would otherwise write the
+image to disk and read it straight back.
+
+The buffer is an **IOSurface-backed BGRA8 `CVPixelBuffer` in the processed-lane
+format** — the same surface class `CameraEngine.currentPixelBuffer(stream:)`
+delivers — so a consumer treats it exactly like a streaming-lane frame. It carries
+the identical crop and grade as `captureNaturalPicture`; the two methods share
+their capture code and differ only in delivery.
+
+```swift
+let handle = try await engine.captureNaturalPictureBuffer()
+// handle.width / handle.height / handle.format (.bgra8); handle.baseAddress is the
+// locked pixels. Read them, then let the handle deinit (or drop the reference).
+```
+
+**Lifetime contract.** The buffer is delivered as a leased `PixelHandle` the
+caller **owns and must release**. The handle retains the underlying pooled
+`CVPixelBuffer`, so its IOSurface stays valid — and is **not** recycled underneath
+you — until the handle is released. Hold at most a small number at once (typically
+one) so you don't pin the still pool. This is the same lease contract as the
+streaming lanes' `CameraEngine.lockedPixels(stream:)`.
+
+> Flutter: `captureNaturalPictureBuffer()` is **native (Swift) only** for now — a
+> raw IOSurface is not a Pigeon value. The Pigeon `captureNaturalPicture` stays
+> file-based; routing the in-memory buffer to Dart is a future change.
+
 ## Output paths
 
 Pass an `outputURL` to choose the destination; pass `nil` (the default) to write

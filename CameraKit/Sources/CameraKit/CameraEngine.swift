@@ -2134,17 +2134,19 @@ public actor CameraEngine {
     /// - Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves
     ///   outside the app sandbox.
     /// - Throws: `EngineError.capture(_:)` wrapping any other `StillCaptureError`.
-    public func captureNaturalPicture(
-        outputURL: URL? = nil,
-        photosDestination: PhotosDestination = .none
-    ) async throws -> StillCaptureOutput {
-        guard isOpen, let pipeline = metalPipeline, let capture = stillCapture,
-            let session = cameraSession
-        else {
+    /// Shared capture prefix for both natural-still entry points.
+    ///
+    /// still-capture-return-buffer: guards `isOpen` + a running session (`notOpen` /
+    /// capture-`bufferUnavailable`), shoots the ISP one-shot (`capturePhoto`,
+    /// sessionQueue/ADR-07), and crops+grades it through `renderStill` → the graded
+    /// BGRA8 IOSurface-backed `CVPixelBuffer` (same format/surface as the processed
+    /// lane). Both `captureNaturalPicture` (encode→file) and
+    /// `captureNaturalPictureBuffer` (hand back the buffer) call this, differing only
+    /// in delivery. No last-frame fallback on pause (R6).
+    private func renderNaturalStill() async throws -> CVPixelBuffer {
+        guard isOpen, let pipeline = metalPipeline, let session = cameraSession else {
             throw EngineError.notOpen
         }
-        // R6: the ISP one-shot needs a running session — no last-frame fallback
-        // on pause (contract change from the old natural-lane-buffer behavior).
         guard reconciledSessionRunning else {
             throw EngineError.capture(.bufferUnavailable)
         }
@@ -2152,12 +2154,47 @@ public actor CameraEngine {
             .engine,
             "[natural] ISP capture start size=\(pipeline.outputSize.width)x\(pipeline.outputSize.height)"
         )
-
-        // 1. Shoot the ISP one-shot (sessionQueue, ADR-07). Inherits the
-        //    device's live exposure/ISO/WB/focus.
         let photoBuffer = try await session.capturePhoto()
-        // 2. Crop + grade through the live Metal pipeline (matches preview grade).
-        let graded = try await pipeline.renderStill(pixelBuffer: photoBuffer)
+        return try await pipeline.renderStill(pixelBuffer: photoBuffer)
+    }
+
+    /// Captures the graded natural still as an in-memory buffer, skipping disk.
+    ///
+    /// still-capture-return-buffer: returns the graded still as an IOSurface-backed
+    /// BGRA8 `CVPixelBuffer` in the processed-lane format — the same surface a
+    /// downstream consumer treats like a `currentPixelBuffer(stream:)` frame — and
+    /// does NOT encode, write a file, or publish to Photos. Same crop+grade as
+    /// `captureNaturalPicture` (both share `renderNaturalStill`); same
+    /// `notOpen` / `bufferUnavailable` guards.
+    ///
+    /// The buffer is delivered as a leased ``PixelHandle`` the caller owns and MUST
+    /// release. The handle retains the underlying `CVPixelBuffer`, so its pooled
+    /// IOSurface is not recycled until the handle is released (the `CVPixelBufferPool`
+    /// only reclaims buffers with no external references). Hold at most a small number
+    /// at once (typically one) to avoid pinning the still pool.
+    public func captureNaturalPictureBuffer() async throws -> PixelHandle {
+        let graded = try await renderNaturalStill()
+        guard let handle = PixelHandle(pixelBuffer: graded, format: .bgra8) else {
+            throw EngineError.capture(.bufferUnavailable)
+        }
+        CameraKitLog.notice(.engine, "[natural] ISP capture complete → in-memory buffer")
+        return handle
+    }
+
+    public func captureNaturalPicture(
+        outputURL: URL? = nil,
+        photosDestination: PhotosDestination = .none
+    ) async throws -> StillCaptureOutput {
+        // 1–2. Shared capture prefix: guard + ISP one-shot + crop/grade → graded
+        //      BGRA8 IOSurface buffer (still-capture-return-buffer; see renderNaturalStill).
+        let graded = try await renderNaturalStill()
+        // Re-resolve for the encode tail after the capture awaits (state may have
+        // changed during capturePhoto/renderStill; the helper guarded at its start).
+        guard let pipeline = metalPipeline, let capture = stillCapture,
+            let session = cameraSession
+        else {
+            throw EngineError.notOpen
+        }
 
         // 3. Encode in the extension-chosen format with the same EXIF/lane tag
         //    contract as before.

@@ -648,11 +648,14 @@ let url = URL(fileURLWithPath: output.filePath)
 ⋮----
 let detail = PhotosLibraryClient.describe(error)
 ⋮----
-public func captureNaturalPicture(
+private func renderNaturalStill() async throws -> CVPixelBuffer {
 ⋮----
 let photoBuffer = try await session.capturePhoto()
 ⋮----
-let graded = try await pipeline.renderStill(pixelBuffer: photoBuffer)
+public func captureNaturalPictureBuffer() async throws -> PixelHandle {
+let graded = try await renderNaturalStill()
+⋮----
+public func captureNaturalPicture(
 ⋮----
 let snap = await session.device?.lastSnapshot
 ⋮----
