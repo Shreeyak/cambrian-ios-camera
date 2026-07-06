@@ -365,10 +365,13 @@ var clamped = persisted
 let effectiveWB = currentSettings?.wbMode ?? .auto
 ⋮----
 let supportedSizes = await device.supportedSizes
+let supportedFrameRates = await device.supportedFrameRates
 ⋮----
 let activeCropRegion = Self.activeCropRect(for: pipeline)
 let isoRange = await device.isoRange
-let exposureDurationRangeNs = await device.exposureDurationRangeNs
+⋮----
+let exposureDurationRangeNs = Self.fpsConstrainedExposureRange(
+⋮----
 let zoomMin = await device.minAvailableVideoZoomFactor
 let zoomMax = await device.maxAvailableVideoZoomFactor
 let evMin = await device.minExposureTargetBias
@@ -408,6 +411,11 @@ let diagnostics = FrameDiagnostics.json(
 ⋮----
 let r = FrameResult(
 ⋮----
+static func fpsConstrainedExposureRange(
+⋮----
+let ceilingNs = Int64(1_000_000_000 / max(1, lockedFps))
+let upper = min(sensorRange.upperBound, ceilingNs)
+⋮----
 public func updateSettings(_ settings: CameraSettings) async throws {
 ⋮----
 private func _updateSettingsBypassingCalibrationGuard(_ settings: CameraSettings) async throws {
@@ -418,7 +426,9 @@ let merged = SettingsCoupling.promoteSingleFieldManual(
 let latched = await device.lastSnapshot
 let resolved = try SettingsCoupling.apply(rules: merged, latched: latched)
 ⋮----
-let expRange = await device.exposureDurationRangeNs
+let sensorExpRange = await device.exposureDurationRangeNs
+⋮----
+let expRange = Self.fpsConstrainedExposureRange(
 ⋮----
 let effectiveWB = resolved.wbMode ?? .auto
 ⋮----
@@ -981,8 +991,19 @@ public let y: Int
 ⋮----
 public init(x: Int, y: Int, width: Int, height: Int) {
 ⋮----
+public struct FrameRateRange: Sendable, Hashable {
+public let size: Size
+public let minFps: Int
+public let maxFps: Int
+⋮----
+public init(size: Size, minFps: Int, maxFps: Int) {
+⋮----
 public struct SessionCapabilities: Sendable, Hashable {
 public let supportedSizes: [Size]
+⋮----
+public let supportedFrameRates: [FrameRateRange]
+⋮----
+public let activeFrameRate: Int
 public let previewTextureId: Int
 ⋮----
 public let activeCaptureResolution: Size
@@ -1124,6 +1145,8 @@ func cancelKVO() async
 ⋮----
 func dumpAllFormats() async -> [String]
 ⋮----
+public var supportedFrameRates: [FrameRateRange] {
+⋮----
 public struct DeviceStateSnapshot: Sendable, Hashable {
 public let iso: Float
 public let exposureDurationNs: Int64
@@ -1158,6 +1181,16 @@ let w = Int(dims.width)
 let h = Int(dims.height)
 ⋮----
 let size = Size(width: w, height: h)
+⋮----
+var supportedFrameRates: [FrameRateRange] {
+⋮----
+var seen: Set<FrameRateRange> = []
+var result: [FrameRateRange] = []
+⋮----
+let entry = FrameRateRange(
+⋮----
+let lArea = $0.size.width * $0.size.height
+let rArea = $1.size.width * $1.size.height
 ⋮----
 func dumpAllFormats() -> [String] {
 ⋮----

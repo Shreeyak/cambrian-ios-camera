@@ -27,9 +27,35 @@ public struct Rect: Sendable, Hashable {
 
 // MARK: - Session capabilities
 
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, `videoSupportedFrameRateRanges` range) the device offers as a
+/// full-range 420f format, so a size can appear more than once — e.g. a full-FOV
+/// `1–60` range and a binned slow-mo `2–240` range at the same dimensions
+/// (configurable-frame-rate). `minFps`/`maxFps` are the inclusive integer bounds a
+/// caller may pass as `OpenConfiguration.targetFps` for that resolution.
+public struct FrameRateRange: Sendable, Hashable {
+    public let size: Size
+    public let minFps: Int
+    public let maxFps: Int
+
+    public init(size: Size, minFps: Int, maxFps: Int) {
+        self.size = size
+        self.minFps = minFps
+        self.maxFps = maxFps
+    }
+}
+
 /// Returned by CameraEngine.open(configuration:) per domain-revised/10-api-contract.md §SessionCapabilities.
 public struct SessionCapabilities: Sendable, Hashable {
     public let supportedSizes: [Size]
+    /// Frame-rate ranges supported per resolution, live from the device's 420f formats.
+    ///
+    /// Includes slow-mo where offered. A caller reads this to pick a valid
+    /// `(captureResolution, targetFps)` before `open()`. See `FrameRateRange`.
+    public let supportedFrameRates: [FrameRateRange]
+    /// The frame rate the session is locked to (the resolved `OpenConfiguration.targetFps`).
+    public let activeFrameRate: Int
     public let previewTextureId: Int
     // remove-natural-lane: `naturalTextureId` was removed with the streaming
     // natural lane. The Flutter-facing Pigeon field is dropped in
@@ -78,6 +104,8 @@ public struct SessionCapabilities: Sendable, Hashable {
 
     public init(
         supportedSizes: [Size],
+        supportedFrameRates: [FrameRateRange] = [],
+        activeFrameRate: Int = 30,  // Constants.frameRateTargetFPS (internal); test-constructor default
         previewTextureId: Int,
         activeCaptureResolution: Size,
         activeCropRegion: Rect,
@@ -90,6 +118,8 @@ public struct SessionCapabilities: Sendable, Hashable {
         trackerResolution: Size
     ) {
         self.supportedSizes = supportedSizes
+        self.supportedFrameRates = supportedFrameRates
+        self.activeFrameRate = activeFrameRate
         self.previewTextureId = previewTextureId
         self.activeCaptureResolution = activeCaptureResolution
         self.activeCropRegion = activeCropRegion

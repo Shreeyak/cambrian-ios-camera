@@ -20,14 +20,14 @@
 
 ## 4. Exposure bounded by frame rate
 
-- [ ] 4.1 Compute the exposure ceiling `min(sensorMaxExposureNs, 1e9 / targetFps)`; validate manual-exposure requests against it and throw a configuration error when exceeded (before calling `setExposureModeCustom`) — reject, do not clamp.
-- [ ] 4.2 Report `SessionCapabilities.exposureDurationRangeNs` with the fps-constrained upper bound.
+- [x] 4.1 Compute the exposure ceiling `min(sensorMaxExposureNs, 1e9 / targetFps)`; validate manual-exposure requests against it and throw a configuration error when exceeded (before calling `setExposureModeCustom`) — reject, do not clamp.
+- [x] 4.2 Report `SessionCapabilities.exposureDurationRangeNs` with the fps-constrained upper bound.
 
 ## 5. Capabilities surface
 
-- [ ] 5.1 Add per-resolution supported frame-rate range(s) to `SessionCapabilities`, sourced live from the 420f formats' `videoSupportedFrameRateRanges` (including slow-mo where offered).
-- [ ] 5.2 Add the active frame rate to `SessionCapabilities`.
-- [ ] 5.3 Confirm the new fields keep `SessionCapabilities` `Sendable`/`Hashable` (and note the Pigeon-shape implication for the deferred Flutter change).
+- [x] 5.1 Add per-resolution supported frame-rate range(s) to `SessionCapabilities`, sourced live from the 420f formats' `videoSupportedFrameRateRanges` (including slow-mo where offered).
+- [x] 5.2 Add the active frame rate to `SessionCapabilities`.
+- [x] 5.3 Confirm the new fields keep `SessionCapabilities` `Sendable`/`Hashable` (and note the Pigeon-shape implication for the deferred Flutter change).
 
 ## 6. Demo app
 

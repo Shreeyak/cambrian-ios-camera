@@ -511,11 +511,15 @@ public actor CameraEngine {
 
         // 11. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
+        let supportedFrameRates = await device.supportedFrameRates
         // P2a — the REAL crop rect, derived from the pipeline's outputSize +
         // cropOrigin: full-frame Rect(0,0,captureW,captureH) when uncropped.
         let activeCropRegion = Self.activeCropRect(for: pipeline)
         let isoRange = await device.isoRange
-        let exposureDurationRangeNs = await device.exposureDurationRangeNs
+        // configurable-frame-rate: report the fps-constrained exposure ceiling
+        // (min(sensorMax, 1/lockedFps)) so callers see the real max exposure up front.
+        let exposureDurationRangeNs = Self.fpsConstrainedExposureRange(
+            sensorRange: await device.exposureDurationRangeNs, lockedFps: session.lockedFps)
         let zoomMin = await device.minAvailableVideoZoomFactor
         let zoomMax = await device.maxAvailableVideoZoomFactor
         let evMin = await device.minExposureTargetBias
@@ -526,6 +530,8 @@ public actor CameraEngine {
         )
         return SessionCapabilities(
             supportedSizes: supportedSizes,
+            supportedFrameRates: supportedFrameRates,
+            activeFrameRate: session.lockedFps,
             previewTextureId: 0,  // stub: texture IDs arrive Stage 05
             activeCaptureResolution: captureSize,
             activeCropRegion: activeCropRegion,
@@ -727,6 +733,20 @@ public actor CameraEngine {
     /// - Throws: `EngineError.settingsConflict` if range validation fails or Rule 3 pre-readback
     /// - Throws: `EngineError.calibrationInProgress` if a `calibrate*()` is in
     ///   flight and `settings` touches white balance (Phase-2 §2b).
+    ///
+    /// Exposure duration range bounded by the locked frame rate.
+    ///
+    /// A frame's exposure can't exceed its frame duration, so at a locked `fps` the max
+    /// usable exposure is `min(sensorMax, 1/fps)` (configurable-frame-rate). Keeps the
+    /// sensor lower bound; never inverts (clamps the upper to at least the lower).
+    static func fpsConstrainedExposureRange(
+        sensorRange: ClosedRange<Int64>, lockedFps: Int
+    ) -> ClosedRange<Int64> {
+        let ceilingNs = Int64(1_000_000_000 / max(1, lockedFps))
+        let upper = min(sensorRange.upperBound, ceilingNs)
+        return sensorRange.lowerBound...max(sensorRange.lowerBound, upper)
+    }
+
     public func updateSettings(_ settings: CameraSettings) async throws {
         // Phase-2 §2b — block conflicting WB writes during in-flight calibration.
         if calibrationTask != nil && settingsTouchesWhiteBalance(settings) {
@@ -758,14 +778,22 @@ public actor CameraEngine {
 
         // 3. Range-validate against the device's supported ranges (brief §7).
         let isoRange = await device.isoRange
-        let expRange = await device.exposureDurationRangeNs
+        let sensorExpRange = await device.exposureDurationRangeNs
+        // configurable-frame-rate: the locked frame rate caps the max usable exposure
+        // at 1/targetFps — a frame's exposure cannot exceed its frame duration. Bound
+        // the valid exposure range by that ceiling and reject beyond it (no silent
+        // clamp); a longer exposure needs a lower targetFps opened via OpenConfiguration.
+        let expRange = Self.fpsConstrainedExposureRange(
+            sensorRange: sensorExpRange, lockedFps: session.lockedFps)
         if let iso = resolved.iso, !isoRange.contains(Float(iso)) {
             throw EngineError.settingsConflict(
                 reason: "iso=\(iso) outside supported range \(isoRange)")
         }
         if let exp = resolved.exposureTimeNs, !expRange.contains(exp) {
             throw EngineError.settingsConflict(
-                reason: "exposureTimeNs=\(exp) outside supported range \(expRange)")
+                reason:
+                    "exposureTimeNs=\(exp) outside supported range \(expRange) "
+                    + "(max is 1/\(session.lockedFps)s at the locked frame rate)")
         }
         if let focus = resolved.focusDistance, !(0.0...1.0).contains(focus) {
             throw EngineError.settingsConflict(

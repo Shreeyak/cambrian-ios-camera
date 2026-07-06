@@ -12,6 +12,11 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     var uniqueID: String { get async }
     var activeFormatSize: Size { get async }
     var supportedSizes: [Size] { get async }
+    /// Frame-rate ranges per resolution, from the device's 420f formats (incl. slow-mo).
+    ///
+    /// Defaulted to `[]` in an extension so format-less test fakes need not model it;
+    /// `LiveCaptureDevice` supplies the real data.
+    var supportedFrameRates: [FrameRateRange] { get async }
     var isoRange: ClosedRange<Float> { get async }
     var exposureDurationRangeNs: ClosedRange<Int64> { get async }
     var maxWhiteBalanceGain: Float { get async }
@@ -109,6 +114,15 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     var lensAperture: Float { get async }
 }
 
+extension CaptureDeviceProviding {
+    /// Default: no frame-rate data, for format-less test fakes.
+    ///
+    /// `LiveCaptureDevice` overrides this with the real per-resolution ranges.
+    public var supportedFrameRates: [FrameRateRange] {
+        get async { [] }
+    }
+}
+
 // MARK: - DeviceStateSnapshot (ADR-14; KVO stream wired Stage 03)
 
 public struct DeviceStateSnapshot: Sendable, Hashable {
@@ -201,6 +215,39 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
             }
         }
         return unique.sorted { ($0.width * $0.height) > ($1.width * $1.height) }
+    }
+
+    var supportedFrameRates: [FrameRateRange] {
+        // One entry per (size, frame-rate range) across the 420f formats (≥640×480,
+        // matching `supportedSizes`), de-duplicated. A size can appear more than once
+        // — e.g. a full-FOV 1–60 range and a binned 2–240 slow-mo range at the same
+        // dimensions. Sorted by area desc, then maxFps desc, for stable presentation.
+        var seen: Set<FrameRateRange> = []
+        var result: [FrameRateRange] = []
+        for format in avDevice.formats {
+            let desc = format.formatDescription
+            guard
+                CMFormatDescriptionGetMediaSubType(desc)
+                    == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            else { continue }
+            let dims = CMVideoFormatDescriptionGetDimensions(desc)
+            let w = Int(dims.width)
+            let h = Int(dims.height)
+            guard w >= 640, h >= 480 else { continue }
+            let size = Size(width: w, height: h)
+            for range in format.videoSupportedFrameRateRanges {
+                let entry = FrameRateRange(
+                    size: size,
+                    minFps: Int(range.minFrameRate.rounded(.down)),
+                    maxFps: Int(range.maxFrameRate.rounded(.down)))
+                if seen.insert(entry).inserted { result.append(entry) }
+            }
+        }
+        return result.sorted {
+            let lArea = $0.size.width * $0.size.height
+            let rArea = $1.size.width * $1.size.height
+            return lArea != rArea ? lArea > rArea : $0.maxFps > $1.maxFps
+        }
     }
 
     /// Internal debug helper — enumerates every `AVCaptureDevice.Format`.
