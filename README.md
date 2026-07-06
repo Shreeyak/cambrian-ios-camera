@@ -44,6 +44,48 @@ let engine = CameraEngine(initialPhase: .background)
 let caps = try await engine.open()
 ```
 
+### Setting up the camera (resolution + frame rate)
+
+`open()` returns a `SessionCapabilities` describing exactly what the device supports.
+Read it to choose a valid `(resolution, frame rate)`, then reopen with an
+`OpenConfiguration` — resolution and frame rate are **independent**:
+
+```swift
+import CameraKit
+
+let engine = CameraEngine(initialPhase: .active)
+
+// 1. Open with defaults to discover capabilities.
+//    Defaults: the largest 4:3 capture resolution, 30 fps, always full-range 420f,
+//    HDR off. `activeFrameRate` is the rate the session is locked to.
+let caps = try await engine.open()
+
+// 2. Inspect the valid config space (all live device data, including slow-mo).
+for r in caps.supportedFrameRates {
+    print("\(r.size.width)×\(r.size.height): \(r.minFps)–\(r.maxFps) fps")
+}
+// caps.exposureDurationRangeNs is already bounded by the active frame rate:
+// max exposure = min(sensorMax, 1/activeFrameRate) — 33 ms at 30 fps, 16.6 ms at 60.
+
+// 3. Reopen at a chosen resolution + frame rate. An unsupported (resolution, fps)
+//    pair throws EngineError.settingsConflict naming the valid rates — it is never
+//    silently coerced. A longer exposure than 1/targetFps also throws; open at a
+//    lower targetFps for long exposures.
+await engine.close()
+let hi = try await engine.open(configuration: OpenConfiguration(
+    captureResolution: Size(width: 1920, height: 1440),  // must be in caps.supportedSizes
+    targetFps: 60                                         // must be valid at that size
+))
+```
+
+The frame rate is **locked** in every mode (preview, still, recording); the demo app's
+bottom bar exposes a resolution picker and an fps picker (15/30/60, filtered to what the
+active resolution supports).
+
+**Flutter:** the same fields are on the Pigeon `OpenConfiguration.targetFps` and
+`SessionCapabilities` (`activeFrameRate`, `supportedFrameRates`) — read the capabilities,
+pick a valid pair, and `open(OpenConfiguration(captureResolution: …, targetFps: …))`.
+
 See [`Documentation/index.md`](Documentation/index.md) for the full API, the lifecycle contract, and end-to-end guides.
 
 > The package's internal name is `CameraKit` for historical reasons. It will be renamed to `CambrianCamera` in a future pass to avoid collision with [Snap's CameraKit SDK](https://docs.snap.com/camera-kit/) — see `docs/archived/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md` §"Future cleanup".
