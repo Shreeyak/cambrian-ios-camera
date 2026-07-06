@@ -186,15 +186,15 @@ final class CameraSession: @unchecked Sendable {
         if avDevice.activeFormat.isVideoHDRSupported {
             avDevice.isVideoHDREnabled = false
         }
-        // Lock the frame rate at `targetFps` in every mode (min == max). Clamp with the
-        // format's own CMTime bounds so a non-integer supported edge can't trip
-        // setActiveVideoMinFrameDuration: — the crash guard. See clampFrameDuration.
+        // NOTE: the frame-rate lock (activeVideoMin/MaxFrameDuration) is applied
+        // in step 4b, AFTER commitConfiguration — not here. Setting it before
+        // `sessionPreset = .inputPriority` (step 4) is silently wiped: per Apple's
+        // docs, "Choosing a new preset for the capture session also resets
+        // [activeVideoMinFrameDuration] to its default value." Doing it here made
+        // the session run at the format default instead of `targetFps` (measured:
+        // requested 15/30/60 all read back as the format default). Only `lockedFps`
+        // (a Swift property, not device state) is recorded here.
         self.lockedFps = targetFps
-        let frameDuration = clampFrameDuration(
-            CMTimeMake(value: 1, timescale: Int32(targetFps)),
-            toSupportedRanges: avDevice.activeFormat.videoSupportedFrameRateRanges)
-        avDevice.activeVideoMinFrameDuration = frameDuration
-        avDevice.activeVideoMaxFrameDuration = frameDuration
 
         // bug6: disable low-light boost. LLB multiplies analog gain in dim
         // scenes, which sacrifices spatial detail for SNR. Stills come out
@@ -246,6 +246,25 @@ final class CameraSession: @unchecked Sendable {
         }
 
         avSession.commitConfiguration()
+
+        // ── 4b. Lock the frame rate at exactly `targetFps` (min == max) ──────────────
+        // Must run AFTER commitConfiguration: setting `sessionPreset` (step 4) resets
+        // activeVideoMin/MaxFrameDuration to the format default (Apple docs), so an
+        // earlier lock is wiped. Setting min == max == 1/targetFps here pins delivery
+        // to exactly `targetFps` in every mode — not a variable range. Clamp with the
+        // format's own CMTime bounds so a non-integer supported edge can't trip
+        // setActiveVideoMinFrameDuration: (the crash guard — see clampFrameDuration).
+        do {
+            try avDevice.lockForConfiguration()
+        } catch {
+            throw EngineError.lockForConfigurationFailed
+        }
+        let frameDuration = clampFrameDuration(
+            CMTimeMake(value: 1, timescale: Int32(targetFps)),
+            toSupportedRanges: avDevice.activeFormat.videoSupportedFrameRateRanges)
+        avDevice.activeVideoMinFrameDuration = frameDuration
+        avDevice.activeVideoMaxFrameDuration = frameDuration
+        avDevice.unlockForConfiguration()
 
         // Register interruption and runtime-error observers now that configuration is committed.
         NotificationCenter.default.addObserver(

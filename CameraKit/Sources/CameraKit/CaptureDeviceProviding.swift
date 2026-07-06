@@ -17,6 +17,13 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     /// Defaulted to `[]` in an extension so format-less test fakes need not model it;
     /// `LiveCaptureDevice` supplies the real data.
     var supportedFrameRates: [FrameRateRange] { get async }
+    /// Test-only: the live `activeVideoMin/MaxFrameDuration` in seconds.
+    ///
+    /// Reads the real values set on the hardware so a device test can confirm the
+    /// fps lock actually stuck (min == max == 1/targetFps) and was not reset — e.g.
+    /// by a later `sessionPreset` change (`activeVideoMinFrameDuration` docs).
+    /// Defaulted to `(0, 0)` for format-less fakes.
+    var activeFrameDurationSecondsForTest: (min: Double, max: Double) { get async }
     var isoRange: ClosedRange<Float> { get async }
     var exposureDurationRangeNs: ClosedRange<Int64> { get async }
     var maxWhiteBalanceGain: Float { get async }
@@ -121,6 +128,12 @@ extension CaptureDeviceProviding {
     public var supportedFrameRates: [FrameRateRange] {
         get async { [] }
     }
+
+    /// Default: `(0, 0)` for format-less fakes; `LiveCaptureDevice` reads the
+    /// real hardware durations.
+    public var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
+        get async { (0, 0) }
+    }
 }
 
 // MARK: - DeviceStateSnapshot (ADR-14; KVO stream wired Stage 03)
@@ -186,6 +199,13 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     var activeFormatSize: Size {
         let dims = CMVideoFormatDescriptionGetDimensions(avDevice.activeFormat.formatDescription)
         return Size(width: Int(dims.width), height: Int(dims.height))
+    }
+
+    var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
+        (
+            CMTimeGetSeconds(avDevice.activeVideoMinFrameDuration),
+            CMTimeGetSeconds(avDevice.activeVideoMaxFrameDuration)
+        )
     }
 
     var supportedSizes: [Size] {

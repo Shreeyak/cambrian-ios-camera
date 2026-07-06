@@ -505,6 +505,11 @@ func sampleCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
 func _activeFormatSizeForTest() async throws -> Size {
 ⋮----
+func _activeFrameRateRangeForTest() async throws -> (minFps: Double, maxFps: Double) {
+⋮----
+let maxFps = minDur > 0 ? 1.0 / minDur : 0
+let minFps = maxDur > 0 ? 1.0 / maxDur : 0
+⋮----
 func _activeCropRegionForTest() async throws -> Rect {
 ⋮----
 func currentDeviceWBGains() async throws -> WhiteBalanceGains {
@@ -910,9 +915,9 @@ let fpsCapable = formatsAtSize.filter { Self.formatSupportsFps($0, targetFps) }
 ⋮----
 let chosenSize = targetSize
 ⋮----
-let frameDuration = clampFrameDuration(
-⋮----
 let deviceInput = try AVCaptureDeviceInput(device: avDevice)
+⋮----
+let frameDuration = clampFrameDuration(
 ⋮----
 let liveDevice = LiveCaptureDevice(avDevice: avDevice)
 ⋮----
@@ -1147,6 +1152,8 @@ func dumpAllFormats() async -> [String]
 ⋮----
 public var supportedFrameRates: [FrameRateRange] {
 ⋮----
+public var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
+⋮----
 public struct DeviceStateSnapshot: Sendable, Hashable {
 public let iso: Float
 public let exposureDurationNs: Int64
@@ -1167,6 +1174,8 @@ var uniqueID: String { avDevice.uniqueID }
 ⋮----
 var activeFormatSize: Size {
 let dims = CMVideoFormatDescriptionGetDimensions(avDevice.activeFormat.formatDescription)
+⋮----
+var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
 ⋮----
 var supportedSizes: [Size] {
 ⋮----
@@ -2128,8 +2137,6 @@ public func noteHardwareFailure(message: String) async -> Bool {
 public func noteHardwareSuccess() {
 ⋮----
 public func cancelPendingRetry() {
-⋮----
-public func resetAfterSuccess() {
 ⋮----
 public func enterRecovery(error: CameraError) async {
 ⋮----

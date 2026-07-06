@@ -1300,6 +1300,23 @@ public actor CameraEngine {
         return await device.activeFormatSize
     }
 
+    /// Test-only: the live locked frame-rate range, derived from the hardware's
+    /// `activeVideoMin/MaxFrameDuration`.
+    ///
+    /// `minFps` comes from the max frame duration, `maxFps` from the min frame
+    /// duration. A correct lock reads back `minFps == maxFps == targetFps`; a
+    /// value like `(1, 30)` after requesting 15 means the lock was reset (e.g. by
+    /// a `sessionPreset` change). Throws `notOpen` when no session is live.
+    func _activeFrameRateRangeForTest() async throws -> (minFps: Double, maxFps: Double) {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        let (minDur, maxDur) = await device.activeFrameDurationSecondsForTest
+        let maxFps = minDur > 0 ? 1.0 / minDur : 0
+        let minFps = maxDur > 0 ? 1.0 / maxDur : 0
+        return (minFps: minFps, maxFps: maxFps)
+    }
+
     /// Test-only: the live applied crop rectangle, derived from the Metal
     /// pipeline's `outputSize`/`cropOrigin` (the same source `open()` and
     /// `publishStreamConfiguration()` use), not the `currentCropRegion` mirror.

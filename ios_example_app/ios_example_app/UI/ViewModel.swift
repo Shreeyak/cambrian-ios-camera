@@ -71,8 +71,17 @@ final class ViewModel {
     /// landscape-right convention to keep the preview/stills upright. This is a
     /// per-open override — other CameraKit consumers (e.g. the Flutter plugin)
     /// keep the default 0° and are unaffected. `targetFps` follows the picker.
+    ///
+    /// `captureResolution` is pinned to the currently active resolution once open
+    /// (`capabilities` is `nil` before the first open, so the initial open still
+    /// gets the package default — the largest 4:3). This keeps an fps change
+    /// (`setTargetFps`, which reopens) or a fatal retry from silently jumping the
+    /// resolution back to the 4:3 default.
     private var openConfiguration: OpenConfiguration {
-        OpenConfiguration(targetFps: selectedFps, captureOrientationAngleDeg: 180)
+        OpenConfiguration(
+            captureResolution: capabilities?.activeCaptureResolution,
+            targetFps: selectedFps,
+            captureOrientationAngleDeg: 180)
     }
 
     let engine: CameraEngine
@@ -354,6 +363,7 @@ final class ViewModel {
     /// throws and the session drops to `.error`.
     func setTargetFps(_ fps: Int) {
         guard fps != selectedFps else { return }
+        let previousFps = selectedFps
         selectedFps = fps
         Task { [weak self] in
             guard let self else { return }
@@ -375,7 +385,11 @@ final class ViewModel {
                 #endif
                 CameraKitLog.notice(.engine, "[fps] applied targetFps=\(fps)")
             } catch {
-                CameraKitLog.error(.engine, "[fps] setTargetFps(\(fps)) reopen threw: \(error)")
+                // Roll the picker back to the last working fps so it reflects reality
+                // (an unsupported (resolution, fps) throws settingsConflict here).
+                CameraKitLog.error(
+                    .engine, "[fps] setTargetFps(\(fps)) reopen threw: \(error) — reverting to \(previousFps)")
+                self.selectedFps = previousFps
                 self.sessionState = .error
             }
         }

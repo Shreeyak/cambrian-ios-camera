@@ -1084,10 +1084,13 @@ private struct ExpandedSliderBar: View {
     /// Number of discrete detents on the Shutter slider.
     private static let shutterStepCount = 20
 
-    /// Upper bound (ms) of the discrete Shutter range — capped well below the
-    /// hardware max so every detent lands in the short-exposure region we want
-    /// to experiment in.
-    private static let shutterMaxMs = 10.0
+    /// Upper bound (ms) of the discrete Shutter range.
+    ///
+    /// Set to 20 ms so the top detents exceed the 60-fps exposure ceiling
+    /// (1/60 s ≈ 16.6 ms): pushing shutter past it at a 60-fps target exercises the
+    /// `settingsConflict` reject (configurable-frame-rate: exposure ≤ 1/targetFps).
+    /// Still below the 30-fps ceiling (33 ms), so 30 fps accepts the whole range.
+    private static let shutterMaxMs = 20.0
 
     /// Log-spaced exposure detents (ms) from `minMs` to `shutterMaxMs`.
     ///

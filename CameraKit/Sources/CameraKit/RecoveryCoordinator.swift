@@ -60,9 +60,22 @@ public actor RecoveryCoordinator {
         return false
     }
 
-    /// Clear the HW-error streak — called on any successful frame.
+    /// Clear the recovery budget — called on any delivered frame.
+    ///
+    /// A real frame is the only proof a reopen actually recovered the session: a
+    /// reopen can "succeed" (not throw) yet deliver nothing — e.g. a mis-configured
+    /// format that stalls. So the retry `attempt` budget resets here, on frame
+    /// delivery, NOT on reopen success. Resetting on reopen (the old behavior) let an
+    /// open-then-stall config reset the budget every cycle, so the max-retries fatal
+    /// was never reached and recovery looped forever behind a black screen.
     public func noteHardwareSuccess() {
         consecutiveHwErrors = 0
+        if attempt != 0 {
+            CameraKitLog.notice(
+                .engine,
+                "[recovery] frame delivered — recovery confirmed, resetting attempt=\(attempt)")
+            attempt = 0
+        }
     }
 
     /// Cancel any pending retry — called from close() and reconcile()'s .background path (Inv 9).
@@ -71,12 +84,8 @@ public actor RecoveryCoordinator {
         retryTask = nil
     }
 
-    /// Reset after a successful reopen.
-    public func resetAfterSuccess() {
-        CameraKitLog.notice(.engine, "[recovery] retry succeeded attempt=\(attempt), resetting")
-        attempt = 0
-        consecutiveHwErrors = 0
-    }
+    // NOTE: there is deliberately no "reset on reopen" here. The attempt budget
+    // resets in `noteHardwareSuccess()` when a real frame arrives (see there).
 
     /// Enter the recovery sequence — §Sequence C.
     public func enterRecovery(error: CameraError) async {
@@ -115,7 +124,10 @@ public actor RecoveryCoordinator {
             if Task.isCancelled { return }
             do {
                 try await hooks.performTeardownAndReopen()
-                await self?.resetAfterSuccess()
+                // Reopen succeeded — but that is NOT recovery. Wait for a real frame:
+                // `noteHardwareSuccess()` resets the attempt budget when one arrives. If
+                // none does (open-then-stall), the next watchdog stall re-enters recovery
+                // and the budget keeps counting up toward the max-retries fatal.
             } catch {
                 let next = CameraError(
                     code: .unknownError,
