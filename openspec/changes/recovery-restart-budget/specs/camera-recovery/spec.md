@@ -25,16 +25,19 @@ recovery/restart teardown SHALL NOT reset it.
 On a recoverable stall CameraKit SHALL first attempt quick reopens up to
 `Constants.recoveryMaxRetries`. On quick-budget exhaustion it SHALL escalate to a
 full restart — a heavier teardown, a settle delay of
-`Constants.fullRestartSettleSeconds`, and a fresh open — resetting the quick budget,
-up to `Constants.maxFullRestarts`. On exhaustion of full restarts it SHALL emit a
-permanent fatal and stop reopening. Recovery SHALL NOT loop unbounded.
+`Constants.fullRestartSettleSeconds`, and a fresh open — up to
+`Constants.maxFullRestarts`. Escalation SHALL be linear: the quick budget SHALL NOT
+be reset after a full restart, so a persistent fault progresses
+quick → full → fatal in `recoveryMaxRetries + maxFullRestarts` total reopens. On
+exhaustion of full restarts it SHALL emit a permanent fatal and stop reopening.
+Recovery SHALL NOT loop unbounded.
 
 #### Scenario: Persistent fault escalates quick then full then fatal, bounded
 
 - **WHEN** a fault persists and no reopen ever delivers a frame
-- **THEN** CameraKit performs at most `recoveryMaxRetries` quick reopens, then at
-  most `maxFullRestarts` full restarts, then emits exactly one permanent fatal and
-  performs no further reopen
+- **THEN** CameraKit performs exactly `recoveryMaxRetries` quick reopens, then
+  exactly `maxFullRestarts` full restarts, then emits exactly one permanent fatal
+  and performs no further reopen
 
 #### Scenario: Recovery converges when a reopen delivers a frame
 

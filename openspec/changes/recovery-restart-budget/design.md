@@ -45,15 +45,25 @@ on any delivered frame (real recovery proof). Increment inside
 coordinator's per-`open()` recreation, so the budget actually accumulates. The
 `RecoveryCoordinator` keeps owning backoff/scheduling for quick reopens.
 
-**D2 — Two-tier escalation in `performTeardownAndReopen`.** The reopen closure
-decides the tier from the engine counters:
+**D2 — Two-tier LINEAR escalation in `performTeardownAndReopen`.** The reopen
+closure decides the tier from the engine counters, escalating linearly (the quick
+counter is NOT reset after a full restart — see D6):
 - `recoveryReopensWithoutFrame <= recoveryMaxRetries` → **quick reopen**:
   `teardown(preserveConsumers: true)` + `open(fromRecovery:)`.
 - quick budget exhausted, `fullRestartCount < maxFullRestarts` → **full restart**:
-  increment `fullRestartCount`, reset the quick counter, sleep
-  `fullRestartSettleSeconds`, then `teardown(preserveConsumers: true)` + `open`.
+  increment `fullRestartCount`, sleep `fullRestartSettleSeconds`, then
+  `teardown(preserveConsumers: true)` + `open`.
 - full restarts exhausted → **permanent fatal**: `publishError(isFatal: true)` →
   `failAllLanes`, then `close()` (full release). No further reopen.
+
+Total attempts before fatal = `recoveryMaxRetries + maxFullRestarts` (≈ 8 with the
+defaults), ~7 s per watchdog-driven cycle → ~1 min to a clean fatal.
+
+**D6 — Linear, not reset-per-restart.** A quick reopen already fully restarts the
+session (`reconciledSessionRunning` is reset in teardown), so a "full restart"
+differs only by a settle delay. Granting a fresh quick round after each full
+restart would triple the time-to-fatal (~24 cycles, ~2.8 min) for no concrete
+added recovery power. So escalation is linear: quick×N → full×M → fatal.
 
 **D3 — Consumer-preserving teardown.** Introduce an internal
 `teardown(preserveConsumers: Bool)` (or `close(releaseConsumers:)`). When

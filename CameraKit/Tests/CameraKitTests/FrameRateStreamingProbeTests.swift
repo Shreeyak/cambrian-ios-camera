@@ -170,8 +170,8 @@ struct FrameRateStreamingProbeTests {
     /// recovery-restart-budget: a subscribed consumer lane survives recovery quick
     /// reopens AND full restarts (transparent restart — subscriber preserved), and
     /// is terminated ONLY at the terminal fatal after escalation is exhausted.
-    /// Budgets are shrunk (2 quick, 1 full restart → fatal on the 6th reopen) and
-    /// frames suppressed so escalation advances deterministically.
+    /// Linear escalation with budgets shrunk (2 quick + 1 full restart → fatal on
+    /// the 4th reopen); frames suppressed so escalation advances deterministically.
     @Test func recoveryPreservesConsumersUntilTerminalFatal() async throws {
         let engine = CameraEngine(initialPhase: .active)
         _ = try await engine.open()
@@ -183,13 +183,13 @@ struct FrameRateStreamingProbeTests {
         await engine._suppressFrameDeliveryForTest(true)
         await engine._setRecoveryBudgetsForTest(maxQuick: 2, maxFullRestarts: 1)
 
-        // Non-terminal escalation: 2 quick + 1 full restart + 2 quick = 5 reopens.
+        // Non-terminal escalation (linear): 2 quick + 1 full restart = 3 reopens.
         // The subscription MUST survive every one (restart is transparent).
-        for _ in 1...5 {
+        for _ in 1...3 {
             try? await engine._triggerRecoveryReopenForTest()
             #expect(engine.consumers.subscriberCount(for: .primary) == 1)
         }
-        // The 6th reopen is the terminal fatal → failAllLanes → subscriber removed.
+        // The 4th reopen is the terminal fatal → failAllLanes → subscriber removed.
         try? await engine._triggerRecoveryReopenForTest()
         #expect(engine.consumers.subscriberCount(for: .primary) == 0)
 

@@ -903,7 +903,12 @@ public actor CameraEngine {
         }
         if fullRestartCount < maxRestarts {
             fullRestartCount += 1
-            recoveryReopensWithoutFrame = 0
+            // Linear escalation: the quick counter is NOT reset, so once quick
+            // reopens are exhausted we go straight through the full restarts to the
+            // terminal fatal (quick×maxQuick → full×maxRestarts → fatal). We do not
+            // grant a fresh quick round after each full restart — a quick reopen
+            // already fully restarts the session, so extra rounds only delay the
+            // clean fatal (~7s/cycle, watchdog-dominated) without added recovery power.
             CameraKitLog.warning(
                 .engine, "[recovery] full restart \(fullRestartCount)/\(maxRestarts)")
             publishError(
