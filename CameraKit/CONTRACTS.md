@@ -210,6 +210,8 @@ private func parkBackgroundReconcileIfArmed() async {
 ```swift
 func _emitErrorForTest(_ err: CameraError) {
 ⋮----
+func _setFirstFrameTimeoutForTest(_ seconds: Double?) {
+⋮----
 func _markOpenForTest() {
 ⋮----
 var _currentStateForTest: SessionState { stateMachine.current }
@@ -288,6 +290,13 @@ private nonisolated let frameResultContinuationBox =
 private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
 private var frameCounter: UInt64 = 0
 ⋮----
+private var firstFrameArrived = false
+private var firstFrameContinuation: CheckedContinuation<Bool, Never>?
+⋮----
+private var pendingRecoveryReopen = false
+⋮----
+var firstFrameTimeoutOverride: Double?
+⋮----
 private nonisolated let streamConfigContinuationBox =
 ⋮----
 private let cachedStreamConfigStream = Mailbox<AsyncStream<StreamConfiguration>>()
@@ -333,7 +342,9 @@ public func currentSettingsSnapshot() -> CameraSettings? { currentSettings }
 ⋮----
 public func currentProcessingParametersSnapshot() -> ProcessingParameters? {
 ⋮----
-public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
+public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws
+⋮----
+let fromRecovery = pendingRecoveryReopen
 ⋮----
 let granted = await AVCaptureDevice.requestAccess(for: .video)
 ⋮----
@@ -377,6 +388,9 @@ let zoomMax = await device.maxAvailableVideoZoomFactor
 let evMin = await device.minExposureTargetBias
 let evMax = await device.maxExposureTargetBias
 ⋮----
+let timeoutS = firstFrameTimeoutOverride ?? Constants.firstFrameTimeoutSeconds
+let delivered = await awaitFirstFrame(timeout: .seconds(timeoutS))
+⋮----
 public func close() async {
 ⋮----
 public func stateStream() -> AsyncStream<SessionState> {
@@ -410,6 +424,12 @@ private func onFrameTick() async {
 let diagnostics = FrameDiagnostics.json(
 ⋮----
 let r = FrameResult(
+⋮----
+private func awaitFirstFrame(timeout: Duration) async -> Bool {
+⋮----
+private func firstFrameTimedOut() {
+⋮----
+private func setPendingRecoveryReopen() {
 ⋮----
 static func fpsConstrainedExposureRange(
 ⋮----
@@ -1347,6 +1367,8 @@ static let captureOrientationAngleDeg: CGFloat = 0
 static let stateStreamBufferSize: Int = 64
 ⋮----
 static let sessionLifecycleTimeoutSeconds: Double = 2.0
+⋮----
+static let firstFrameTimeoutSeconds: Double = 2.0
 ⋮----
 static let frameResultHeartbeatHz: Int = 3
 static let frameResultHeartbeatIntervalFrames: Int = 10

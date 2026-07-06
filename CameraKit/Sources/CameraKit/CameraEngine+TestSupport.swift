@@ -11,6 +11,12 @@ extension CameraEngine {
         publishError(err)
     }
 
+    // Test-only: override the first-frame open() deadline (seconds); `nil` restores
+    // the default. Set tiny to force the no-frame timeout path deterministically.
+    func _setFirstFrameTimeoutForTest(_ seconds: Double?) {
+        firstFrameTimeoutOverride = seconds
+    }
+
     /// Test-only: drive the state machine into `.streaming` so teardown paths
     /// (`close()` and the `.cameraInUseEnded` self-heal) can be exercised
     /// without real hardware.

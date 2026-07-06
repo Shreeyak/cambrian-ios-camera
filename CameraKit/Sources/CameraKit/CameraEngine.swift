@@ -98,6 +98,22 @@ public actor CameraEngine {
     private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
     private var frameCounter: UInt64 = 0
 
+    // Defensive first-frame gate: `open()` waits for the first delivered frame so a
+    // configured-but-dead session fails at the call site instead of silently
+    // stalling. Set true by `onFrameTick` on the first frame; reset in `close()`.
+    private var firstFrameArrived = false
+    private var firstFrameContinuation: CheckedContinuation<Bool, Never>?
+
+    // Set by `performTeardownAndReopen` immediately before its `open()` so that
+    // reopen skips the first-frame check (recovery owns stall detection there).
+    // Read-and-cleared at the top of `open()`.
+    private var pendingRecoveryReopen = false
+
+    // Test-only override for the first-frame deadline (seconds); `nil` = the
+    // `Constants.firstFrameTimeoutSeconds` default. Set to a tiny value to force
+    // the timeout path deterministically. See `_setFirstFrameTimeoutForTest`.
+    var firstFrameTimeoutOverride: Double?
+
     // Phase-2 §2c — active stream-configuration stream.
     private nonisolated let streamConfigContinuationBox =
         Mutex<AsyncStream<StreamConfiguration>.Continuation?>(nil)
@@ -286,7 +302,14 @@ public actor CameraEngine {
     /// - Throws: `EngineError.cameraDenied` if permission not granted.
     /// - Throws: `EngineError.noBackCamera` if no back camera found.
     /// - Throws: `EngineError.metal(_:)` if MetalPipeline fails to initialise.
-    public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
+    public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws
+        -> SessionCapabilities
+    {
+        // Read-and-clear the recovery-reopen flag (set by performTeardownAndReopen
+        // just before this call). On a recovery reopen the first-frame check is
+        // skipped — the watchdog + recovery budget own stall detection there.
+        let fromRecovery = pendingRecoveryReopen
+        pendingRecoveryReopen = false
         guard !isOpen else { throw EngineError.alreadyOpen }
         CameraKitLog.notice(.engine, "open: requesting camera permission")
 
@@ -427,6 +450,7 @@ public actor CameraEngine {
         let hooks = RecoveryCoordinator.Hooks(
             performTeardownAndReopen: { [weak self] in
                 await self?.close()
+                await self?.setPendingRecoveryReopen()
                 _ = try await self?.open(configuration: configuration)
             },
             emitStateRecovering: { [weak self] in
@@ -528,6 +552,27 @@ public actor CameraEngine {
             .engine,
             "open: pipeline ready — \(captureSize.width)×\(captureSize.height)"
         )
+
+        // Defensive first-frame check. Only on a user-driven open in the active
+        // phase: `.inactive`/`.background` deliberately deliver no frames (gate
+        // closed / no startRunning), and recovery reopens are covered by the
+        // watchdog + recovery budget (running the check there would fight recovery).
+        // If a started session delivers no frame within the deadline, tear down and
+        // throw so the caller detects a dead session at the call site rather than
+        // seeing a frozen preview. Normal first-frame latency is ~100–200 ms.
+        if currentPhase == .active && !fromRecovery {
+            let timeoutS = firstFrameTimeoutOverride ?? Constants.firstFrameTimeoutSeconds
+            let delivered = await awaitFirstFrame(timeout: .seconds(timeoutS))
+            if !delivered {
+                CameraKitLog.error(
+                    .engine,
+                    "open: no frame within \(timeoutS)s — tearing down and throwing "
+                        + "sessionLifecycleTimeout")
+                await close()
+                throw EngineError.sessionLifecycleTimeout
+            }
+        }
+
         return SessionCapabilities(
             supportedSizes: supportedSizes,
             supportedFrameRates: supportedFrameRates,
@@ -588,6 +633,13 @@ public actor CameraEngine {
         }
         cachedFrameResultStream.store(nil)
         frameCounter = 0
+        // Reset the first-frame gate and release any waiter (e.g. a concurrent
+        // open() blocked in awaitFirstFrame) so close() can't leave it hung.
+        firstFrameArrived = false
+        if let cont = firstFrameContinuation {
+            firstFrameContinuation = nil
+            cont.resume(returning: false)
+        }
         await consumers.release()
         cameraSession = nil
         captureDelegate = nil
@@ -706,6 +758,12 @@ public actor CameraEngine {
 
     private func onFrameTick() async {
         frameCounter &+= 1
+        // Signal the first delivered frame to a waiting open() (defensive gate).
+        if !firstFrameArrived {
+            firstFrameArrived = true
+            firstFrameContinuation?.resume(returning: true)
+            firstFrameContinuation = nil
+        }
         guard frameCounter % UInt64(Constants.frameResultHeartbeatIntervalFrames) == 0,
             let device = cameraSession?.device,
             let snap = await device.lastSnapshot
@@ -727,6 +785,36 @@ public actor CameraEngine {
             wbGainB: Double(snap.whiteBalanceGains.blue),
             diagnosticsJSON: diagnostics)
         frameResultContinuationBox.withLock { $0?.yield(r) }
+    }
+
+    /// Wait up to `timeout` for the first delivered frame after the session starts.
+    ///
+    /// Returns true if a frame arrived, false on timeout. Resolved exactly once —
+    /// by `onFrameTick` (frame), the deadline task (timeout), or `close()` — each
+    /// guarded by the actor and the `firstFrameContinuation` nil-check.
+    private func awaitFirstFrame(timeout: Duration) async -> Bool {
+        if firstFrameArrived { return true }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            firstFrameContinuation = cont
+            Task { [weak self] in
+                try? await Task.sleep(for: timeout)
+                await self?.firstFrameTimedOut()
+            }
+        }
+    }
+
+    /// Deadline branch for `awaitFirstFrame`: resumes `false` if still pending.
+    private func firstFrameTimedOut() {
+        if let cont = firstFrameContinuation {
+            firstFrameContinuation = nil
+            cont.resume(returning: false)
+        }
+    }
+
+    // Actor-isolated setter: marks the next `open()` as a recovery reopen (skips
+    // the first-frame check). Set from `performTeardownAndReopen`, cleared in `open()`.
+    private func setPendingRecoveryReopen() {
+        pendingRecoveryReopen = true
     }
 
     /// Full settings merge→couple→validate→commit→persist pipeline (Stage 03).

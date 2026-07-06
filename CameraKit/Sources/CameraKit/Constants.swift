@@ -20,6 +20,12 @@ enum Constants {
     static let stateStreamBufferSize: Int = 64
     /// ADR-30: Deadline for startRunning() / stopRunning() awaited from @MainActor.
     static let sessionLifecycleTimeoutSeconds: Double = 2.0
+    /// Deadline for the first delivered frame after a user-driven `open()`.
+    ///
+    /// No frame within this window fails `open()` with `sessionLifecycleTimeout`
+    /// instead of returning a dead session. Normal first-frame latency is
+    /// ~100–200 ms, so 2 s is generous headroom.
+    static let firstFrameTimeoutSeconds: Double = 2.0
     // Frame-result heartbeat (07-settings.md §Frame-result heartbeat).
     static let frameResultHeartbeatHz: Int = 3
     static let frameResultHeartbeatIntervalFrames: Int = 10  // 30 fps ÷ 3 Hz

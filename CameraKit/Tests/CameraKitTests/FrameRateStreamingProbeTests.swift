@@ -151,4 +151,18 @@ struct FrameRateStreamingProbeTests {
         await engine.close()
         #expect(f2 > 0)  // reopen must stream at a modest resolution too
     }
+
+    /// Defensive guarantee: a user `open()` that delivers no frame within the
+    /// deadline THROWS `sessionLifecycleTimeout` instead of returning a dead session
+    /// (silent black preview). Forced deterministically via a 1 ms timeout override,
+    /// which fires before any real first frame (~100–200 ms). This is what makes a
+    /// no-frame condition impossible for a library caller to hit silently.
+    @Test func openThrowsWhenFirstFrameTimesOut() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        await engine._setFirstFrameTimeoutForTest(0.001)
+        await #expect(throws: EngineError.self) {
+            _ = try await engine.open(configuration: OpenConfiguration())
+        }
+        await engine.close()
+    }
 }
