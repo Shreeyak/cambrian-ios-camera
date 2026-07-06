@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import CameraKit
+@testable import FrameTransport
 
 /// Regression guard for the configurable-frame-rate lock (configurable-frame-rate).
 ///
@@ -163,6 +164,35 @@ struct FrameRateStreamingProbeTests {
         await #expect(throws: EngineError.self) {
             _ = try await engine.open(configuration: OpenConfiguration())
         }
+        await engine.close()
+    }
+
+    /// recovery-restart-budget: a subscribed consumer lane survives recovery quick
+    /// reopens AND full restarts (transparent restart — subscriber preserved), and
+    /// is terminated ONLY at the terminal fatal after escalation is exhausted.
+    /// Budgets are shrunk (2 quick, 1 full restart → fatal on the 6th reopen) and
+    /// frames suppressed so escalation advances deterministically.
+    @Test func recoveryPreservesConsumersUntilTerminalFatal() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        _ = try await engine.open()
+        // Subscribe a lane and hold the stream so the subscription stays registered.
+        let stream = await engine.consumers.subscribe(stream: .primary, buffering: .latestWins)
+        _ = stream
+        #expect(engine.consumers.subscriberCount(for: .primary) == 1)
+
+        await engine._suppressFrameDeliveryForTest(true)
+        await engine._setRecoveryBudgetsForTest(maxQuick: 2, maxFullRestarts: 1)
+
+        // Non-terminal escalation: 2 quick + 1 full restart + 2 quick = 5 reopens.
+        // The subscription MUST survive every one (restart is transparent).
+        for _ in 1...5 {
+            try? await engine._triggerRecoveryReopenForTest()
+            #expect(engine.consumers.subscriberCount(for: .primary) == 1)
+        }
+        // The 6th reopen is the terminal fatal → failAllLanes → subscriber removed.
+        try? await engine._triggerRecoveryReopenForTest()
+        #expect(engine.consumers.subscriberCount(for: .primary) == 0)
+
         await engine.close()
     }
 }

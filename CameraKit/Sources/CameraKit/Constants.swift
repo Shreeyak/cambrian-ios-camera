@@ -136,7 +136,15 @@ enum Constants {
     /// Consecutive HW failures before entering recovery. constants.md#HW_ERROR_THRESHOLD_CONSECUTIVE.
     static let hwErrorThresholdConsecutive: Int = 5
     /// Max retries before fatal MAX_RETRIES_EXCEEDED. constants.md#RECOVERY_MAX_RETRIES.
+    ///
+    /// recovery-restart-budget: also the quick-reopen bound before escalating to a
+    /// full restart.
     static let recoveryMaxRetries: Int = 5
+    /// recovery-restart-budget: full restarts (heavier teardown + settle + reopen)
+    /// after quick reopens are exhausted, before the terminal permanent fatal.
+    static let maxFullRestarts: Int = 3
+    /// recovery-restart-budget: settle delay before a full restart's reopen.
+    static let fullRestartSettleSeconds: Double = 1.0
     /// Exponential backoff schedule (attempts 1..5+). constants.md#RECOVERY_BACKOFF_*_MS.
     static let recoveryBackoff1Ms: Int = 500
     static let recoveryBackoff2Ms: Int = 1000

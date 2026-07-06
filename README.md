@@ -88,6 +88,21 @@ pick a valid pair, and `open(OpenConfiguration(captureResolution: …, targetFps
 
 See [`Documentation/index.md`](Documentation/index.md) for the full API, the lifecycle contract, and end-to-end guides.
 
+### Frame streams survive automatic recovery
+
+When CameraKit hits a recoverable fault it restarts the capture session
+internally (bounded, escalating: quick reopens → full restarts → a terminal
+fatal). **These restarts are transparent to frame consumers.** A subscribed lane
+(`subscribe(stream:)`, the Flutter texture preview, EvaScan) is *not* finished or
+thrown during a restart — the subscriber simply sees a brief frame gap and then
+resumes from the rebuilt pipeline. A lane stream ends **only** when you call
+`close()` (clean finish) or when recovery is exhausted and CameraKit gives up
+(the stream throws the terminal fatal). Internally this holds because a restart
+skips `ConsumerRegistry.release()` / `failAllLanes()`; the registry is
+engine-owned and re-wired to each rebuilt pipeline. So a consumer's
+`for try await frame in engine.subscribe(...)` loop keeps running across restarts
+and only exits on `close()` or an unrecoverable fault.
+
 > The package's internal name is `CameraKit` for historical reasons. It will be renamed to `CambrianCamera` in a future pass to avoid collision with [Snap's CameraKit SDK](https://docs.snap.com/camera-kit/) — see `docs/archived/superpowers/specs/2026-05-20-flutter-plugin-monorepo-design.md` §"Future cleanup".
 
 ## Documentation (Swift / CameraKit)

@@ -114,6 +114,29 @@ public actor CameraEngine {
     // the timeout path deterministically. See `_setFirstFrameTimeoutForTest`.
     var firstFrameTimeoutOverride: Double?
 
+    // recovery-restart-budget: engine-level recovery escalation budgets. They
+    // persist across reopens (the RecoveryCoordinator is recreated per open(), so
+    // its own attempt counter cannot). Reset to 0 on a delivered frame (onFrameTick)
+    // and on a user-initiated open(); incremented per recovery reopen; drive the
+    // quick → full-restart → terminal-fatal escalation in performTeardownAndReopen.
+    private var recoveryReopensWithoutFrame = 0
+    private var fullRestartCount = 0
+
+    // Test-only: the last open configuration, so a test seam can drive a recovery
+    // reopen with the same config. Set at the top of open(). Internal (not private)
+    // so the DEBUG test-support extension can read it.
+    var lastOpenConfiguration: OpenConfiguration?
+
+    // Test-only: when true, onFrameTick drops the frame (no first-frame signal, no
+    // budget reset) so a test can simulate a persistent no-frame fault and exercise
+    // the recovery escalation deterministically without the watchdog.
+    var suppressFrameDeliveryForTest = false
+
+    // Test-only: shrink the escalation budgets so a test reaches the terminal fatal
+    // in a few reopens instead of ~24. `nil` = the Constants defaults.
+    var recoveryMaxRetriesOverride: Int?
+    var maxFullRestartsOverride: Int?
+
     // Phase-2 §2c — active stream-configuration stream.
     private nonisolated let streamConfigContinuationBox =
         Mutex<AsyncStream<StreamConfiguration>.Continuation?>(nil)
@@ -310,6 +333,12 @@ public actor CameraEngine {
         // skipped — the watchdog + recovery budget own stall detection there.
         let fromRecovery = pendingRecoveryReopen
         pendingRecoveryReopen = false
+        if !fromRecovery {
+            // User-driven open starts with a fresh recovery escalation budget.
+            recoveryReopensWithoutFrame = 0
+            fullRestartCount = 0
+        }
+        lastOpenConfiguration = configuration
         guard !isOpen else { throw EngineError.alreadyOpen }
         CameraKitLog.notice(.engine, "open: requesting camera permission")
 
@@ -449,9 +478,7 @@ public actor CameraEngine {
         delegate.watchdogs = pair
         let hooks = RecoveryCoordinator.Hooks(
             performTeardownAndReopen: { [weak self] in
-                await self?.close()
-                await self?.setPendingRecoveryReopen()
-                _ = try await self?.open(configuration: configuration)
+                try await self?.performRecoveryReopen(configuration: configuration)
             },
             emitStateRecovering: { [weak self] in
                 await self?.publishStateAsync(.recovering)
@@ -593,7 +620,26 @@ public actor CameraEngine {
     }
 
     /// Closes the camera session and releases all resources.
+    ///
+    /// Finishes consumer lane subscriptions cleanly (no throw). Recovery/restart
+    /// uses `teardown(preserveConsumers:)` instead, which leaves them open.
     public func close() async {
+        await teardown(preserveConsumers: false)
+        // A user close resets the recovery escalation budgets.
+        recoveryReopensWithoutFrame = 0
+        fullRestartCount = 0
+    }
+
+    /// Tears down the live session and pipeline.
+    ///
+    /// When `preserveConsumers` is true (recovery/restart), consumer lane
+    /// subscriptions and the `frameResultStream` are LEFT OPEN and no `.closed`
+    /// state is published, so a subsequent reopen resumes delivery to the same
+    /// subscribers — the restart is transparent to consumers (they see only a frame
+    /// gap). A restart is transparent to consumers IFF it skips
+    /// `ConsumerRegistry.release()` / `failAllLanes()`; lanes are terminated only by
+    /// a user `close()` (clean finish) or the terminal fatal (`failAllLanes` throws).
+    private func teardown(preserveConsumers: Bool) async {
         sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
         // Phase-2 §2b — abort any in-flight calibration.
         calibrationTask?.cancel()
@@ -610,7 +656,8 @@ public actor CameraEngine {
         watchdogs = nil
         recovery = nil
         guard isOpen else { return }
-        CameraKitLog.notice(.engine, "close: tearing down pipeline")
+        CameraKitLog.notice(
+            .engine, "teardown: tearing down pipeline (preserveConsumers=\(preserveConsumers))")
         // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
         submissionGate.store(false, ordering: .sequentiallyConsistent)
         // Reset the reconcile decision so a later open() re-issues startRunning.
@@ -627,27 +674,40 @@ public actor CameraEngine {
         if let device = cameraSession?.device {
             await device.cancelKVO()
         }
-        frameResultContinuationBox.withLock {
-            $0?.finish()
-            $0 = nil
+        // Diagnostics stream: finished only on a full close; a restart preserves it
+        // so a subscribed consumer keeps receiving after the reopen.
+        if !preserveConsumers {
+            frameResultContinuationBox.withLock {
+                $0?.finish()
+                $0 = nil
+            }
+            cachedFrameResultStream.store(nil)
         }
-        cachedFrameResultStream.store(nil)
         frameCounter = 0
         // Reset the first-frame gate and release any waiter (e.g. a concurrent
-        // open() blocked in awaitFirstFrame) so close() can't leave it hung.
+        // open() blocked in awaitFirstFrame) so teardown can't leave it hung.
         firstFrameArrived = false
         if let cont = firstFrameContinuation {
             firstFrameContinuation = nil
             cont.resume(returning: false)
         }
-        await consumers.release()
+        // Consumer lanes: released (clean finish) only on a full close; a restart
+        // PRESERVES them so surviving subscribers resume from the rebuilt pipeline —
+        // a transparent restart (skips release()/failAllLanes()).
+        if !preserveConsumers {
+            await consumers.release()
+        }
         cameraSession = nil
         captureDelegate = nil
         metalPipeline = nil
         stillCapture = nil
         _metalPipeline.store(nil)
         deliveryQueue = nil
-        publishState(.closed, kind: .command)
+        // A restart does not publish `.closed` (recovery publishes `.recovering`,
+        // the reopen publishes `.streaming`); only a full close publishes `.closed`.
+        if !preserveConsumers {
+            publishState(.closed, kind: .command)
+        }
     }
 
     /// Returns an AsyncStream of SessionState events.
@@ -757,12 +817,18 @@ public actor CameraEngine {
     }
 
     private func onFrameTick() async {
+        // Test-only: simulate a persistent no-frame fault (drop before any signal).
+        if suppressFrameDeliveryForTest { return }
         frameCounter &+= 1
         // Signal the first delivered frame to a waiting open() (defensive gate).
         if !firstFrameArrived {
             firstFrameArrived = true
             firstFrameContinuation?.resume(returning: true)
             firstFrameContinuation = nil
+            // recovery-restart-budget: a delivered frame proves recovery succeeded —
+            // reset the escalation budgets.
+            recoveryReopensWithoutFrame = 0
+            fullRestartCount = 0
         }
         guard frameCounter % UInt64(Constants.frameResultHeartbeatIntervalFrames) == 0,
             let device = cameraSession?.device,
@@ -811,10 +877,58 @@ public actor CameraEngine {
         }
     }
 
-    // Actor-isolated setter: marks the next `open()` as a recovery reopen (skips
-    // the first-frame check). Set from `performTeardownAndReopen`, cleared in `open()`.
-    private func setPendingRecoveryReopen() {
-        pendingRecoveryReopen = true
+    // recovery-restart-budget: one recovery reopen attempt, with two-tier escalation
+    // driven by the engine-level budgets (which persist across the coordinator's
+    // per-open recreation). Called from the RecoveryCoordinator's backoff each cycle:
+    //   • quick reopen while within recoveryMaxRetries — preserve consumers, reopen;
+    //   • else a full restart (heavier: settle delay) while within maxFullRestarts,
+    //     resetting the quick budget and emitting a NON-fatal signal;
+    //   • else the terminal permanent fatal — failAllLanes via publishError(isFatal),
+    //     then a full close(); no further reopen.
+    // Every teardown here preserves consumers so a restart is transparent to them;
+    // lanes terminate only at the terminal fatal. A reopen that throws is rethrown so
+    // the coordinator reschedules the next cycle (which re-enters here and escalates).
+    // Internal (not private) so the DEBUG test-support extension can drive it.
+    func performRecoveryReopen(configuration: OpenConfiguration) async throws {
+        let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryMaxRetries
+        let maxRestarts = maxFullRestartsOverride ?? Constants.maxFullRestarts
+        recoveryReopensWithoutFrame += 1
+        if recoveryReopensWithoutFrame <= maxQuick {
+            CameraKitLog.warning(
+                .engine, "[recovery] quick reopen \(recoveryReopensWithoutFrame)/\(maxQuick)")
+            await teardown(preserveConsumers: true)
+            pendingRecoveryReopen = true
+            _ = try await open(configuration: configuration)
+            return
+        }
+        if fullRestartCount < maxRestarts {
+            fullRestartCount += 1
+            recoveryReopensWithoutFrame = 0
+            CameraKitLog.warning(
+                .engine, "[recovery] full restart \(fullRestartCount)/\(maxRestarts)")
+            publishError(
+                CameraError(
+                    code: .captureFailure,
+                    message: "camera full restart \(fullRestartCount)/\(maxRestarts)",
+                    isFatal: false))
+            await teardown(preserveConsumers: true)
+            try? await clock.sleep(
+                milliseconds: Int(Constants.fullRestartSettleSeconds * 1000))
+            pendingRecoveryReopen = true
+            _ = try await open(configuration: configuration)
+            return
+        }
+        CameraKitLog.error(
+            .engine, "[recovery] escalation exhausted — permanent fatal, terminating lanes")
+        publishError(
+            CameraError(
+                code: .maxRetriesExceeded,
+                message:
+                    "camera could not recover after \(maxQuick) reopens × \(maxRestarts) restarts",
+                isFatal: true))
+        // Full close: failAllLanes already fired via publishError(isFatal); release
+        // the rest. No reopen — the loop stops here.
+        await close()
     }
 
     /// Full settings merge→couple→validate→commit→persist pipeline (Stage 03).

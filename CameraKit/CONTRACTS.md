@@ -212,6 +212,12 @@ func _emitErrorForTest(_ err: CameraError) {
 ⋮----
 func _setFirstFrameTimeoutForTest(_ seconds: Double?) {
 ⋮----
+func _suppressFrameDeliveryForTest(_ on: Bool) {
+⋮----
+func _triggerRecoveryReopenForTest() async throws {
+⋮----
+func _setRecoveryBudgetsForTest(maxQuick: Int, maxFullRestarts: Int) {
+⋮----
 func _markOpenForTest() {
 ⋮----
 var _currentStateForTest: SessionState { stateMachine.current }
@@ -296,6 +302,16 @@ private var firstFrameContinuation: CheckedContinuation<Bool, Never>?
 private var pendingRecoveryReopen = false
 ⋮----
 var firstFrameTimeoutOverride: Double?
+⋮----
+private var recoveryReopensWithoutFrame = 0
+private var fullRestartCount = 0
+⋮----
+var lastOpenConfiguration: OpenConfiguration?
+⋮----
+var suppressFrameDeliveryForTest = false
+⋮----
+var recoveryMaxRetriesOverride: Int?
+var maxFullRestartsOverride: Int?
 ⋮----
 private nonisolated let streamConfigContinuationBox =
 ⋮----
@@ -393,6 +409,8 @@ let delivered = await awaitFirstFrame(timeout: .seconds(timeoutS))
 ⋮----
 public func close() async {
 ⋮----
+private func teardown(preserveConsumers: Bool) async {
+⋮----
 public func stateStream() -> AsyncStream<SessionState> {
 ⋮----
 let stream = AsyncStream<SessionState>(
@@ -429,7 +447,9 @@ private func awaitFirstFrame(timeout: Duration) async -> Bool {
 ⋮----
 private func firstFrameTimedOut() {
 ⋮----
-private func setPendingRecoveryReopen() {
+func performRecoveryReopen(configuration: OpenConfiguration) async throws {
+let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryMaxRetries
+let maxRestarts = maxFullRestartsOverride ?? Constants.maxFullRestarts
 ⋮----
 static func fpsConstrainedExposureRange(
 ⋮----
@@ -1414,6 +1434,10 @@ static let fpsMeasurementWindowFrames: Int = 30
 static let hwErrorThresholdConsecutive: Int = 5
 ⋮----
 static let recoveryMaxRetries: Int = 5
+⋮----
+static let maxFullRestarts: Int = 3
+⋮----
+static let fullRestartSettleSeconds: Double = 1.0
 ⋮----
 static let recoveryBackoff1Ms: Int = 500
 static let recoveryBackoff2Ms: Int = 1000

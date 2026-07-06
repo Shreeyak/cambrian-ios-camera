@@ -17,6 +17,26 @@ extension CameraEngine {
         firstFrameTimeoutOverride = seconds
     }
 
+    // Test-only: when true, delivered frames are dropped (no first-frame signal, no
+    // recovery-budget reset) so the escalation can be exercised deterministically.
+    func _suppressFrameDeliveryForTest(_ on: Bool) {
+        suppressFrameDeliveryForTest = on
+    }
+
+    // Test-only: drive one recovery reopen (the same path the RecoveryCoordinator
+    // uses), so a test can step the quick → full-restart → terminal-fatal escalation
+    // without waiting on the watchdog. Uses the last open configuration.
+    func _triggerRecoveryReopenForTest() async throws {
+        try await performRecoveryReopen(configuration: lastOpenConfiguration ?? OpenConfiguration())
+    }
+
+    // Test-only: shrink the escalation budgets so a test reaches the terminal fatal
+    // in a few reopens instead of ~24.
+    func _setRecoveryBudgetsForTest(maxQuick: Int, maxFullRestarts: Int) {
+        recoveryMaxRetriesOverride = maxQuick
+        maxFullRestartsOverride = maxFullRestarts
+    }
+
     /// Test-only: drive the state machine into `.streaming` so teardown paths
     /// (`close()` and the `.cameraInUseEnded` self-heal) can be exercised
     /// without real hardware.
