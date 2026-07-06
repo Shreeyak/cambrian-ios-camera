@@ -890,7 +890,7 @@ public actor CameraEngine {
     // the coordinator reschedules the next cycle (which re-enters here and escalates).
     // Internal (not private) so the DEBUG test-support extension can drive it.
     func performRecoveryReopen(configuration: OpenConfiguration) async throws {
-        let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryMaxRetries
+        let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryQuickReopens
         let maxRestarts = maxFullRestartsOverride ?? Constants.maxFullRestarts
         recoveryReopensWithoutFrame += 1
         if recoveryReopensWithoutFrame <= maxQuick {

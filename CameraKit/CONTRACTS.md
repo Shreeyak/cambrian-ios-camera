@@ -448,7 +448,7 @@ private func awaitFirstFrame(timeout: Duration) async -> Bool {
 private func firstFrameTimedOut() {
 ⋮----
 func performRecoveryReopen(configuration: OpenConfiguration) async throws {
-let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryMaxRetries
+let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryQuickReopens
 let maxRestarts = maxFullRestartsOverride ?? Constants.maxFullRestarts
 ⋮----
 static func fpsConstrainedExposureRange(
@@ -1435,7 +1435,9 @@ static let hwErrorThresholdConsecutive: Int = 5
 ⋮----
 static let recoveryMaxRetries: Int = 5
 ⋮----
-static let maxFullRestarts: Int = 3
+static let recoveryQuickReopens: Int = 3
+⋮----
+static let maxFullRestarts: Int = 2
 ⋮----
 static let fullRestartSettleSeconds: Double = 1.0
 ⋮----

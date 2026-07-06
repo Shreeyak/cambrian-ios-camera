@@ -48,7 +48,7 @@ coordinator's per-`open()` recreation, so the budget actually accumulates. The
 **D2 — Two-tier LINEAR escalation in `performTeardownAndReopen`.** The reopen
 closure decides the tier from the engine counters, escalating linearly (the quick
 counter is NOT reset after a full restart — see D6):
-- `recoveryReopensWithoutFrame <= recoveryMaxRetries` → **quick reopen**:
+- `recoveryReopensWithoutFrame <= recoveryQuickReopens` → **quick reopen**:
   `teardown(preserveConsumers: true)` + `open(fromRecovery:)`.
 - quick budget exhausted, `fullRestartCount < maxFullRestarts` → **full restart**:
   increment `fullRestartCount`, sleep `fullRestartSettleSeconds`, then
@@ -56,8 +56,10 @@ counter is NOT reset after a full restart — see D6):
 - full restarts exhausted → **permanent fatal**: `publishError(isFatal: true)` →
   `failAllLanes`, then `close()` (full release). No further reopen.
 
-Total attempts before fatal = `recoveryMaxRetries + maxFullRestarts` (≈ 8 with the
-defaults), ~7 s per watchdog-driven cycle → ~1 min to a clean fatal.
+The stall-tier quick bound is the dedicated `recoveryQuickReopens` (3), separate
+from `recoveryMaxRetries` (5) which the coordinator uses for the throwing-reopen
+fatal. Total attempts before fatal = `recoveryQuickReopens + maxFullRestarts`
+(≈ 5 with the defaults), ~7 s per watchdog-driven cycle → ~35 s to a clean fatal.
 
 **D6 — Linear, not reset-per-restart.** A quick reopen already fully restarts the
 session (`reconciledSessionRunning` is reset in teardown), so a "full restart"
@@ -100,4 +102,4 @@ defeat the budget). A user `close()` resets them (fresh start next open).
   bounded escalation guarantees termination (fatal) rather than a fix; the value is
   no infinite loop + consumer transparency, not a cure for dead hardware.
 - **Observability floods.** Each escalation emits an error; bounded by
-  `recoveryMaxRetries` + `maxFullRestarts`, so a finite, small number of events.
+  `recoveryQuickReopens` + `maxFullRestarts`, so a finite, small number of events.

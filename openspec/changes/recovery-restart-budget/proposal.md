@@ -26,11 +26,11 @@ consumers until the camera genuinely cannot come back.
 - **Engine-level recovery budget.** Track reopens-without-a-delivered-frame on the
   engine (persists across reopens, unlike the recreated coordinator); reset on a
   delivered frame in `onFrameTick`; increment per recovery reopen.
-- **Two-tier escalation.** (a) *Quick reopens* with the existing backoff up to
-  `Constants.recoveryMaxRetries`; (b) on quick-budget exhaustion, escalate to a
+- **Two-tier linear escalation.** (a) *Quick reopens* with the existing backoff up
+  to `Constants.recoveryQuickReopens`; (b) on quick-budget exhaustion, escalate to a
   *full restart* — a heavier teardown + a longer settle delay
-  (`Constants.fullRestartSettleSeconds`) + a fresh open, resetting the quick budget
-  — up to `Constants.maxFullRestarts`; (c) only after full restarts are exhausted,
+  (`Constants.fullRestartSettleSeconds`) + a fresh open (the quick budget is NOT
+  reset) — up to `Constants.maxFullRestarts`; (c) only after full restarts are exhausted,
   emit a **permanent fatal**. Each escalation publishes `.recovering` plus a
   **non-fatal** error for observability.
 - **Consumer-transparent restarts.** Recovery/restart teardown PRESERVES consumer

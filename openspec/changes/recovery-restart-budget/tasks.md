@@ -10,7 +10,7 @@
 
 ## 3. Two-tier escalation in the recovery reopen path
 
-- [x] 3.1 In `performTeardownAndReopen`, choose the tier from the engine counters: quick reopen while `recoveryReopensWithoutFrame <= recoveryMaxRetries`; full restart while `fullRestartCount < maxFullRestarts`; else terminal fatal.
+- [x] 3.1 In `performTeardownAndReopen`, choose the tier from the engine counters: quick reopen while `recoveryReopensWithoutFrame <= recoveryQuickReopens`; full restart while `fullRestartCount < maxFullRestarts`; else terminal fatal.
 - [x] 3.2 Quick reopen: increment the counter, `teardown(preserveConsumers: true)` + `open(fromRecovery:)`.
 - [x] 3.3 Full restart: increment `fullRestartCount`, reset the quick counter, sleep `Constants.fullRestartSettleSeconds`, then preserve-teardown + open.
 - [x] 3.4 Terminal fatal: `publishError(isFatal: true)` (→ `failAllLanes`) then full `close()`; perform no further reopen. Ensure the coordinator's own `maxRetriesExceeded` path does not double-emit a fatal.
@@ -18,7 +18,7 @@
 
 ## 4. Constants
 
-- [x] 4.1 Add `Constants.fullRestartSettleSeconds` (~1.0) and `Constants.maxFullRestarts` (~3). Keep `recoveryMaxRetries` (5) as the quick-reopen bound.
+- [x] 4.1 Add `Constants.fullRestartSettleSeconds` (~1.0) and `Constants.maxFullRestarts` (~3). Add `recoveryQuickReopens` (3) as the quick-reopen bound; keep `recoveryMaxRetries` (5) for the coordinator throwing-reopen fatal.
 
 ## 5. Docs
 
@@ -28,6 +28,6 @@
 ## 6. Verification
 
 - [x] 6.1 Device test (physical iPad): subscribe a lane, force a stall (test seam, e.g. the first-frame/no-frame override or a synthetic watchdog fire), trigger recovery/full restart, and assert the lane keeps yielding valid frames after the restart with no finish/throw.
-- [x] 6.2 Test: persistent no-frame fault escalates quick → full → fatal in bounded steps (no infinite loop); assert `failAllLanes` fires only at the terminal fatal and the counts match `recoveryMaxRetries` + `maxFullRestarts`.
+- [x] 6.2 Test: persistent no-frame fault escalates quick → full → fatal in bounded steps (no infinite loop); assert `failAllLanes` fires only at the terminal fatal and the counts match `recoveryQuickReopens` + `maxFullRestarts`.
 - [x] 6.3 Test: a reopen that delivers a frame ends escalation and resets the budgets (no fatal).
 - [x] 6.4 Existing recovery tests (Stage09) remain green; run the CameraKit suite on device.

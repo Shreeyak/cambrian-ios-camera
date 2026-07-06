@@ -137,12 +137,18 @@ enum Constants {
     static let hwErrorThresholdConsecutive: Int = 5
     /// Max retries before fatal MAX_RETRIES_EXCEEDED. constants.md#RECOVERY_MAX_RETRIES.
     ///
-    /// recovery-restart-budget: also the quick-reopen bound before escalating to a
-    /// full restart.
+    /// Used by `RecoveryCoordinator` for the throwing-reopen fatal (a reopen whose
+    /// `open()` itself keeps throwing). The stall-escalation quick-tier bound is the
+    /// separate `recoveryQuickReopens`.
     static let recoveryMaxRetries: Int = 5
+    /// recovery-restart-budget: quick reopens (fast retries) for a stalling reopen.
+    ///
+    /// Before escalating to a full restart. Linear escalation: quick×this →
+    /// full×maxFullRestarts → fatal (≈ 5 total reopens, ~35 s at ~7 s/cycle).
+    static let recoveryQuickReopens: Int = 3
     /// recovery-restart-budget: full restarts (heavier teardown + settle + reopen)
     /// after quick reopens are exhausted, before the terminal permanent fatal.
-    static let maxFullRestarts: Int = 3
+    static let maxFullRestarts: Int = 2
     /// recovery-restart-budget: settle delay before a full restart's reopen.
     static let fullRestartSettleSeconds: Double = 1.0
     /// Exponential backoff schedule (attempts 1..5+). constants.md#RECOVERY_BACKOFF_*_MS.
