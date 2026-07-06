@@ -40,7 +40,7 @@
 - [x] 7.3 Regenerate Pigeon (Dart + Swift) and surface the new open arg + capability fields on the Dart API.
 - [x] 7.4 Swift adapter (`CameraEngineHostApiImpl.swift`): forward `targetFps` into the native `OpenConfiguration`; map native `SessionCapabilities` (per-resolution fps, active fps, fps-constrained exposure) into the Pigeon message; map the unsupported-`(resolution, fps)` and exposure-ceiling errors through the existing typed Pigeon error path.
 - [x] 7.5 Update `MockCameraEngine.swift` (RunnerTests) and the example app for the new open arg + capability fields.
-- [~] 7.6 Flutter integration test (USB per the repo constraint): open at 30 and 60, assert the active frame rate; assert an unsupported `(resolution, fps)` surfaces the mapped typed error. — BLOCKED: Xcode Automation permission (debug-session attach); build+link verified
+- [x] 7.6 Flutter integration test (USB per the repo constraint): open at 30 and 60, assert the active frame rate; assert an unsupported `(resolution, fps)` surfaces the mapped typed error. — VERIFIED on device: `plugin_test.dart` "Test 5" passes (`flutter test integration_test`, iPad, ~5s). Needs a 2-min per-test timeout (real open/close cycles); Xcode must be closed during `flutter test` (26.6 debug-session attach bug).
 
 ## 8. Verification & docs
 

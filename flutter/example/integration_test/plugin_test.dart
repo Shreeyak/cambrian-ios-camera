@@ -205,5 +205,8 @@ void main() {
           captureResolution: sixty.size, targetFps: sixty.maxFps + 1000)),
       throwsA(isA<CameraException>()),
     );
-  });
+  },
+      // Three real AVCaptureSession open/close cycles on device (default open,
+      // reopen at 60, reject-path open) exceed the 30s default per-test limit.
+      timeout: const Timeout(Duration(minutes: 2)));
 }
