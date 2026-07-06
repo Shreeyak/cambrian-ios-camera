@@ -31,12 +31,18 @@ protocol CalibrationEngineProtocol: Sendable {
     func calibrateBlack() async throws -> BlackPointDebug
     /// Clears the applied black point (demo "undo").
     func clearBlackPoint() async
-    /// linear-normalization-stage §5.2: enable/disable the white-point level
-    /// (brightfield) on top of the chroma residual, without recalibrating.
-    /// `enableWhitePoint` throws `EngineError.whiteBalanceNotCalibrated` if WB
-    /// isn't calibrated/active.
+    /// linear-normalization-stage §5.2 — independent enable/disable of each
+    /// software normalization setting on the stored coefficients (no resampling).
+    /// `enable*` throws `EngineError.{whiteBalance,blackPoint}NotCalibrated` if the
+    /// field was never calibrated; white point is enable-able only while chroma is
+    /// active, and disabling chroma also disables white point.
+    func enableWhiteBalance() async throws
+    func disableWhiteBalance() async
+    func clearWhiteBalance() async
     func enableWhitePoint() async throws
     func disableWhitePoint() async
+    func enableBlackPoint() async throws
+    func disableBlackPoint() async
     func updateSettings(_ settings: CameraSettings) async throws
     func currentProcessingParametersSnapshot() async -> ProcessingParameters?
 }
@@ -111,12 +117,45 @@ final class CalibrationViewModel {
     /// so it reads `false` whenever WB is in auto (the engine disables it there).
     var whitePointEnabled: Bool = false
 
+    /// Whether the WB chroma residual is applied (mirrors the engine's gated truth;
+    /// `false` in auto WB or before calibration). Drives the "White balance" toggle.
+    var wbChromaEnabled: Bool = false
+
+    /// Whether the calibrated black point is applied (mirrors the engine). Drives the
+    /// "Black point" toggle; `false` before calibration or after clear.
+    var blackPointEnabled: Bool = false
+
+    /// Whether WB has been calibrated (chroma coefficients differ from identity) —
+    /// distinct from *enabled*. Lets the WB toggle stay operable after a `disable`
+    /// so it can be re-enabled without recalibrating; `false` after `clearWB`.
+    var wbCalibrated: Bool = false
+
+    /// Whether the black point has been calibrated (offsets non-zero) — distinct from
+    /// *enabled*. Gates the black-point toggle; `false` after `clearBP`.
+    var blackPointCalibrated: Bool = false
+
     private let engine: any CalibrationEngineProtocol
     private let processingVM: ProcessingViewModel
 
     init(engine: any CalibrationEngineProtocol, processingVM: ProcessingViewModel) {
         self.engine = engine
         self.processingVM = processingVM
+    }
+
+    /// Pulls the engine's processing snapshot and mirrors the normalization toggles
+    /// (enabled + calibrated) + the processing sliders from it — the single source of
+    /// truth after any calibrate / toggle / clear action, so the UI always reflects
+    /// the engine's *gated* state (e.g. toggles read `false` when WB is auto).
+    private func syncCalibrationState() async {
+        guard let snap = await engine.currentProcessingParametersSnapshot() else { return }
+        self.whitePointEnabled = snap.whitePointEnabled
+        self.wbChromaEnabled = snap.wbChromaEnabled
+        self.blackPointEnabled = snap.blackPointEnabled
+        self.wbCalibrated =
+            snap.wbChromaR != 1.0 || snap.wbChromaG != 1.0 || snap.wbChromaB != 1.0
+        self.blackPointCalibrated =
+            snap.blackPointR != 0 || snap.blackPointG != 0 || snap.blackPointB != 0
+        self.processingVM.refreshFromEngineSnapshot(snap)
     }
 
     /// Triggers single-shot WB calibration via the engine's `calibrateWhite(whitePoint:)`.
@@ -133,12 +172,9 @@ final class CalibrationViewModel {
                 // Toggle to phase contrast afterward via the white-point switch.
                 _ = try await engine.calibrateWhite(whitePoint: true)
                 self.wbMode = .manual
-                // Calibration stores + enables chroma + white point. Resync the
-                // processing mirror and the white-point toggle from the snapshot.
-                if let snap = await engine.currentProcessingParametersSnapshot() {
-                    self.whitePointEnabled = snap.whitePointEnabled
-                    self.processingVM.refreshFromEngineSnapshot(snap)
-                }
+                // Calibration stores + enables chroma + white point. Resync all
+                // toggles + the processing mirror from the engine snapshot.
+                await self.syncCalibrationState()
                 self.wbCalibrationStatus = .completed
                 try? await Task.sleep(for: .milliseconds(wbCompletedDisplayMs))
                 if self.wbCalibrationStatus == .completed {
@@ -162,10 +198,8 @@ final class CalibrationViewModel {
             delta.wbMode = .auto
             try? await engine.updateSettings(delta)
             self.wbMode = .auto
-            if let snap = await engine.currentProcessingParametersSnapshot() {
-                self.whitePointEnabled = snap.whitePointEnabled  // engine forces false in auto
-                self.processingVM.refreshFromEngineSnapshot(snap)
-            }
+            // Engine forces chroma + white point off in auto — sync reflects that.
+            await self.syncCalibrationState()
         }
     }
 
@@ -187,10 +221,37 @@ final class CalibrationViewModel {
             } catch {
                 CameraKitLog.error(.engine, "[wb] setWhitePoint(\(enabled)) threw: \(error)")
             }
-            if let snap = await engine.currentProcessingParametersSnapshot() {
-                self.whitePointEnabled = snap.whitePointEnabled
-                self.processingVM.refreshFromEngineSnapshot(snap)
+            await self.syncCalibrationState()
+        }
+    }
+
+    /// Toggles the WB **chroma residual** on/off via `enableWhiteBalance()` /
+    /// `disableWhiteBalance()` (§5.2). `enableWhiteBalance()` throws unless WB is
+    /// calibrated and locked; disabling chroma also disables white point. The toggle
+    /// reflects the engine's gated truth from the snapshot.
+    func setWhiteBalanceEnabled(_ enabled: Bool) {
+        let engine = self.engine
+        Task { @MainActor in
+            do {
+                if enabled {
+                    try await engine.enableWhiteBalance()
+                } else {
+                    await engine.disableWhiteBalance()
+                }
+            } catch {
+                CameraKitLog.error(.engine, "[wb] setWhiteBalanceEnabled(\(enabled)) threw: \(error)")
             }
+            await self.syncCalibrationState()
+        }
+    }
+
+    /// Discards the WB chroma + white-point calibration (software only) via
+    /// `clearWhiteBalance()`. The hardware WB mode is untouched (use "Auto").
+    func clearWB() {
+        let engine = self.engine
+        Task { @MainActor in
+            await engine.clearWhiteBalance()
+            await self.syncCalibrationState()
         }
     }
 
@@ -215,16 +276,13 @@ final class CalibrationViewModel {
     /// the operator-facing reason is published to `blackPointError` for display.
     func calibrateBP() {
         let engine = self.engine
-        let processingVM = self.processingVM
         Task { @MainActor in
             self.bpCalibrating = true
             self.blackPointError = nil
             defer { self.bpCalibrating = false }
             do {
                 self.lastBlackPointDebug = try await engine.calibrateBlack()
-                if let snap = await engine.currentProcessingParametersSnapshot() {
-                    processingVM.refreshFromEngineSnapshot(snap)
-                }
+                await self.syncCalibrationState()
             } catch let EngineError.blackPointCalibrationFailed(reason) {
                 self.blackPointError = reason
             } catch {
@@ -233,17 +291,33 @@ final class CalibrationViewModel {
         }
     }
 
-    /// Clears the applied black point ("undo") and refreshes the mirror.
+    /// Toggles the calibrated black point on/off via `enableBlackPoint()` /
+    /// `disableBlackPoint()` (no recalibration). `enableBlackPoint()` throws
+    /// `EngineError.blackPointNotCalibrated` if it was never calibrated.
+    func setBlackPointEnabled(_ enabled: Bool) {
+        let engine = self.engine
+        Task { @MainActor in
+            do {
+                if enabled {
+                    try await engine.enableBlackPoint()
+                } else {
+                    await engine.disableBlackPoint()
+                }
+            } catch {
+                CameraKitLog.error(.engine, "[bp] setBlackPointEnabled(\(enabled)) threw: \(error)")
+            }
+            await self.syncCalibrationState()
+        }
+    }
+
+    /// Clears the applied black point ("undo") — discards the offsets and refreshes.
     func clearBP() {
         let engine = self.engine
-        let processingVM = self.processingVM
         Task { @MainActor in
             await engine.clearBlackPoint()
             self.lastBlackPointDebug = nil
             self.blackPointError = nil
-            if let snap = await engine.currentProcessingParametersSnapshot() {
-                processingVM.refreshFromEngineSnapshot(snap)
-            }
+            await self.syncCalibrationState()
         }
     }
 }

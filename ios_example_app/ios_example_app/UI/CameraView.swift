@@ -390,10 +390,27 @@ public struct CameraView: View {
                             .buttonStyle(.bordered)
                     }
                 }
-                // White point (linear-normalization-stage §5.2): off = phase contrast
-                // (chroma neutralize only, grey preserved); on = brightfield (chroma +
-                // level, white field → solid white). Only meaningful once WB is locked/
-                // calibrated — the engine gates it off in auto, so disable it there too.
+                // Software normalization toggles (linear-normalization-stage §5.2),
+                // independent of the hardware Lock/Auto above. Enable-ability tracks
+                // the engine's guards: WB chroma needs a locked+calibrated WB; white
+                // point is a child of chroma (needs it active); "Clear" discards the
+                // WB calibration (software only).
+                let wbEnable = lockActive && viewModel.calibration.wbCalibrated
+                Toggle(isOn: Binding(
+                    get: { viewModel.calibration.wbChromaEnabled },
+                    set: { viewModel.calibration.setWhiteBalanceEnabled($0) }
+                )) {
+                    Text("White balance (chroma)")
+                        .foregroundStyle(.white).font(.caption)
+                }
+                .tint(.blue)
+                .disabled(!wbEnable)
+                .opacity(wbEnable ? 1.0 : 0.5)
+
+                // White point: off = phase contrast (chroma only, grey preserved);
+                // on = brightfield (chroma + level, white field → solid white). Only
+                // available while the chroma residual is active (level needs chroma).
+                let wpEnable = viewModel.calibration.wbChromaEnabled
                 Toggle(isOn: Binding(
                     get: { viewModel.calibration.whitePointEnabled },
                     set: { viewModel.calibration.setWhitePoint($0) }
@@ -402,8 +419,14 @@ public struct CameraView: View {
                         .foregroundStyle(.white).font(.caption)
                 }
                 .tint(.blue)
-                .disabled(!lockActive)
-                .opacity(lockActive ? 1.0 : 0.5)
+                .disabled(!wpEnable)
+                .opacity(wpEnable ? 1.0 : 0.5)
+
+                if viewModel.calibration.wbCalibrated {
+                    Button("Clear WB") { viewModel.calibration.clearWB() }
+                        .buttonStyle(.bordered)
+                        .font(.caption)
+                }
             }
 
             // Black point row (linear-normalization-stage) — point at a dark field
@@ -423,6 +446,19 @@ public struct CameraView: View {
                         Button("Clear") { viewModel.calibration.clearBP() }
                             .buttonStyle(.bordered)
                     }
+                    // Enable/disable the calibrated black point without recalibrating
+                    // (§5.2). Available only once calibrated; "Clear" discards it.
+                    let bpEnable = viewModel.calibration.blackPointCalibrated
+                    Toggle(isOn: Binding(
+                        get: { viewModel.calibration.blackPointEnabled },
+                        set: { viewModel.calibration.setBlackPointEnabled($0) }
+                    )) {
+                        Text("Black point")
+                            .foregroundStyle(.white).font(.caption)
+                    }
+                    .tint(.blue)
+                    .disabled(!bpEnable)
+                    .opacity(bpEnable ? 1.0 : 0.5)
                 }
                 if let err = viewModel.calibration.blackPointError {
                     Text(err)

@@ -230,6 +230,29 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
         processingSnapshot = snap
     }
 
+    func enableWhiteBalance() async throws {
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaEnabled = true
+        processingSnapshot = snap
+    }
+
+    func disableWhiteBalance() async {
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaEnabled = false
+        snap.whitePointEnabled = false  // level without chroma is invalid
+        processingSnapshot = snap
+    }
+
+    func clearWhiteBalance() async {
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaR = 1.0
+        snap.wbChromaG = 1.0
+        snap.wbChromaB = 1.0
+        snap.wbChromaEnabled = false
+        snap.whitePointEnabled = false
+        processingSnapshot = snap
+    }
+
     func enableWhitePoint() async throws {
         var snap = processingSnapshot ?? .identity
         snap.whitePointEnabled = true
@@ -239,6 +262,18 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
     func disableWhitePoint() async {
         var snap = processingSnapshot ?? .identity
         snap.whitePointEnabled = false
+        processingSnapshot = snap
+    }
+
+    func enableBlackPoint() async throws {
+        var snap = processingSnapshot ?? .identity
+        snap.blackPointEnabled = true
+        processingSnapshot = snap
+    }
+
+    func disableBlackPoint() async {
+        var snap = processingSnapshot ?? .identity
+        snap.blackPointEnabled = false
         processingSnapshot = snap
     }
 
