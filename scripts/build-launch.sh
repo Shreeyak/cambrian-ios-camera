@@ -102,8 +102,12 @@ TS=$(date +%Y%m%d-%H%M%S)
 LOG=".build-logs/${TS}-build-launch-$(printf '%s' "$CONFIG" | tr '[:upper:]' '[:lower:]').log"
 echo "→ building ${SCHEME} (${CONFIG})…  log: ${LOG}"
 echo "  watch with: tail -f ${LOG}"
+# -allowProvisioningUpdates: this project signs with a free Apple Developer
+# profile (../CLAUDE.md §5); without the flag xcodebuild refuses to update the
+# provisioning profile ("requires a provisioning profile … pass
+# -allowProvisioningUpdates") and the on-device build/launch fails.
 xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-  -destination 'generic/platform=iOS' build > "$LOG" 2>&1
+  -destination 'generic/platform=iOS' -allowProvisioningUpdates build > "$LOG" 2>&1
 BUILD_RC=$?
 if [[ "$BUILD_RC" -ne 0 ]]; then
   echo "✖ BUILD FAILED — first errors:" >&2
