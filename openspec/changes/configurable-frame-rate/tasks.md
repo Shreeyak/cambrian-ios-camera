@@ -31,7 +31,7 @@
 
 ## 6. Demo app
 
-- [ ] 6.1 Add an fps picker (15/30/60 presets) to the demo, wired to `OpenConfiguration.targetFps` (close + reopen to apply, per open-time-only scope); surface the exposure-ceiling error in the existing error toast.
+- [x] 6.1 Add an fps picker (15/30/60 presets) to the demo, wired to `OpenConfiguration.targetFps` (close + reopen to apply, per open-time-only scope); surface the exposure-ceiling error in the existing error toast.
 
 ## 7. Flutter / Pigeon
 

@@ -54,6 +54,14 @@ final class ViewModel {
     /// `@ObservationIgnored` because the value never changes after open.
     @ObservationIgnored var supportedSizesCache: [Size] = []
 
+    /// Per-resolution frame-rate ranges from the last `open()` — drives the fps
+    /// picker's valid-value filtering. Populated at open; stable per device.
+    @ObservationIgnored var supportedFrameRatesCache: [FrameRateRange] = []
+
+    /// Selected target frame rate (open-time). `setTargetFps` reopens the engine to
+    /// apply a change (configurable-frame-rate: fps is open-time only).
+    var selectedFps: Int = 30
+
     // MARK: - Engine + child VMs
 
     /// Open configuration for this demo harness.
@@ -62,8 +70,10 @@ final class ViewModel {
     /// rotates the delivered capture buffers 180° from the package's default
     /// landscape-right convention to keep the preview/stills upright. This is a
     /// per-open override — other CameraKit consumers (e.g. the Flutter plugin)
-    /// keep the default 0° and are unaffected.
-    private static let openConfiguration = OpenConfiguration(captureOrientationAngleDeg: 180)
+    /// keep the default 0° and are unaffected. `targetFps` follows the picker.
+    private var openConfiguration: OpenConfiguration {
+        OpenConfiguration(targetFps: selectedFps, captureOrientationAngleDeg: 180)
+    }
 
     let engine: CameraEngine
 
@@ -124,8 +134,9 @@ final class ViewModel {
     ///      `sessionState` mirror in sync until the stream finishes.
     func start() async {
         do {
-            let caps = try await engine.open(configuration: Self.openConfiguration)
+            let caps = try await engine.open(configuration: openConfiguration)
             supportedSizesCache = caps.supportedSizes
+            supportedFrameRatesCache = caps.supportedFrameRates
             capabilities = caps
             await display.attachAfterOpen()
             await hardware.start()
@@ -194,8 +205,9 @@ final class ViewModel {
         await display.detachBeforeClose()
         await engine.close()
         do {
-            let caps = try await engine.open(configuration: Self.openConfiguration)
+            let caps = try await engine.open(configuration: openConfiguration)
             supportedSizesCache = caps.supportedSizes
+            supportedFrameRatesCache = caps.supportedFrameRates
             capabilities = caps
             await display.attachAfterOpen()
             frameResultTask = makeFrameResultTask()
@@ -331,6 +343,43 @@ final class ViewModel {
         Task {}
     }
     #endif
+
+    // MARK: - Frame-rate change (open-time only → close + reopen)
+
+    /// Apply a new target frame rate by reopening the engine.
+    ///
+    /// fps is fixed at open (configurable-frame-rate), so a change is a close +
+    /// reopen with the new `OpenConfiguration.targetFps` — the same dance as
+    /// `retryFromFatal`. If the fps isn't valid at the current resolution the reopen
+    /// throws and the session drops to `.error`.
+    func setTargetFps(_ fps: Int) {
+        guard fps != selectedFps else { return }
+        selectedFps = fps
+        Task { [weak self] in
+            guard let self else { return }
+            CameraKitLog.notice(.engine, "[fps] applying targetFps=\(fps) via reopen")
+            self.frameResultTask?.cancel()
+            self.frameResultTask = nil
+            await self.display.detachBeforeClose()
+            await self.engine.close()
+            do {
+                let caps = try await self.engine.open(configuration: self.openConfiguration)
+                self.supportedSizesCache = caps.supportedSizes
+                self.supportedFrameRatesCache = caps.supportedFrameRates
+                self.capabilities = caps
+                await self.display.attachAfterOpen()
+                self.frameResultTask = self.makeFrameResultTask()
+                #if DEBUG
+                self.metricsTask?.cancel()
+                self.metricsTask = self.makeMetricsTask()
+                #endif
+                CameraKitLog.notice(.engine, "[fps] applied targetFps=\(fps)")
+            } catch {
+                CameraKitLog.error(.engine, "[fps] setTargetFps(\(fps)) reopen threw: \(error)")
+                self.sessionState = .error
+            }
+        }
+    }
 
     // MARK: - Resolution change (parent-owned because it mutates session capabilities)
 

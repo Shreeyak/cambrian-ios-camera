@@ -164,6 +164,7 @@ public struct CameraView: View {
                 stopEnabled: enablement.isStopEnabled
             )
             resolutionButton(enabled: enablement.isResolutionEnabled)
+            fpsButton(enabled: enablement.isResolutionEnabled)
             barButton(
                 label: viewModel.isCenterCropped ? "Full" : "Crop",
                 systemImage: viewModel.isCenterCropped ? "crop.rotate" : "crop",
@@ -251,6 +252,49 @@ public struct CameraView: View {
             onPick: { viewModel.setResolution($0) }
         )
         .equatable()
+    }
+
+    /// Standard fps presets valid at the current active resolution, from the live
+    /// per-resolution ranges (configurable-frame-rate). At the 4K default only 15/30
+    /// show; at 1920×1440 (which supports 1–60), 60 appears too.
+    private var availableFpsPresets: [Int] {
+        let standard = [15, 30, 60]
+        guard let active = viewModel.capabilities?.activeCaptureResolution else { return [30] }
+        let atSize = viewModel.supportedFrameRatesCache.filter { $0.size == active }
+        let maxFps = atSize.map(\.maxFps).max() ?? 30
+        let minFps = atSize.map(\.minFps).min() ?? 1
+        let valid = standard.filter { $0 >= minFps && $0 <= maxFps }
+        return valid.isEmpty ? [Swift.min(maxFps, 30)] : valid
+    }
+
+    @ViewBuilder
+    private func fpsButton(enabled: Bool) -> some View {
+        Menu {
+            ForEach(availableFpsPresets, id: \.self) { fps in
+                Button {
+                    viewModel.setTargetFps(fps)
+                } label: {
+                    if fps == viewModel.selectedFps {
+                        Label("\(fps) fps", systemImage: "checkmark")
+                    } else {
+                        Text("\(fps) fps")
+                    }
+                }
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "timer").font(.title3)
+                Text("\(viewModel.selectedFps)fps").font(.caption2.monospaced())
+            }
+            .frame(minWidth: 60)
+            .foregroundStyle(.white)
+            .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .disabled(!enabled)
+        .opacity(enabled ? 1.0 : 0.4)
+        .accessibilityLabel("Frame rate")
+        .accessibilityHint("Choose capture frame rate")
     }
 
     private var isRecordingActive: Bool {
