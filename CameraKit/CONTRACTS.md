@@ -883,34 +883,22 @@ var onSessionEvent: (@Sendable (SessionEvent) -> Void)?
 ⋮----
 init() {
 ⋮----
+private(set) var lockedFps: Int = Constants.frameRateTargetFPS
+⋮----
 func configure(
 ⋮----
 let yuvFormats: [AVCaptureDevice.Format] = avDevice.formats.filter { format in
 ⋮----
-let sortedByPreference: [AVCaptureDevice.Format] = yuvFormats.sorted { lhs, rhs in
-let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
+let targetSize: Size = try {
 ⋮----
-let fps30 = Int32(Constants.frameRateTargetFPS)
-let candidateFormats: [AVCaptureDevice.Format] =
+let exists = yuvFormats.contains { fmt in
+let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
 ⋮----
-let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-let w = Int32(dims.width)
-let h = Int32(dims.height)
+let formatsAtSize = yuvFormats.filter { fmt in
 ⋮----
-let matches = sortedByPreference.filter { format in
-let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+let fpsCapable = formatsAtSize.filter { Self.formatSupportsFps($0, targetFps) }
 ⋮----
-let pick =
-⋮----
-let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
-⋮----
-let fallbackW = Constants.captureFallbackWidthPx
-let fallbackH = Constants.captureFallbackHeightPx
-let nearest = sortedByPreference.min { lhs, rhs in
-⋮----
-let lDist = abs(Int(lDims.width) - fallbackW) + abs(Int(lDims.height) - fallbackH)
-let rDist = abs(Int(rDims.width) - fallbackW) + abs(Int(rDims.height) - fallbackH)
+let chosenSize = targetSize
 ⋮----
 let frameDuration = clampFrameDuration(
 ⋮----
@@ -934,19 +922,29 @@ private static func uniqueSupportedSizes(_ fullRangeFormats: [AVCaptureDevice.Fo
 var seen: Set<Size> = []
 var unique: [Size] = []
 ⋮----
+let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
 let w = Int(d.width)
 let h = Int(d.height)
 ⋮----
 let size = Size(width: w, height: h)
 ⋮----
+private static func largestFourThreeSize(_ fullRangeFormats: [AVCaptureDevice.Format]) -> Size {
+let sizes = uniqueSupportedSizes(fullRangeFormats)
+⋮----
+private static func formatSupportsFps(_ format: AVCaptureDevice.Format, _ fps: Int) -> Bool {
+⋮----
+private static func supportedFpsDescription(_ formatsAtSize: [AVCaptureDevice.Format]) -> String {
+var seen: Set<String> = []
+let unique =
+⋮----
 func reconfigureSize(_ size: Size) async throws {
 ⋮----
 let currentInput = self.avSession.inputs
 ⋮----
-let match = dev.formats.first { fmt in
+let formatsAtSize = dev.formats.filter { fmt in
 let subType = CMFormatDescriptionGetMediaSubType(fmt.formatDescription)
 ⋮----
-let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
+let fpsCapable = formatsAtSize.filter { Self.formatSupportsFps($0, self.lockedFps) }
 ⋮----
 private static func interruptionReasonName(_ raw: Int) -> String {
 ⋮----
@@ -1010,6 +1008,8 @@ public var captureResolution: Size?
 public var cropRegion: Rect?
 ⋮----
 public var cropEnabled: Bool
+⋮----
+public var targetFps: Int?
 ⋮----
 public var initialSettings: CameraSettings?
 ⋮----
@@ -1291,7 +1291,8 @@ public func sleep(milliseconds: Int) async throws {
 ## File: CameraKit/Sources/CameraKit/Constants.swift
 ```swift
 enum Constants {
-static let frameRateTargetFPS: Int = 60
+⋮----
+static let frameRateTargetFPS: Int = 30
 static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
 static let workingPixelFormat: MTLPixelFormat = .rgba16Float
 static let captureDefaultWidthPx: Int = 4160
@@ -1357,8 +1358,6 @@ static let recoveryBackoff4Ms: Int = 4000
 static let recoveryBackoff5PlusMs: Int = 8000
 ⋮----
 static func recoveryBackoffMs(attempt: Int) -> Int {
-⋮----
-static let frameRateRecordingMinFps: Int = 15
 ⋮----
 static let recordingTargetBitrateBpsDefault: Int = 40_000_000
 ⋮----

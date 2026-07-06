@@ -2,7 +2,12 @@ import CoreVideo
 import Metal
 
 enum Constants {
-    static let frameRateTargetFPS: Int = 60
+    /// Default capture frame rate when `OpenConfiguration.targetFps` is `nil`.
+    ///
+    /// The frame rate is now caller-configurable (`configurable-frame-rate`); this
+    /// is only the default. It is locked in every mode (preview / still /
+    /// recording) and bounds the max usable exposure at `1/frameRateTargetFPS`.
+    static let frameRateTargetFPS: Int = 30
     static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
     static let workingPixelFormat: MTLPixelFormat = .rgba16Float
     static let captureDefaultWidthPx: Int = 4160
@@ -147,9 +152,9 @@ enum Constants {
 
     // MARK: - Stage 10 — Recording mode
 
-    /// AE lower frame-rate bound while recording — allows AE to halve in low light.
-    /// constants.md#FRAME_RATE_RECORDING_MIN_FPS.
-    static let frameRateRecordingMinFps: Int = 15
+    // configurable-frame-rate: `frameRateRecordingMinFps` (the AE low-light
+    // frame-rate floor) was retired — the frame rate is now locked to
+    // `OpenConfiguration.targetFps` identically in every mode, recording included.
     /// Default video bitrate. TARGET_BITRATE_MBPS is marked "docs/measurements/" upstream;
     /// 40 Mbps is reasonable for 4K HEVC @ 30fps. See state.md open questions.
     static let recordingTargetBitrateBpsDefault: Int = 40_000_000

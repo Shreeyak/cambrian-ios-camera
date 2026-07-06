@@ -318,6 +318,7 @@ public actor CameraEngine {
                 deliveryQueue: delivery,
                 sampleBufferDelegate: delegate,
                 requestedSize: configuration.captureResolution,
+                targetFps: configuration.targetFps ?? Constants.frameRateTargetFPS,
                 orientationAngleDeg: configuration.captureOrientationAngleDeg)
         }
 

@@ -119,6 +119,20 @@ public struct OpenConfiguration: Sendable, Hashable {
     /// cropped (no full-frame-then-crop transition). Defaults to `false`
     /// (full-frame output).
     public var cropEnabled: Bool
+
+    /// Target capture frame rate, locked in every mode (preview / still / recording).
+    ///
+    /// `nil` resolves to `Constants.frameRateTargetFPS` (30). Any integer is accepted
+    /// but is validated at `open()` against the selected resolution's live
+    /// `videoSupportedFrameRateRanges` — an unsupported `(captureResolution, targetFps)`
+    /// pair throws `EngineError.settingsConflict` naming the frame rates valid for that
+    /// resolution (the valid set is discoverable via `SessionCapabilities`, including
+    /// slow-mo rates where a binned format supports them). Frame rate and resolution are
+    /// independent: choosing a lower `targetFps` does not enlarge the default resolution.
+    /// Because a frame's exposure cannot exceed its frame duration, `targetFps` also caps
+    /// the max usable manual exposure at `1/targetFps`; open at a lower `targetFps` for
+    /// longer exposures. Open-time only — change it by close + reopen.
+    public var targetFps: Int?
     /// Hardware settings to apply during session setup, before the first frame
     /// is delivered.
     ///
@@ -154,6 +168,7 @@ public struct OpenConfiguration: Sendable, Hashable {
     public init(
         cameraId: String? = nil,
         captureResolution: Size? = nil,
+        targetFps: Int? = nil,
         cropRegion: Rect? = nil,
         cropEnabled: Bool = false,
         initialSettings: CameraSettings? = nil,
@@ -162,6 +177,7 @@ public struct OpenConfiguration: Sendable, Hashable {
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
+        self.targetFps = targetFps
         self.cropRegion = cropRegion
         self.cropEnabled = cropEnabled
         self.initialSettings = initialSettings
