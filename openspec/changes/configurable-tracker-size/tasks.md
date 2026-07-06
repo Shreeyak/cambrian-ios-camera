@@ -48,10 +48,10 @@ for the requirements.
       yields `trackerSize == outputSize` (no-resize selected); a smaller height
       yields aspect-preserved, even-rounded `trackerSize`; clamp behavior at the
       `2…primaryHeight` bounds. Assert via `trackerSizeForTest`.
-- [ ] 4.2 Device: open with `trackerHeight` smaller than primary → delivered tracker
+- [x] 4.2 Device: open with `trackerHeight` smaller than primary → delivered tracker
       frames match `SessionCapabilities.trackerResolution` and the downscale path
       runs (no green/garbage output).
-- [ ] 4.3 Device: open with `trackerHeight == primaryHeight` → `trackerResolution`
+- [x] 4.3 Device: open with `trackerHeight == primaryHeight` → `trackerResolution`
       equals the primary resolution and tracker frames are full-res via the blit copy
       (no resampling, correct pixels).
 - [x] 4.4 Confirm `CameraEngineProtocolConformanceTests` and existing frame-delivery
@@ -63,7 +63,7 @@ for the requirements.
       disable-downsampling via `trackerHeight == primaryHeight`, MPS Lanczos
       downscale, `trackerResolution` readback). Regenerate `Documentation/` via
       `scripts/regen-docs.sh` (drift guard clean).
-- [ ] 5.2 Build green on iPad; new + existing tracker/frame-delivery tests pass;
+- [x] 5.2 Build green on iPad; new + existing tracker/frame-delivery tests pass;
       `swift-format lint --strict` clean on changed Sources; CONTRACTS.md
       regenerates cleanly. Device-verify tracker output at a small height and at
       full-res no-resample.
