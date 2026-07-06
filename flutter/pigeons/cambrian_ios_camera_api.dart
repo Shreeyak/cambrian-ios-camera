@@ -97,13 +97,33 @@ class OpenConfiguration {
   OpenConfiguration({
     this.cameraId,
     this.captureResolution,
+    this.targetFps,
     this.cropRegion,
     this.initialSettings,
   });
   String? cameraId;
   PSize? captureResolution;
+
+  /// Target capture frame rate, locked in every mode. `null` → the default (30).
+  ///
+  /// Validated at open against the selected resolution's supported ranges
+  /// (see [SessionCapabilities.supportedFrameRates]); an unsupported
+  /// `(captureResolution, targetFps)` pair fails the open with a configuration error.
+  int? targetFps;
   PRect? cropRegion;
   CameraSettings? initialSettings;
+}
+
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, supported range); a size can appear more than once (e.g. a
+/// full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+/// `FrameRateRange`.
+class PFrameRateRange {
+  PFrameRateRange(this.size, this.minFps, this.maxFps);
+  final PSize size;
+  final int minFps;
+  final int maxFps;
 }
 
 // Pigeon-flattened mirror of CameraKit `SessionCapabilities`. Min/Max pairs
@@ -112,6 +132,8 @@ class OpenConfiguration {
 class SessionCapabilities {
   SessionCapabilities({
     required this.supportedSizes,
+    required this.supportedFrameRates,
+    required this.activeFrameRate,
     required this.previewTextureId,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
@@ -128,6 +150,13 @@ class SessionCapabilities {
     required this.evMax,
   });
   List<PSize?> supportedSizes;
+
+  /// Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+  /// A caller reads this to pick a valid `(captureResolution, targetFps)`.
+  List<PFrameRateRange?> supportedFrameRates;
+
+  /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
+  int activeFrameRate;
   int previewTextureId;
   PSize activeCaptureResolution;
   PRect activeCropRegion;
@@ -220,6 +249,11 @@ class RecordingOptions {
     required this.photosDestination,
   });
   int? bitrateBps;
+
+  /// Advisory writer frame rate. The *capture* rate is locked to
+  /// [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+  /// value here that differs from the session's target does not change the delivered
+  /// frame rate; leave it null to track the session frame rate.
   int? fps;
   String? outputPath;
   PhotosDestination photosDestination;

@@ -150,6 +150,7 @@ class OpenConfiguration {
   OpenConfiguration({
     this.cameraId,
     this.captureResolution,
+    this.targetFps,
     this.cropRegion,
     this.initialSettings,
   });
@@ -157,6 +158,13 @@ class OpenConfiguration {
   String? cameraId;
 
   PSize? captureResolution;
+
+  /// Target capture frame rate, locked in every mode. `null` → the default (30).
+  ///
+  /// Validated at open against the selected resolution's supported ranges
+  /// (see [SessionCapabilities.supportedFrameRates]); an unsupported
+  /// `(captureResolution, targetFps)` pair fails the open with a configuration error.
+  int? targetFps;
 
   PRect? cropRegion;
 
@@ -166,6 +174,7 @@ class OpenConfiguration {
     return <Object?>[
       cameraId,
       captureResolution,
+      targetFps,
       cropRegion,
       initialSettings,
     ];
@@ -176,8 +185,45 @@ class OpenConfiguration {
     return OpenConfiguration(
       cameraId: result[0] as String?,
       captureResolution: result[1] as PSize?,
-      cropRegion: result[2] as PRect?,
-      initialSettings: result[3] as CameraSettings?,
+      targetFps: result[2] as int?,
+      cropRegion: result[3] as PRect?,
+      initialSettings: result[4] as CameraSettings?,
+    );
+  }
+}
+
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, supported range); a size can appear more than once (e.g. a
+/// full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+/// `FrameRateRange`.
+class PFrameRateRange {
+  PFrameRateRange({
+    required this.size,
+    required this.minFps,
+    required this.maxFps,
+  });
+
+  PSize size;
+
+  int minFps;
+
+  int maxFps;
+
+  Object encode() {
+    return <Object?>[
+      size,
+      minFps,
+      maxFps,
+    ];
+  }
+
+  static PFrameRateRange decode(Object result) {
+    result as List<Object?>;
+    return PFrameRateRange(
+      size: result[0]! as PSize,
+      minFps: result[1]! as int,
+      maxFps: result[2]! as int,
     );
   }
 }
@@ -185,6 +231,8 @@ class OpenConfiguration {
 class SessionCapabilities {
   SessionCapabilities({
     required this.supportedSizes,
+    required this.supportedFrameRates,
+    required this.activeFrameRate,
     required this.previewTextureId,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
@@ -202,6 +250,13 @@ class SessionCapabilities {
   });
 
   List<PSize?> supportedSizes;
+
+  /// Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+  /// A caller reads this to pick a valid `(captureResolution, targetFps)`.
+  List<PFrameRateRange?> supportedFrameRates;
+
+  /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
+  int activeFrameRate;
 
   int previewTextureId;
 
@@ -234,6 +289,8 @@ class SessionCapabilities {
   Object encode() {
     return <Object?>[
       supportedSizes,
+      supportedFrameRates,
+      activeFrameRate,
       previewTextureId,
       activeCaptureResolution,
       activeCropRegion,
@@ -255,20 +312,22 @@ class SessionCapabilities {
     result as List<Object?>;
     return SessionCapabilities(
       supportedSizes: (result[0] as List<Object?>?)!.cast<PSize?>(),
-      previewTextureId: result[1]! as int,
-      activeCaptureResolution: result[2]! as PSize,
-      activeCropRegion: result[3]! as PRect,
-      streamPixelFormat: result[4]! as String,
-      isoMin: result[5]! as double,
-      isoMax: result[6]! as double,
-      exposureDurationMinNs: result[7]! as int,
-      exposureDurationMaxNs: result[8]! as int,
-      focusMin: result[9]! as double,
-      focusMax: result[10]! as double,
-      zoomMin: result[11]! as double,
-      zoomMax: result[12]! as double,
-      evMin: result[13]! as double,
-      evMax: result[14]! as double,
+      supportedFrameRates: (result[1] as List<Object?>?)!.cast<PFrameRateRange?>(),
+      activeFrameRate: result[2]! as int,
+      previewTextureId: result[3]! as int,
+      activeCaptureResolution: result[4]! as PSize,
+      activeCropRegion: result[5]! as PRect,
+      streamPixelFormat: result[6]! as String,
+      isoMin: result[7]! as double,
+      isoMax: result[8]! as double,
+      exposureDurationMinNs: result[9]! as int,
+      exposureDurationMaxNs: result[10]! as int,
+      focusMin: result[11]! as double,
+      focusMax: result[12]! as double,
+      zoomMin: result[13]! as double,
+      zoomMax: result[14]! as double,
+      evMin: result[15]! as double,
+      evMax: result[16]! as double,
     );
   }
 }
@@ -467,6 +526,10 @@ class RecordingOptions {
 
   int? bitrateBps;
 
+  /// Advisory writer frame rate. The *capture* rate is locked to
+  /// [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+  /// value here that differs from the session's target does not change the delivered
+  /// frame rate; leave it null to track the session frame rate.
   int? fps;
 
   String? outputPath;
@@ -684,38 +747,41 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is OpenConfiguration) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    }    else if (value is SessionCapabilities) {
+    }    else if (value is PFrameRateRange) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    }    else if (value is CameraSettings) {
+    }    else if (value is SessionCapabilities) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    }    else if (value is ProcessingParameters) {
+    }    else if (value is CameraSettings) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    }    else if (value is StreamConfiguration) {
+    }    else if (value is ProcessingParameters) {
       buffer.putUint8(143);
       writeValue(buffer, value.encode());
-    }    else if (value is FrameResult) {
+    }    else if (value is StreamConfiguration) {
       buffer.putUint8(144);
       writeValue(buffer, value.encode());
-    }    else if (value is RecordingOptions) {
+    }    else if (value is FrameResult) {
       buffer.putUint8(145);
       writeValue(buffer, value.encode());
-    }    else if (value is RecordingStart) {
+    }    else if (value is RecordingOptions) {
       buffer.putUint8(146);
       writeValue(buffer, value.encode());
-    }    else if (value is RecordingStateValue) {
+    }    else if (value is RecordingStart) {
       buffer.putUint8(147);
       writeValue(buffer, value.encode());
-    }    else if (value is RgbSample) {
+    }    else if (value is RecordingStateValue) {
       buffer.putUint8(148);
       writeValue(buffer, value.encode());
-    }    else if (value is CalibrationResult) {
+    }    else if (value is RgbSample) {
       buffer.putUint8(149);
       writeValue(buffer, value.encode());
-    }    else if (value is CameraError) {
+    }    else if (value is CalibrationResult) {
       buffer.putUint8(150);
+      writeValue(buffer, value.encode());
+    }    else if (value is CameraError) {
+      buffer.putUint8(151);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -756,26 +822,28 @@ class _PigeonCodec extends StandardMessageCodec {
       case 139: 
         return OpenConfiguration.decode(readValue(buffer)!);
       case 140: 
-        return SessionCapabilities.decode(readValue(buffer)!);
+        return PFrameRateRange.decode(readValue(buffer)!);
       case 141: 
-        return CameraSettings.decode(readValue(buffer)!);
+        return SessionCapabilities.decode(readValue(buffer)!);
       case 142: 
-        return ProcessingParameters.decode(readValue(buffer)!);
+        return CameraSettings.decode(readValue(buffer)!);
       case 143: 
-        return StreamConfiguration.decode(readValue(buffer)!);
+        return ProcessingParameters.decode(readValue(buffer)!);
       case 144: 
-        return FrameResult.decode(readValue(buffer)!);
+        return StreamConfiguration.decode(readValue(buffer)!);
       case 145: 
-        return RecordingOptions.decode(readValue(buffer)!);
+        return FrameResult.decode(readValue(buffer)!);
       case 146: 
-        return RecordingStart.decode(readValue(buffer)!);
+        return RecordingOptions.decode(readValue(buffer)!);
       case 147: 
-        return RecordingStateValue.decode(readValue(buffer)!);
+        return RecordingStart.decode(readValue(buffer)!);
       case 148: 
-        return RgbSample.decode(readValue(buffer)!);
+        return RecordingStateValue.decode(readValue(buffer)!);
       case 149: 
-        return CalibrationResult.decode(readValue(buffer)!);
+        return RgbSample.decode(readValue(buffer)!);
       case 150: 
+        return CalibrationResult.decode(readValue(buffer)!);
+      case 151: 
         return CameraError.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);

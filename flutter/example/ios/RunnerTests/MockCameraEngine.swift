@@ -21,6 +21,10 @@ actor MockCameraEngine: CameraEngineProtocol {
     static func placeholderCaps() -> SessionCapabilities {
         SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
+            supportedFrameRates: [
+                FrameRateRange(size: Size(width: 1920, height: 1080), minFps: 1, maxFps: 60)
+            ],
+            activeFrameRate: 30,
             previewTextureId: 1,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),

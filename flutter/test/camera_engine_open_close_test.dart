@@ -9,6 +9,11 @@ import 'mocks/mocks.mocks.dart';
 
 g.SessionCapabilities _fakeCaps() => g.SessionCapabilities(
       supportedSizes: [g.PSize(width: 1920, height: 1080)],
+      supportedFrameRates: [
+        g.PFrameRateRange(
+            size: g.PSize(width: 1920, height: 1080), minFps: 1, maxFps: 60)
+      ],
+      activeFrameRate: 30,
       previewTextureId: 1,
       activeCaptureResolution: g.PSize(width: 1920, height: 1080),
       activeCropRegion: g.PRect(x: 0, y: 0, width: 1920, height: 1080),

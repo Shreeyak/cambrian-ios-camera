@@ -170,4 +170,40 @@ void main() {
         );
     expect(frame, isNotNull);
   });
+
+  test('Test 5 — Frame rate: default 30, select 60, capabilities + reject',
+      () async {
+    final e = engine = CameraEngine();
+
+    // Default open: 30 fps locked; capabilities expose per-resolution ranges.
+    final caps30 = await e.open();
+    expect(caps30.activeFrameRate, 30);
+    expect(caps30.supportedFrameRates, isNotEmpty);
+    for (final r in caps30.supportedFrameRates) {
+      expect(r, isNotNull);
+      expect(r!.minFps, lessThanOrEqualTo(r.maxFps));
+    }
+
+    // Find a resolution that supports 60 fps.
+    final sixty = caps30.supportedFrameRates
+        .whereType<PFrameRateRange>()
+        .firstWhere((r) => r.maxFps >= 60,
+            orElse: () =>
+                throw StateError('device has no 60fps-capable resolution'));
+    await e.close();
+
+    // Reopen at 60 fps on that resolution → active frame rate is 60.
+    final caps60 = await e
+        .open(OpenConfiguration(captureResolution: sixty.size, targetFps: 60));
+    expect(caps60.activeFrameRate, 60);
+    await e.close();
+
+    // Unsupported (resolution, fps): a frame rate above the resolution's max is
+    // rejected (no silent coercion) — surfaces as a CameraException.
+    await expectLater(
+      e.open(OpenConfiguration(
+          captureResolution: sixty.size, targetFps: sixty.maxFps + 1000)),
+      throwsA(isA<CameraException>()),
+    );
+  });
 }

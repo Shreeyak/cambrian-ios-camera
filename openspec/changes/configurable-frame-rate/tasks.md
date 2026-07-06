@@ -35,12 +35,12 @@
 
 ## 7. Flutter / Pigeon
 
-- [ ] 7.1 Pigeon DSL (`flutter/pigeons/cambrian_ios_camera_api.dart`): add `targetFps: int?` to `OpenConfiguration`; add `activeFrameRate: int` to `SessionCapabilities`, have `exposureDurationMaxNs` carry the fps-constrained ceiling, and add a new `PFrameRateRange { PSize size; int minFps; int maxFps }` class exposed as `List<PFrameRateRange?>` (a list so a size can carry multiple ranges incl. slow-mo).
-- [ ] 7.2 Reconcile `RecordingOptions.fps` with the locked model (recording runs at `targetFps`): deprecate/ignore or remove the field.
-- [ ] 7.3 Regenerate Pigeon (Dart + Swift) and surface the new open arg + capability fields on the Dart API.
-- [ ] 7.4 Swift adapter (`CameraEngineHostApiImpl.swift`): forward `targetFps` into the native `OpenConfiguration`; map native `SessionCapabilities` (per-resolution fps, active fps, fps-constrained exposure) into the Pigeon message; map the unsupported-`(resolution, fps)` and exposure-ceiling errors through the existing typed Pigeon error path.
-- [ ] 7.5 Update `MockCameraEngine.swift` (RunnerTests) and the example app for the new open arg + capability fields.
-- [ ] 7.6 Flutter integration test (USB per the repo constraint): open at 30 and 60, assert the active frame rate; assert an unsupported `(resolution, fps)` surfaces the mapped typed error.
+- [x] 7.1 Pigeon DSL (`flutter/pigeons/cambrian_ios_camera_api.dart`): add `targetFps: int?` to `OpenConfiguration`; add `activeFrameRate: int` to `SessionCapabilities`, have `exposureDurationMaxNs` carry the fps-constrained ceiling, and add a new `PFrameRateRange { PSize size; int minFps; int maxFps }` class exposed as `List<PFrameRateRange?>` (a list so a size can carry multiple ranges incl. slow-mo).
+- [x] 7.2 Reconcile `RecordingOptions.fps` with the locked model (recording runs at `targetFps`): deprecate/ignore or remove the field.
+- [x] 7.3 Regenerate Pigeon (Dart + Swift) and surface the new open arg + capability fields on the Dart API.
+- [x] 7.4 Swift adapter (`CameraEngineHostApiImpl.swift`): forward `targetFps` into the native `OpenConfiguration`; map native `SessionCapabilities` (per-resolution fps, active fps, fps-constrained exposure) into the Pigeon message; map the unsupported-`(resolution, fps)` and exposure-ceiling errors through the existing typed Pigeon error path.
+- [x] 7.5 Update `MockCameraEngine.swift` (RunnerTests) and the example app for the new open arg + capability fields.
+- [~] 7.6 Flutter integration test (USB per the repo constraint): open at 30 and 60, assert the active frame rate; assert an unsupported `(resolution, fps)` surfaces the mapped typed error. — BLOCKED: Xcode Automation permission (debug-session attach); build+link verified
 
 ## 8. Verification & docs
 

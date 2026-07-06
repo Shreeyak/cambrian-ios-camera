@@ -136,9 +136,18 @@ extension OpenConfiguration {
         var c = CameraKit.OpenConfiguration()
         c.cameraId = cameraId
         c.captureResolution = captureResolution?.toCameraKit()
+        c.targetFps = targetFps.map { Int($0) }
         c.cropRegion = cropRegion?.toCameraKit()
         c.initialSettings = initialSettings?.toCameraKit()
         return c
+    }
+}
+
+// ─── FrameRateRange ─────────────────────────────────────────────────────────
+
+extension CameraKit.FrameRateRange {
+    func toPigeon() -> PFrameRateRange {
+        PFrameRateRange(size: size.toPigeon(), minFps: Int64(minFps), maxFps: Int64(maxFps))
     }
 }
 
@@ -148,6 +157,8 @@ extension CameraKit.SessionCapabilities {
     func toPigeon() -> SessionCapabilities {
         SessionCapabilities(
             supportedSizes: supportedSizes.map { $0.toPigeon() as PSize? },
+            supportedFrameRates: supportedFrameRates.map { $0.toPigeon() as PFrameRateRange? },
+            activeFrameRate: Int64(activeFrameRate),
             previewTextureId: Int64(previewTextureId),
             activeCaptureResolution: activeCaptureResolution.toPigeon(),
             activeCropRegion: activeCropRegion.toPigeon(),
@@ -400,6 +411,18 @@ extension Error {
             case .blackPointCalibrationFailed(let reason):
                 pigeonCode = .calibrationFailed
                 message = reason
+                isFatal = false
+            case .whiteBalanceCalibrationFailed(let reason):
+                pigeonCode = .calibrationFailed
+                message = reason
+                isFatal = false
+            case .whiteBalanceNotCalibrated:
+                pigeonCode = .invalidState
+                message = "White balance has not been calibrated."
+                isFatal = false
+            case .blackPointNotCalibrated:
+                pigeonCode = .invalidState
+                message = "Black point has not been calibrated."
                 isFatal = false
             case .fatal(let cam):
                 // Re-enter the CameraError branch — preserves its code/message/isFatal.

@@ -26,6 +26,7 @@ export 'src/pigeon/cambrian_ios_camera_api.g.dart'
         CameraError,
         PSize,
         PRect,
+        PFrameRateRange,
         StreamId,
         SessionState,
         PhotosDestination,

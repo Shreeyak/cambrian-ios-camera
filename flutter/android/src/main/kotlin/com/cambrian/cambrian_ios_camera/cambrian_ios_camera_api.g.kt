@@ -215,6 +215,14 @@ data class PRect (
 data class OpenConfiguration (
   val cameraId: String? = null,
   val captureResolution: PSize? = null,
+  /**
+   * Target capture frame rate, locked in every mode. `null` → the default (30).
+   *
+   * Validated at open against the selected resolution's supported ranges
+   * (see [SessionCapabilities.supportedFrameRates]); an unsupported
+   * `(captureResolution, targetFps)` pair fails the open with a configuration error.
+   */
+  val targetFps: Long? = null,
   val cropRegion: PRect? = null,
   val initialSettings: CameraSettings? = null
 )
@@ -223,17 +231,51 @@ data class OpenConfiguration (
     fun fromList(pigeonVar_list: List<Any?>): OpenConfiguration {
       val cameraId = pigeonVar_list[0] as String?
       val captureResolution = pigeonVar_list[1] as PSize?
-      val cropRegion = pigeonVar_list[2] as PRect?
-      val initialSettings = pigeonVar_list[3] as CameraSettings?
-      return OpenConfiguration(cameraId, captureResolution, cropRegion, initialSettings)
+      val targetFps = pigeonVar_list[2] as Long?
+      val cropRegion = pigeonVar_list[3] as PRect?
+      val initialSettings = pigeonVar_list[4] as CameraSettings?
+      return OpenConfiguration(cameraId, captureResolution, targetFps, cropRegion, initialSettings)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       cameraId,
       captureResolution,
+      targetFps,
       cropRegion,
       initialSettings,
+    )
+  }
+}
+
+/**
+ * A capture resolution paired with a frame-rate range it supports.
+ *
+ * One entry per (size, supported range); a size can appear more than once (e.g. a
+ * full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+ * `FrameRateRange`.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class PFrameRateRange (
+  val size: PSize,
+  val minFps: Long,
+  val maxFps: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PFrameRateRange {
+      val size = pigeonVar_list[0] as PSize
+      val minFps = pigeonVar_list[1] as Long
+      val maxFps = pigeonVar_list[2] as Long
+      return PFrameRateRange(size, minFps, maxFps)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      size,
+      minFps,
+      maxFps,
     )
   }
 }
@@ -241,6 +283,13 @@ data class OpenConfiguration (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class SessionCapabilities (
   val supportedSizes: List<PSize?>,
+  /**
+   * Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+   * A caller reads this to pick a valid `(captureResolution, targetFps)`.
+   */
+  val supportedFrameRates: List<PFrameRateRange?>,
+  /** The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]). */
+  val activeFrameRate: Long,
   val previewTextureId: Long,
   val activeCaptureResolution: PSize,
   val activeCropRegion: PRect,
@@ -260,26 +309,30 @@ data class SessionCapabilities (
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): SessionCapabilities {
       val supportedSizes = pigeonVar_list[0] as List<PSize?>
-      val previewTextureId = pigeonVar_list[1] as Long
-      val activeCaptureResolution = pigeonVar_list[2] as PSize
-      val activeCropRegion = pigeonVar_list[3] as PRect
-      val streamPixelFormat = pigeonVar_list[4] as String
-      val isoMin = pigeonVar_list[5] as Double
-      val isoMax = pigeonVar_list[6] as Double
-      val exposureDurationMinNs = pigeonVar_list[7] as Long
-      val exposureDurationMaxNs = pigeonVar_list[8] as Long
-      val focusMin = pigeonVar_list[9] as Double
-      val focusMax = pigeonVar_list[10] as Double
-      val zoomMin = pigeonVar_list[11] as Double
-      val zoomMax = pigeonVar_list[12] as Double
-      val evMin = pigeonVar_list[13] as Double
-      val evMax = pigeonVar_list[14] as Double
-      return SessionCapabilities(supportedSizes, previewTextureId, activeCaptureResolution, activeCropRegion, streamPixelFormat, isoMin, isoMax, exposureDurationMinNs, exposureDurationMaxNs, focusMin, focusMax, zoomMin, zoomMax, evMin, evMax)
+      val supportedFrameRates = pigeonVar_list[1] as List<PFrameRateRange?>
+      val activeFrameRate = pigeonVar_list[2] as Long
+      val previewTextureId = pigeonVar_list[3] as Long
+      val activeCaptureResolution = pigeonVar_list[4] as PSize
+      val activeCropRegion = pigeonVar_list[5] as PRect
+      val streamPixelFormat = pigeonVar_list[6] as String
+      val isoMin = pigeonVar_list[7] as Double
+      val isoMax = pigeonVar_list[8] as Double
+      val exposureDurationMinNs = pigeonVar_list[9] as Long
+      val exposureDurationMaxNs = pigeonVar_list[10] as Long
+      val focusMin = pigeonVar_list[11] as Double
+      val focusMax = pigeonVar_list[12] as Double
+      val zoomMin = pigeonVar_list[13] as Double
+      val zoomMax = pigeonVar_list[14] as Double
+      val evMin = pigeonVar_list[15] as Double
+      val evMax = pigeonVar_list[16] as Double
+      return SessionCapabilities(supportedSizes, supportedFrameRates, activeFrameRate, previewTextureId, activeCaptureResolution, activeCropRegion, streamPixelFormat, isoMin, isoMax, exposureDurationMinNs, exposureDurationMaxNs, focusMin, focusMax, zoomMin, zoomMax, evMin, evMax)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       supportedSizes,
+      supportedFrameRates,
+      activeFrameRate,
       previewTextureId,
       activeCaptureResolution,
       activeCropRegion,
@@ -433,6 +486,12 @@ data class FrameResult (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class RecordingOptions (
   val bitrateBps: Long? = null,
+  /**
+   * Advisory writer frame rate. The *capture* rate is locked to
+   * [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+   * value here that differs from the session's target does not change the delivered
+   * frame rate; leave it null to track the session frame rate.
+   */
   val fps: Long? = null,
   val outputPath: String? = null,
   val photosDestination: PhotosDestination
@@ -633,55 +692,60 @@ private open class cambrian_ios_camera_apiPigeonCodec : StandardMessageCodec() {
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          SessionCapabilities.fromList(it)
+          PFrameRateRange.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CameraSettings.fromList(it)
+          SessionCapabilities.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ProcessingParameters.fromList(it)
+          CameraSettings.fromList(it)
         }
       }
       143.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          StreamConfiguration.fromList(it)
+          ProcessingParameters.fromList(it)
         }
       }
       144.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          FrameResult.fromList(it)
+          StreamConfiguration.fromList(it)
         }
       }
       145.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RecordingOptions.fromList(it)
+          FrameResult.fromList(it)
         }
       }
       146.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RecordingStart.fromList(it)
+          RecordingOptions.fromList(it)
         }
       }
       147.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RecordingStateValue.fromList(it)
+          RecordingStart.fromList(it)
         }
       }
       148.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RgbSample.fromList(it)
+          RecordingStateValue.fromList(it)
         }
       }
       149.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CalibrationResult.fromList(it)
+          RgbSample.fromList(it)
         }
       }
       150.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          CalibrationResult.fromList(it)
+        }
+      }
+      151.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           CameraError.fromList(it)
         }
@@ -735,48 +799,52 @@ private open class cambrian_ios_camera_apiPigeonCodec : StandardMessageCodec() {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is SessionCapabilities -> {
+      is PFrameRateRange -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is CameraSettings -> {
+      is SessionCapabilities -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is ProcessingParameters -> {
+      is CameraSettings -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is StreamConfiguration -> {
+      is ProcessingParameters -> {
         stream.write(143)
         writeValue(stream, value.toList())
       }
-      is FrameResult -> {
+      is StreamConfiguration -> {
         stream.write(144)
         writeValue(stream, value.toList())
       }
-      is RecordingOptions -> {
+      is FrameResult -> {
         stream.write(145)
         writeValue(stream, value.toList())
       }
-      is RecordingStart -> {
+      is RecordingOptions -> {
         stream.write(146)
         writeValue(stream, value.toList())
       }
-      is RecordingStateValue -> {
+      is RecordingStart -> {
         stream.write(147)
         writeValue(stream, value.toList())
       }
-      is RgbSample -> {
+      is RecordingStateValue -> {
         stream.write(148)
         writeValue(stream, value.toList())
       }
-      is CalibrationResult -> {
+      is RgbSample -> {
         stream.write(149)
         writeValue(stream, value.toList())
       }
-      is CameraError -> {
+      is CalibrationResult -> {
         stream.write(150)
+        writeValue(stream, value.toList())
+      }
+      is CameraError -> {
+        stream.write(151)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)

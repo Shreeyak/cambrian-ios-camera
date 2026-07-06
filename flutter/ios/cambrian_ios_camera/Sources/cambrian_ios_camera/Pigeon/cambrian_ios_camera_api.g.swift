@@ -193,6 +193,12 @@ struct PRect {
 struct OpenConfiguration {
   var cameraId: String? = nil
   var captureResolution: PSize? = nil
+  /// Target capture frame rate, locked in every mode. `null` → the default (30).
+  ///
+  /// Validated at open against the selected resolution's supported ranges
+  /// (see [SessionCapabilities.supportedFrameRates]); an unsupported
+  /// `(captureResolution, targetFps)` pair fails the open with a configuration error.
+  var targetFps: Int64? = nil
   var cropRegion: PRect? = nil
   var initialSettings: CameraSettings? = nil
 
@@ -201,12 +207,14 @@ struct OpenConfiguration {
   static func fromList(_ pigeonVar_list: [Any?]) -> OpenConfiguration? {
     let cameraId: String? = nilOrValue(pigeonVar_list[0])
     let captureResolution: PSize? = nilOrValue(pigeonVar_list[1])
-    let cropRegion: PRect? = nilOrValue(pigeonVar_list[2])
-    let initialSettings: CameraSettings? = nilOrValue(pigeonVar_list[3])
+    let targetFps: Int64? = nilOrValue(pigeonVar_list[2])
+    let cropRegion: PRect? = nilOrValue(pigeonVar_list[3])
+    let initialSettings: CameraSettings? = nilOrValue(pigeonVar_list[4])
 
     return OpenConfiguration(
       cameraId: cameraId,
       captureResolution: captureResolution,
+      targetFps: targetFps,
       cropRegion: cropRegion,
       initialSettings: initialSettings
     )
@@ -215,8 +223,43 @@ struct OpenConfiguration {
     return [
       cameraId,
       captureResolution,
+      targetFps,
       cropRegion,
       initialSettings,
+    ]
+  }
+}
+
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, supported range); a size can appear more than once (e.g. a
+/// full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+/// `FrameRateRange`.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct PFrameRateRange {
+  var size: PSize
+  var minFps: Int64
+  var maxFps: Int64
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PFrameRateRange? {
+    let size = pigeonVar_list[0] as! PSize
+    let minFps = pigeonVar_list[1] as! Int64
+    let maxFps = pigeonVar_list[2] as! Int64
+
+    return PFrameRateRange(
+      size: size,
+      minFps: minFps,
+      maxFps: maxFps
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      size,
+      minFps,
+      maxFps,
     ]
   }
 }
@@ -224,6 +267,11 @@ struct OpenConfiguration {
 /// Generated class from Pigeon that represents data sent in messages.
 struct SessionCapabilities {
   var supportedSizes: [PSize?]
+  /// Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+  /// A caller reads this to pick a valid `(captureResolution, targetFps)`.
+  var supportedFrameRates: [PFrameRateRange?]
+  /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
+  var activeFrameRate: Int64
   var previewTextureId: Int64
   var activeCaptureResolution: PSize
   var activeCropRegion: PRect
@@ -243,23 +291,27 @@ struct SessionCapabilities {
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> SessionCapabilities? {
     let supportedSizes = pigeonVar_list[0] as! [PSize?]
-    let previewTextureId = pigeonVar_list[1] as! Int64
-    let activeCaptureResolution = pigeonVar_list[2] as! PSize
-    let activeCropRegion = pigeonVar_list[3] as! PRect
-    let streamPixelFormat = pigeonVar_list[4] as! String
-    let isoMin = pigeonVar_list[5] as! Double
-    let isoMax = pigeonVar_list[6] as! Double
-    let exposureDurationMinNs = pigeonVar_list[7] as! Int64
-    let exposureDurationMaxNs = pigeonVar_list[8] as! Int64
-    let focusMin = pigeonVar_list[9] as! Double
-    let focusMax = pigeonVar_list[10] as! Double
-    let zoomMin = pigeonVar_list[11] as! Double
-    let zoomMax = pigeonVar_list[12] as! Double
-    let evMin = pigeonVar_list[13] as! Double
-    let evMax = pigeonVar_list[14] as! Double
+    let supportedFrameRates = pigeonVar_list[1] as! [PFrameRateRange?]
+    let activeFrameRate = pigeonVar_list[2] as! Int64
+    let previewTextureId = pigeonVar_list[3] as! Int64
+    let activeCaptureResolution = pigeonVar_list[4] as! PSize
+    let activeCropRegion = pigeonVar_list[5] as! PRect
+    let streamPixelFormat = pigeonVar_list[6] as! String
+    let isoMin = pigeonVar_list[7] as! Double
+    let isoMax = pigeonVar_list[8] as! Double
+    let exposureDurationMinNs = pigeonVar_list[9] as! Int64
+    let exposureDurationMaxNs = pigeonVar_list[10] as! Int64
+    let focusMin = pigeonVar_list[11] as! Double
+    let focusMax = pigeonVar_list[12] as! Double
+    let zoomMin = pigeonVar_list[13] as! Double
+    let zoomMax = pigeonVar_list[14] as! Double
+    let evMin = pigeonVar_list[15] as! Double
+    let evMax = pigeonVar_list[16] as! Double
 
     return SessionCapabilities(
       supportedSizes: supportedSizes,
+      supportedFrameRates: supportedFrameRates,
+      activeFrameRate: activeFrameRate,
       previewTextureId: previewTextureId,
       activeCaptureResolution: activeCaptureResolution,
       activeCropRegion: activeCropRegion,
@@ -279,6 +331,8 @@ struct SessionCapabilities {
   func toList() -> [Any?] {
     return [
       supportedSizes,
+      supportedFrameRates,
+      activeFrameRate,
       previewTextureId,
       activeCaptureResolution,
       activeCropRegion,
@@ -460,6 +514,10 @@ struct FrameResult {
 /// Generated class from Pigeon that represents data sent in messages.
 struct RecordingOptions {
   var bitrateBps: Int64? = nil
+  /// Advisory writer frame rate. The *capture* rate is locked to
+  /// [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+  /// value here that differs from the session's target does not change the delivered
+  /// frame rate; leave it null to track the session frame rate.
   var fps: Int64? = nil
   var outputPath: String? = nil
   var photosDestination: PhotosDestination
@@ -683,26 +741,28 @@ private class CambrianIosCameraApiPigeonCodecReader: FlutterStandardReader {
     case 139:
       return OpenConfiguration.fromList(self.readValue() as! [Any?])
     case 140:
-      return SessionCapabilities.fromList(self.readValue() as! [Any?])
+      return PFrameRateRange.fromList(self.readValue() as! [Any?])
     case 141:
-      return CameraSettings.fromList(self.readValue() as! [Any?])
+      return SessionCapabilities.fromList(self.readValue() as! [Any?])
     case 142:
-      return ProcessingParameters.fromList(self.readValue() as! [Any?])
+      return CameraSettings.fromList(self.readValue() as! [Any?])
     case 143:
-      return StreamConfiguration.fromList(self.readValue() as! [Any?])
+      return ProcessingParameters.fromList(self.readValue() as! [Any?])
     case 144:
-      return FrameResult.fromList(self.readValue() as! [Any?])
+      return StreamConfiguration.fromList(self.readValue() as! [Any?])
     case 145:
-      return RecordingOptions.fromList(self.readValue() as! [Any?])
+      return FrameResult.fromList(self.readValue() as! [Any?])
     case 146:
-      return RecordingStart.fromList(self.readValue() as! [Any?])
+      return RecordingOptions.fromList(self.readValue() as! [Any?])
     case 147:
-      return RecordingStateValue.fromList(self.readValue() as! [Any?])
+      return RecordingStart.fromList(self.readValue() as! [Any?])
     case 148:
-      return RgbSample.fromList(self.readValue() as! [Any?])
+      return RecordingStateValue.fromList(self.readValue() as! [Any?])
     case 149:
-      return CalibrationResult.fromList(self.readValue() as! [Any?])
+      return RgbSample.fromList(self.readValue() as! [Any?])
     case 150:
+      return CalibrationResult.fromList(self.readValue() as! [Any?])
+    case 151:
       return CameraError.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -745,38 +805,41 @@ private class CambrianIosCameraApiPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? OpenConfiguration {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? SessionCapabilities {
+    } else if let value = value as? PFrameRateRange {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? CameraSettings {
+    } else if let value = value as? SessionCapabilities {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? ProcessingParameters {
+    } else if let value = value as? CameraSettings {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? StreamConfiguration {
+    } else if let value = value as? ProcessingParameters {
       super.writeByte(143)
       super.writeValue(value.toList())
-    } else if let value = value as? FrameResult {
+    } else if let value = value as? StreamConfiguration {
       super.writeByte(144)
       super.writeValue(value.toList())
-    } else if let value = value as? RecordingOptions {
+    } else if let value = value as? FrameResult {
       super.writeByte(145)
       super.writeValue(value.toList())
-    } else if let value = value as? RecordingStart {
+    } else if let value = value as? RecordingOptions {
       super.writeByte(146)
       super.writeValue(value.toList())
-    } else if let value = value as? RecordingStateValue {
+    } else if let value = value as? RecordingStart {
       super.writeByte(147)
       super.writeValue(value.toList())
-    } else if let value = value as? RgbSample {
+    } else if let value = value as? RecordingStateValue {
       super.writeByte(148)
       super.writeValue(value.toList())
-    } else if let value = value as? CalibrationResult {
+    } else if let value = value as? RgbSample {
       super.writeByte(149)
       super.writeValue(value.toList())
-    } else if let value = value as? CameraError {
+    } else if let value = value as? CalibrationResult {
       super.writeByte(150)
+      super.writeValue(value.toList())
+    } else if let value = value as? CameraError {
+      super.writeByte(151)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
