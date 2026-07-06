@@ -182,7 +182,15 @@ case alreadyOpen
 case blackPointCalibrationFailed(reason: String)
 ```
 
-A `calibrateBlackPoint()` call could not derive a valid black point — the sampled patch was not dark enough (too few near-black pixels). The `reason` is operator-facing (e.g. "point at a uniformly dark field").
+A `calibrateBlack()` call could not derive a valid black point — the sampled patch was not dark enough (too few near-black pixels). The `reason` is operator-facing (e.g. "point at a uniformly dark field").
+
+### EngineError.blackPointNotCalibrated
+
+```swift
+case blackPointNotCalibrated
+```
+
+`enableBlackPoint()` was called before a dark field was calibrated (the stored offsets are still identity). Run `calibrateBlack()` first.
 
 ### EngineError.calibrationInProgress
 
@@ -270,6 +278,28 @@ case sessionLifecycleTimeout
 
 ```swift
 case settingsConflict(reason: String)
+```
+
+### EngineError.whiteBalanceCalibrationFailed(reason:)
+
+```swift
+case whiteBalanceCalibrationFailed(reason: String)
+```
+
+A `calibrateWhite()` call could not derive a valid white reference — the sampled patch was not bright enough to be a white field. The `reason` is operator-facing (e.g. "point at a bright, evenly-lit white field").
+
+### EngineError.whiteBalanceNotCalibrated
+
+```swift
+case whiteBalanceNotCalibrated
+```
+
+`enableWhiteBalance()` / `enableWhitePoint()` was called before a white reference was calibrated (or while white balance is in auto, where a software residual can't sit on moving hardware gains). Run `calibrateWhite()` first.
+
+### errorDescription
+
+```swift
+var errorDescription: String? { get }
 ```
 
 ## MetalError

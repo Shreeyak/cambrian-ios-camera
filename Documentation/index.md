@@ -21,6 +21,7 @@ Read [Overview](guides/01-overview.md) then [Getting started](guides/02-getting-
 
 - [Overview](guides/01-overview.md) — What CameraKit is; the engine as an actor; the lane model; the lifecycle model.
 - [Getting started](guides/02-getting-started.md) — Install, permissions, and the construct → open → preview → capture → close order of operations.
+- [Capture format: resolution and frame rate](guides/11-capture-format.md) — Choose resolution and frame rate at open, read the valid space from capabilities, the locked frame rate and fps-bounded exposure, and the always-420f / HDR-off invariants.
 - [Lifecycle](guides/03-lifecycle.md) — Forwarding app lifecycle phases to the engine; what each phase reconciles to.
 - [Preview](guides/04-preview.md) — The processed and tracker preview lanes and how to render them in any UI framework.
 - [Capturing stills and video](guides/05-capturing-stills-and-video.md) — Two ways to capture a graded still, recording, output paths, and saving to Photos.
@@ -72,6 +73,16 @@ Record video to a file and optionally save it to the Photos library.
 
 [Capturing stills and video](guides/05-capturing-stills-and-video.md)
 
+### CAPABILITY: Capture format (resolution and frame rate)
+
+#### What it does
+
+Choose the capture resolution and frame rate at open from the device's live capabilities; the frame rate is locked and bounds manual exposure. Always full-range 420f, HDR off.
+
+#### Where it's documented
+
+[Capture format: resolution and frame rate](guides/11-capture-format.md)
+
 ### CAPABILITY: Camera settings
 
 #### What it does
@@ -90,7 +101,7 @@ Select the capture resolution and apply a true sensor-region crop, expressed in 
 
 #### Where it's documented
 
-[Controlling the camera](guides/06-controlling-the-camera.md)
+[Controlling the camera](guides/06-controlling-the-camera.md), [Capture format: resolution and frame rate](guides/11-capture-format.md)
 
 ### CAPABILITY: Image processing
 

@@ -3,6 +3,7 @@
   "guides": [
     {"file": "01-overview.md", "title": "Overview", "summary": "What CameraKit is; the engine as an actor; the lane model; the lifecycle model."},
     {"file": "02-getting-started.md", "title": "Getting started", "summary": "Install, permissions, and the construct → open → preview → capture → close order of operations."},
+    {"file": "11-capture-format.md", "title": "Capture format: resolution and frame rate", "summary": "Choose resolution and frame rate at open, read the valid space from capabilities, the locked frame rate and fps-bounded exposure, and the always-420f / HDR-off invariants."},
     {"file": "03-lifecycle.md", "title": "Lifecycle", "summary": "Forwarding app lifecycle phases to the engine; what each phase reconciles to."},
     {"file": "04-preview.md", "title": "Preview", "summary": "The processed and tracker preview lanes and how to render them in any UI framework."},
     {"file": "05-capturing-stills-and-video.md", "title": "Capturing stills and video", "summary": "Two ways to capture a graded still, recording, output paths, and saving to Photos."},
@@ -17,8 +18,9 @@
     {"name": "Preview", "what": "Display the live camera feed; choose the processed or tracker lane.", "guides": ["04-preview.md"]},
     {"name": "Still capture", "what": "Capture a graded photo — either a snapshot of the live stream or a fresh one-shot ISP capture.", "guides": ["05-capturing-stills-and-video.md"]},
     {"name": "Video recording", "what": "Record video to a file and optionally save it to the Photos library.", "guides": ["05-capturing-stills-and-video.md"]},
+    {"name": "Capture format (resolution and frame rate)", "what": "Choose the capture resolution and frame rate at open from the device's live capabilities; the frame rate is locked and bounds manual exposure. Always full-range 420f, HDR off.", "guides": ["11-capture-format.md"]},
     {"name": "Camera settings", "what": "Set exposure, ISO, focus, white balance, and zoom within the ranges the device reports.", "guides": ["06-controlling-the-camera.md"]},
-    {"name": "Resolution and region-of-interest", "what": "Select the capture resolution and apply a true sensor-region crop, expressed in active capture-resolution pixels.", "guides": ["06-controlling-the-camera.md"]},
+    {"name": "Resolution and region-of-interest", "what": "Select the capture resolution and apply a true sensor-region crop, expressed in active capture-resolution pixels.", "guides": ["06-controlling-the-camera.md", "11-capture-format.md"]},
     {"name": "Image processing", "what": "Adjust brightness, contrast, saturation, black level, and gamma applied to all delivered color output.", "guides": ["07-image-processing.md"]},
     {"name": "White- and black-balance calibration", "what": "Run gray-world white-balance and black-balance calibration and read the result.", "guides": ["08-calibration.md"]},
     {"name": "State, errors, and recovery", "what": "Observe what the camera is doing, handle errors, and rely on automatic interruption recovery.", "guides": ["09-observing-state-and-errors.md"]},

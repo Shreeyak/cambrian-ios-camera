@@ -8,7 +8,7 @@
 struct CalibrationResult
 ```
 
-Returned by `CameraEngine.calibrateWhiteBalance()`. Fields mirror the Pigeon contract's `CamCalibrationResult`.
+Returned by `CameraEngine.calibrateWhite()`. Fields mirror the Pigeon contract's `CamCalibrationResult`.
 
 ### init(before:after:converged:iterations:)
 

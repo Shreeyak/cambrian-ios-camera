@@ -3,7 +3,7 @@
   "clusters": {
     "camera-engine": ["CameraEngine", "CameraEngineProtocol"],
     "lifecycle": ["AppLifecyclePhase"],
-    "configuration": ["OpenConfiguration", "SessionCapabilities", "StreamConfiguration", "Size", "Rect"],
+    "configuration": ["OpenConfiguration", "SessionCapabilities", "FrameRateRange", "StreamConfiguration", "Size", "Rect"],
     "camera-settings": ["CameraSettings", "CameraMode", "WhiteBalanceMode", "WhiteBalancePreset", "CameraPosition"],
     "image-processing": ["ProcessingParameters"],
     "calibration": ["CalibrationResult", "RgbSample", "WhiteBalanceGains", "BlackPointDebug", "BlackPointChannelStats"],

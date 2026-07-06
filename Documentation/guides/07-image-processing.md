@@ -10,7 +10,7 @@ Assumes you have read [01-overview](01-overview.md).
 pipeline: `ProcessingParameters.brightness`, `ProcessingParameters.contrast`,
 `ProcessingParameters.saturation`, and `ProcessingParameters.gamma`. The
 black level is handled separately, in linear light before the grade, by the
-black point — see [08-calibration](08-calibration.md) (`CameraEngine.calibrateBlackPoint()`).
+black point — see [08-calibration](08-calibration.md) (`CameraEngine.calibrateBlack()`).
 
 Apply them with `CameraEngine.setProcessingParams(_:)`:
 

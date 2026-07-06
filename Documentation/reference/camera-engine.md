@@ -62,18 +62,18 @@ nonisolated static func requestPhotosAddPermission() async -> CameraPermissionSt
 
 Triggers the system Photos add-only prompt.
 
-### calibrateBlackPoint()
+### calibrateBlack()
 
 ```swift
-func calibrateBlackPoint() async throws -> BlackPointDebug
+func calibrateBlack() async throws -> BlackPointDebug
 ```
 
-Calibrates the linear black point from a dark-field readback (linear-normalization-stage). Reads back the centered sampled patch of the natural (pre-grade) lane — extracted on the GPU, so calibration never touches the full-frame CPU path — derives per-channel **linear** offsets (`mean + k·σ` over the near-black pixels), writes them into `ProcessingParameters.blackPoint{R,G,B}`, and enables the black point. The shader folds the offset into the normalization affine pre-grade. On failure the existing black point is left untouched. Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
+Calibrates the linear black point from a dark-field readback (linear-normalization-stage). Reads back the centered sampled patch of the natural (pre-grade) lane — extracted on the GPU, so calibration never touches the full-frame CPU path — derives per-channel **linear** offsets (`mean + k·σ` over the near-black pixels), writes them into `ProcessingParameters.blackPoint{R,G,B}`, and enables the black point. The shader folds the offset into the normalization affine pre-grade. On failure the existing black point is left untouched. Same exclusive + abort-on-lifecycle contract as `calibrateWhite()`. Toggle the calibrated black point on/off without recalibrating via `enableBlackPoint()` / `disableBlackPoint()`; `clearBlackPoint()` discards it.
 
-### calibrateWhiteBalance()
+### calibrateWhite(whitePoint:)
 
 ```swift
-func calibrateWhiteBalance() async throws -> CalibrationResult
+func calibrateWhite(whitePoint: Bool = true) async throws -> CalibrationResult
 ```
 
 Single-shot WB calibration. Switches WB to continuous auto so AVF's hardware statistics engine recomputes against the current scene, awaits convergence, reads the device's gray-world gains, clamps to `[1.0, maxGain]`, locks the device to those gains. Future iterative-loop port: see `docs/superpowers/plans/2026-05-15-wb-calibration-dart-port.md`. Concurrency contract:
@@ -121,7 +121,15 @@ ISP one-shot via `AVCapturePhotoOutput` → live Metal crop+grade → still crop
 func clearBlackPoint() async
 ```
 
-Clears the applied black point — zeroes the per-channel offsets and disables it. The demo app's "undo". Other processing parameters are untouched.
+Discards the black-point offsets and disables it (full reset). The demo app's "undo". Distinct from `disableBlackPoint()`, which keeps the offsets. Other processing parameters are untouched.
+
+### clearWhiteBalance()
+
+```swift
+func clearWhiteBalance() async
+```
+
+Discards the white-balance + white-point coefficients (software only) and disables both. The inverse of `calibrateWhite()`'s normalization effect.
 
 ### close()
 
@@ -182,6 +190,30 @@ nonisolated func currentTrackerTexture() -> (any MTLTexture)?
 
 Returns `.bgra8Unorm`. Pass-4's tracker downsample kernel writes `float4` via `texture2d<float, access::write>` into a BGRA8 pool texture — the hardware clamps [0,1] and stores 8-bit BGRA with no shader change. `nonisolated` so callers can access synchronously without an actor hop. Reads `latestTrackerTex` from the pipeline's `Mailbox<T>`. Returns nil if no frame has been encoded yet or the engine is closed.
 
+### disableBlackPoint()
+
+```swift
+func disableBlackPoint() async
+```
+
+Disables the black point, keeping its offsets so `enableBlackPoint()` can restore them without recalibrating.
+
+### disableWhiteBalance()
+
+```swift
+func disableWhiteBalance() async
+```
+
+Disables the white-balance chroma residual. Also disables the white point (it is meaningless without chroma — design D4). Coefficients are kept, so `enableWhiteBalance()` restores them without recalibrating. The hardware WB mode is untouched (use the WB-mode control to return the camera to auto).
+
+### disableWhitePoint()
+
+```swift
+func disableWhitePoint() async
+```
+
+Disables the white-point level (back to phase contrast: chroma only).
+
 ### dumpDeviceFormats()
 
 ```swift
@@ -189,6 +221,30 @@ func dumpDeviceFormats() async -> [String]
 ```
 
 Debug: dump every `AVCaptureDevice.Format` the active device exposes. Includes FourCC + dimensions + FPS ranges + bit-depth/range tag. Returns `[]` when no live device is bound (e.g., closed engine or fake provider in tests). Used by `ViewModel.dumpCapabilities` to snapshot the format table to `Documents/capabilities.txt`.
+
+### enableBlackPoint()
+
+```swift
+func enableBlackPoint() async throws
+```
+
+Re-enables a previously-calibrated black point without recalibrating. Throws `EngineError.blackPointNotCalibrated` if the stored offsets are still identity (never calibrated, or cleared) — there is nothing to enable.
+
+### enableWhiteBalance()
+
+```swift
+func enableWhiteBalance() async throws
+```
+
+Enables the white-balance chroma residual (neutralizes the cast). Throws `EngineError.whiteBalanceNotCalibrated` if no white field has been calibrated, or if white balance is in auto (a software residual can't sit on continuously-moving hardware gains — lock or `calibrateWhite()` first).
+
+### enableWhitePoint()
+
+```swift
+func enableWhitePoint() async throws
+```
+
+Enables the white-point level (brightfield: lifts the neutralized white to the target). Throws `EngineError.whiteBalanceNotCalibrated` unless the chroma residual is active — white point is a child of white balance ("level without chroma" is not valid). Toggle freely after a `calibrateWhite()`; no resampling.
 
 ### errorStream()
 
@@ -301,7 +357,7 @@ Update the host's current lifecycle phase. Never throws; safe on every transitio
 func setProcessingParams(_ params: ProcessingParameters) async
 ```
 
-Wholesale replacement. **Pipeline order (`Shaders/ColorShaders.metal`):** 0. Normalization (linear light, pre-grade: black point / WB chroma / white point, fused affine) → 1. Brightness → 2. Contrast → 3. Saturation → 4. Gamma. The black point is part of the pre-grade normalization (linear light), derived statistically by `calibrateBlackPoint()` from the raw natural lane.
+Wholesale replacement. **Pipeline order (`Shaders/ColorShaders.metal`):** 0. Normalization (linear light, pre-grade: black point / WB chroma / white point, fused affine) → 1. Brightness → 2. Contrast → 3. Saturation → 4. Gamma. The black point is part of the pre-grade normalization (linear light), derived statistically by `calibrateBlack()` from the raw natural lane.
 
 ### setResolution(size:)
 
@@ -356,17 +412,6 @@ Active stream configuration changes — fires when `setResolution(...)` resolves
 func updateSettings(_ settings: CameraSettings) async throws
 ```
 
-Full settings merge→couple→validate→commit→persist pipeline.
-
-- Merges onto prior state
-- Applies coupling rules (Rules 1/2/3 from 07-settings.md)
-- Validates ranges against device capabilities
-- Commits to device via sessionQueue
-- Persists asynchronously (detached Task)
-- Throws: `EngineError.notOpen` if engine not open
-- Throws: `EngineError.settingsConflict` if range validation fails or Rule 3 pre-readback
-- Throws: `EngineError.calibrationInProgress` if a `calibrate*()` is in flight and `settings` touches white balance.
-
 ## CameraEngineProtocol
 
 *Protocol*
@@ -383,16 +428,16 @@ Public surface of `CameraEngine` that the Flutter iOS adapter consumes. Mirrors 
 nonisolated var consumers: ConsumerRegistry { get }
 ```
 
-### calibrateBlackPoint()
+### calibrateBlack()
 
 ```swift
-func calibrateBlackPoint() async throws -> BlackPointDebug
+func calibrateBlack() async throws -> BlackPointDebug
 ```
 
-### calibrateWhiteBalance()
+### calibrateWhite(whitePoint:)
 
 ```swift
-func calibrateWhiteBalance() async throws -> CalibrationResult
+func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult
 ```
 
 ### captureImage(outputURL:photosDestination:)
@@ -411,6 +456,12 @@ func captureNaturalPicture(outputURL: URL?, photosDestination: PhotosDestination
 
 ```swift
 func clearBlackPoint() async
+```
+
+### clearWhiteBalance()
+
+```swift
+func clearWhiteBalance() async
 ```
 
 ### close()
@@ -441,6 +492,42 @@ func currentSettingsSnapshot() -> CameraSettings?
 
 ```swift
 func currentStateSnapshot() -> SessionState
+```
+
+### disableBlackPoint()
+
+```swift
+func disableBlackPoint() async
+```
+
+### disableWhiteBalance()
+
+```swift
+func disableWhiteBalance() async
+```
+
+### disableWhitePoint()
+
+```swift
+func disableWhitePoint() async
+```
+
+### enableBlackPoint()
+
+```swift
+func enableBlackPoint() async throws
+```
+
+### enableWhiteBalance()
+
+```swift
+func enableWhiteBalance() async throws
+```
+
+### enableWhitePoint()
+
+```swift
+func enableWhitePoint() async throws
 ```
 
 ### errorStream()
