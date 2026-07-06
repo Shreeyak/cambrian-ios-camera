@@ -13,7 +13,7 @@ final class TextureMapTests: XCTestCase {
             registrar: StubRegistrar(textures: registry), engine: MockCameraEngine())
         let exp = expectation(description: "create completes")
         var id: Int64 = -1
-        plugin.createPreviewTexture(stream: .processed) { result in
+        plugin.createPreviewTexture(stream: .primary) { result in
             if case .success(let value) = result { id = value }
             exp.fulfill()
         }
@@ -33,7 +33,7 @@ final class TextureMapTests: XCTestCase {
         let exp = expectation(description: "create completes")
         var id: Int64 = -1
         var failure: Error?
-        plugin.createPreviewTexture(stream: .processed) { result in
+        plugin.createPreviewTexture(stream: .primary) { result in
             switch result {
             case .success(let value): id = value
             case .failure(let e): failure = e
@@ -54,7 +54,7 @@ final class TextureMapTests: XCTestCase {
             registrar: StubRegistrar(textures: registry), engine: MockCameraEngine())
         let createExp = expectation(description: "create")
         var id: Int64 = -1
-        plugin.createPreviewTexture(stream: .processed) { r in
+        plugin.createPreviewTexture(stream: .primary) { r in
             if case .success(let v) = r { id = v }
             createExp.fulfill()
         }
@@ -72,7 +72,7 @@ final class TextureMapTests: XCTestCase {
             registrar: StubRegistrar(textures: registry), engine: MockCameraEngine())
         let exp1 = expectation(description: "create")
         var id: Int64 = -1
-        plugin.createPreviewTexture(stream: .processed) { r in
+        plugin.createPreviewTexture(stream: .primary) { r in
             if case .success(let v) = r { id = v }
             exp1.fulfill()
         }
