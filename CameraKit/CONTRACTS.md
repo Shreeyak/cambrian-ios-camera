@@ -1990,10 +1990,13 @@ let proc = try texturePool.dequeuePoolTexture(
 ⋮----
 let packed = try texturePool.dequeueEightBitPoolTexture(
 ⋮----
-func timeRun(fused: Bool) async throws -> Double {
+func timeRun(_ variant: BenchmarkVariant) async throws -> Double {
 ⋮----
-let separate = try await timeRun(fused: false)
-let fused = try await timeRun(fused: true)
+let separate = try await timeRun(.separate)
+let fusedArmed = try await timeRun(.fusedArmed)
+let fusedSteady = try await timeRun(.fusedSteady)
+⋮----
+private enum BenchmarkVariant { case separate, fusedArmed, fusedSteady }
 ```
 
 ## File: CameraKit/Sources/CameraKit/OutputPathResolution.swift

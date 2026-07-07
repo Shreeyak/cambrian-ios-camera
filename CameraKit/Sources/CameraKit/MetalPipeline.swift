@@ -1512,7 +1512,7 @@ extension MetalPipeline {
     func benchmarkCoresForTest(
         y: MTLTexture, cbcr: MTLTexture, size: Size, color: ColorUniform, crop: CropUniform,
         iterations: Int
-    ) async throws -> (separateMicrosPerFrame: Double, fusedMicrosPerFrame: Double) {
+    ) async throws -> (separate: Double, fusedArmed: Double, fusedSteady: Double) {
         let nat = try texturePool.dequeuePoolTexture(
             pool: naturalPool, width: size.width, height: size.height)
         let proc = try texturePool.dequeuePoolTexture(
@@ -1523,18 +1523,26 @@ extension MetalPipeline {
         let groups = MTLSize(
             width: (size.width + 15) / 16, height: (size.height + 15) / 16, depth: 1)
 
-        func timeRun(fused: Bool) async throws -> Double {
+        // Variant selector: measures GPU wall-time (config-independent — the Metal
+        // kernels are identical in Debug/Release) for each core shape.
+        func timeRun(_ variant: BenchmarkVariant) async throws -> Double {
             let cb = commandQueue.makeCommandBuffer()!
             for _ in 0..<iterations {
-                if fused {
+                switch variant {
+                case .separate:  // pre-fusion 3-pass: natural(16F)+processed(16F)+packed
+                    encodeSeparateCoreForTest(
+                        into: cb, y: y, cbcr: cbcr,
+                        natural: nat.texture, processed: proc.texture, packed: packed.texture,
+                        color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+                case .fusedArmed:  // fused, calibration armed: natural(16F)+packed
                     encodeGradedCore(
                         into: cb, y: y, cbcr: cbcr,
                         natural: nat.texture, packed: packed.texture,
                         color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
-                } else {
-                    encodeSeparateCoreForTest(
+                case .fusedSteady:  // fused, steady state (opt B+C): packed only
+                    encodeGradedCore(
                         into: cb, y: y, cbcr: cbcr,
-                        natural: nat.texture, processed: proc.texture, packed: packed.texture,
+                        natural: nil, packed: packed.texture,
                         color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
                 }
             }
@@ -1549,10 +1557,13 @@ extension MetalPipeline {
             return (cb.gpuEndTime - cb.gpuStartTime) * 1_000_000 / Double(iterations)
         }
 
-        _ = try await timeRun(fused: true)  // warm-up (prime PSOs/caches/clocks)
-        let separate = try await timeRun(fused: false)
-        let fused = try await timeRun(fused: true)
-        return (separate, fused)
+        _ = try await timeRun(.fusedSteady)  // warm-up (prime PSOs/caches/clocks)
+        let separate = try await timeRun(.separate)
+        let fusedArmed = try await timeRun(.fusedArmed)
+        let fusedSteady = try await timeRun(.fusedSteady)
+        return (separate, fusedArmed, fusedSteady)
     }
+
+    private enum BenchmarkVariant { case separate, fusedArmed, fusedSteady }
 }
 #endif

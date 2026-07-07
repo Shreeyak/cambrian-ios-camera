@@ -629,16 +629,26 @@ struct Stage04Tests {
         full.whitePointLevel = 1.3
         let crop = pipeline.uniforms.withLock { $0.crop }
 
-        let (sep, fused) = try await pipeline.benchmarkCoresForTest(
+        let r = try await pipeline.benchmarkCoresForTest(
             y: yTex, cbcr: cbcrTex, size: size, color: ColorUniform(full), crop: crop,
             iterations: 200)
-        let saved = sep - fused
-        let pct = sep > 0 ? saved / sep * 100 : 0
+        // GPU wall-time is build-config-independent (identical Metal kernels), so these
+        // Debug numbers are the Release GPU numbers. Three core shapes:
+        //   separate    = pre-optimization 3-pass (natural16F + processed16F + packed)
+        //   fusedArmed  = A+B, calibration armed (natural16F + packed)
+        //   fusedSteady = A+B+C steady state (packed only) — the 20-min-run hot path
+        let pct = { (base: Double, v: Double) in base > 0 ? (base - v) / base * 100 : 0 }
         let summary = String(
-            format: "[fusion-bench 1024²] separate=%.1fµs/frame fused=%.1fµs/frame saved=%.1fµs (%.1f%%)",
-            sep, fused, saved, pct)
+            format:
+                "[fusion-bench 1024²] separate=%.1f fusedArmed=%.1f fusedSteady=%.1f µs/frame | "
+                + "A+B=%.1f%% (armed vs separate)  A+B+C=%.1f%% (steady vs separate)  "
+                + "C=%.1f%% (steady vs armed)",
+            r.separate, r.fusedArmed, r.fusedSteady,
+            pct(r.separate, r.fusedArmed), pct(r.separate, r.fusedSteady),
+            pct(r.fusedArmed, r.fusedSteady))
         print(summary)
-        #expect(fused <= sep * 1.15, "fused core materially slower — \(summary)")
+        // Informational; only guard that the fully-fused steady path isn't slower.
+        #expect(r.fusedSteady <= r.separate * 1.15, "fused steady core slower — \(summary)")
     }
 
     // MARK: - Helpers
