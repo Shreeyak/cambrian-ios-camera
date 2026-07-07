@@ -238,10 +238,12 @@ constant bool kWritePacked [[function_constant(0)]];
 //   • naturalTex   (RGBA16F) — the UN-graded decode. Calibration tap only
 //                              (`_latestNaturalTex16F`): black-point / WB read it back.
 //                              No streaming consumer — see optimization C (write on-demand).
-//   • processedTex (RGBA16F) — the GRADED frame at full precision. Consumed by the NV12
-//                              video encode (Pass-5, only while recording) AND as the
-//                              processed-lane delivery fallback when the BGRA8 mailbox
-//                              buffer was dropped on pool exhaustion. See optimization B.
+//   • processedTex (RGBA16F) — the GRADED frame at full precision. Consumed ONLY by the
+//                              NV12 video encode (Pass-5, while recording). NOT delivered
+//                              to consumers — the processed lane delivers `packedTex`
+//                              (BGRA8); if that is missing the frame is dropped, no 16F
+//                              fallback. So this write is dead weight when not recording
+//                              (see optimization B), and could move to BGRA8 entirely.
 //   • packedTex    (BGRA8)   — the GRADED frame at 8-bit. Tracker (MPS/blit) source AND
 //                              the processed-lane mailbox (the NORMAL delivery format).
 //                              Dropped entirely when kWritePacked=false (no such consumer
@@ -259,7 +261,7 @@ constant bool kWritePacked [[function_constant(0)]];
 //                          grd (float3, graded, f32 regs)
 //                                 │
 //         processedTex.write(grd,nat.a) ◀────┤   ← 16F processed (NV12 encode when
-//                                            │      recording; delivery fallback)
+//                                            │      recording only — NOT delivered)
 //                    if kWritePacked:        │
 //         packedTex.write(clamp(grd,0,1)) ◀──┘   ← BGRA8 packed (tracker source +
 //                                                   processed-lane mailbox)

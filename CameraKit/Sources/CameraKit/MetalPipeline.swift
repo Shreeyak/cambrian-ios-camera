@@ -689,8 +689,9 @@ final class MetalPipeline: @unchecked Sendable {
         )
 
         // Dequeue the BGRA8 "pack" target for the processed lane-buffer mailbox.
-        // Skipped on pool exhaustion (rare) — the completion handler then falls back
-        // to the 16F processed buffer. The pack runs (inside the core) before Pass-4
+        // On the rare miss (genuine alloc/wrap failure) the processed frame is
+        // dropped — NOT delivered as 16F (see the no-fallback note below). The pack
+        // runs (inside the core) before Pass-4
         // (tracker) so both tracker paths (Lanczos and blit) can source the BGRA8
         // result (bgra8→bgra8, sidestepping any rgba16f→bgra8 MPS format-compat
         // concern). remove-natural-lane: the per-frame natural pack was cut — the
@@ -792,11 +793,13 @@ final class MetalPipeline: @unchecked Sendable {
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
         let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 
-        // Per-lane delivery is BGRA8. The `?? <16F>` fallback only fires if a
-        // Pass-7 dequeue was dropped on pool exhaustion (rare). The tracker is
-        // genuinely absent when unsubscribed (trackerBuf == nil) — NO fallback
-        // to the full-res processed buffer (frame-delivery-rework §4.2).
-        let processedForSet: CVPixelBuffer = processedEightBitBuf ?? processedBuf
+        // Per-lane delivery is BGRA8 ONLY. If the BGRA8 pack buffer is missing —
+        // a genuine allocation / texture-cache-wrap failure, NOT normal
+        // back-pressure (these pools have no allocation threshold, so they GROW on
+        // demand rather than block) — DROP this processed frame. The old
+        // `?? processedBuf` fallback delivered the 16F `processedBuf` tagged
+        // `.bgra8`, which a consumer would misread (8 B/px read as 4). The tracker
+        // lane has likewise never had a fallback (frame-delivery-rework §4.2).
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
         // advanced (close() / recovery ran) — prevents stale FrameSet publish and
@@ -864,7 +867,9 @@ final class MetalPipeline: @unchecked Sendable {
             let frameMeta =
                 self.deviceSnapshot.latest.map(CameraFrameMetadata.init(snapshot:))
                 ?? CameraFrameMetadata()
-            if let primaryPixels = PixelHandle(pixelBuffer: processedForSet, format: .bgra8) {
+            if let processedEightBitBuf,
+                let primaryPixels = PixelHandle(pixelBuffer: processedEightBitBuf, format: .bgra8)
+            {
                 consumers.yield(
                     Frame(
                         lane: .primary, index: fn, timestampNs: tsNs,
@@ -904,8 +909,16 @@ final class MetalPipeline: @unchecked Sendable {
                 if ok { break }
                 cur = actual
             }
-            self._latestProcessedBuffer.store(processedEightBitBuf ?? processedBuf)
+            // BGRA8 mailbox (read by `captureImage`): store only the real BGRA8
+            // buffer; on the rare miss keep the previous good frame, never a 16F one.
+            if let processedEightBitBuf { self._latestProcessedBuffer.store(processedEightBitBuf) }
             self._latestProcessedTex16F.store(processedTexI)
+            // `processedTexI` (16F) is read by the NV12 pass (and mailboxed above for
+            // calibration); it is backed by `processedBuf`. Delivery no longer
+            // references `processedBuf`, so retain it here until GPU completion —
+            // else the pool could recycle the buffer mid-read (the command buffer
+            // keeps the MTLTexture alive, but not the CVPixelBuffer's pool lease).
+            withExtendedLifetime(processedBuf) {}
             if let pTex = processedEightBitTex { self._latestProcessedBgra8Tex.store(pTex) }
             if let tBuf = trackerBuf, let tTex = trackerTex {
                 self._latestTrackerBuffer.store(tBuf)

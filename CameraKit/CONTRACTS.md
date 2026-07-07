@@ -1817,8 +1817,6 @@ let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
 let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
 let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 ⋮----
-let processedForSet: CVPixelBuffer = processedEightBitBuf ?? processedBuf
-⋮----
 let tokenAtCommit = self.engineSessionToken.load(ordering: .acquiring)
 ⋮----
 let liveToken = self.engineSessionToken.load(ordering: .acquiring)
