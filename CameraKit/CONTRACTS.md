@@ -478,7 +478,7 @@ let toSave = resolved
 ⋮----
 private func settingsTouchesWhiteBalance(_ settings: CameraSettings) -> Bool {
 ⋮----
-private static func gateWBNormalization(
+static func gateWBNormalization(
 ⋮----
 let locked = (wbMode == .manual || wbMode == .locked)
 ⋮----

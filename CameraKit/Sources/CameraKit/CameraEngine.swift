@@ -1060,7 +1060,9 @@ public actor CameraEngine {
     /// chokepoint (explicit transitions, incl. calibrate's cancel→auto path) and
     /// the persisted-parameter restore in `open()` (where WB defaults to auto and a
     /// stale `wbChromaEnabled == true` would otherwise apply chroma in auto).
-    private static func gateWBNormalization(
+    // Internal (not private) so gating unit tests can call it directly via
+    // `@testable import` (linear-normalization-stage §9.1).
+    static func gateWBNormalization(
         _ p: ProcessingParameters, wbMode: WhiteBalanceMode?
     ) -> ProcessingParameters {
         let locked = (wbMode == .manual || wbMode == .locked)

@@ -67,6 +67,60 @@ Toggle a calibrated black point with `CameraEngine.enableBlackPoint()` (throws
 `CameraEngine.disableBlackPoint()`, and discard it with
 `CameraEngine.clearBlackPoint()`.
 
+## Toggling calibration on and off
+
+Once calibrated, the coefficients persist. You can disable and re-enable them without recalibrating:
+
+```swift
+// After a calibration, disable the white-balance chroma
+await engine.disableWhiteBalance()
+
+// ... later, re-enable the same calibration
+try await engine.enableWhiteBalance()
+```
+
+**White balance chroma** — `CameraEngine.enableWhiteBalance()` and `CameraEngine.disableWhiteBalance()`:
+
+- `enableWhiteBalance()` **throws** `EngineError.whiteBalanceNotCalibrated` if no white field has been sampled yet (the stored coefficients are not valid).
+- `disableWhiteBalance()` never throws; it also disables the white point (they move as a pair).
+- Toggling only changes the enabled flags, not the stored coefficients — so disable→enable re-activates the last calibration without resampling.
+
+**White-point level** — `CameraEngine.enableWhitePoint()` and `CameraEngine.disableWhitePoint()`:
+
+- `enableWhitePoint()` **throws** `EngineError.whiteBalanceNotCalibrated` if the chroma residual is not active (white point requires chroma; "level without chroma" is not a valid configuration).
+- `disableWhitePoint()` never throws; it leaves chroma active but switches from brightfield to phase-contrast mode (chroma only, level preserved).
+
+**Clearing calibrations** — `CameraEngine.clearWhiteBalance()` and `CameraEngine.clearBlackPoint()`:
+
+- `clearWhiteBalance()` discards the stored white-balance and white-point coefficients entirely and disables both. After clearing, a new `calibrateWhite()` is required to restore them.
+- `clearBlackPoint()` is the inverse of `calibrateBlack()` — discards the black-point offsets and disables it.
+- Both are nonisolated `async` (no throws) and are idempotent.
+
+## White balance auto vs. locked — the gating rule
+
+The white-balance chroma residual and white-point level are **only active when white balance is locked** (hardware mode is `.manual` or `.locked`). In **auto** white balance, the hardware gains move continuously, so a software chroma residual would chase them and become meaningless — the gate forces them off.
+
+This gating is applied automatically at two points:
+
+1. When you call `CameraEngine.updateSettings(_:)` with a mode change (e.g., returning WB to auto after a calibration).
+2. When the camera reopens after a suspend (in `open()`) — white balance defaults to auto, so any persisted `wbChromaEnabled == true` starts disabled until you re-lock WB.
+
+The stored coefficients are preserved through the gate; toggling WB mode doesn't recalibrate, only changes whether they apply. When you re-lock white balance (e.g., by calling `CameraEngine.calibrateWhite(whitePoint:)` again or by setting `wbMode` to `.manual` / `.locked`), the last calibration is automatically re-enabled:
+
+```swift
+// Calibrate white balance in locked mode.
+let result = try await engine.calibrateWhite(whitePoint: true)
+
+// Return to auto white balance; chroma and white point are forced off.
+try await engine.updateSettings(.init(wbMode: .auto))
+
+// Later, re-lock white balance — the calibration re-activates without resampling.
+try await engine.updateSettings(.init(wbMode: .manual))
+// wbChromaEnabled and whitePointEnabled are now true again.
+```
+
+> Important: returning the camera to continuous auto white balance is a separate step from disabling the normalization toggles. Use `CameraEngine.updateSettings(_:)` with `wbMode: .auto` to transition the hardware; the software chroma and white point are gated automatically.
+
 ## Reading CalibrationResult
 
 `CalibrationResult` reports:
