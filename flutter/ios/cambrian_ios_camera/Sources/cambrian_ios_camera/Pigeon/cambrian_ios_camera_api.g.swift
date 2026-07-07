@@ -879,11 +879,19 @@ protocol CameraEngineHostApi {
   func captureNaturalPicture(outputPath: String?, photosDestination: PhotosDestination, completion: @escaping (Result<String, Error>) -> Void)
   func startRecording(options: RecordingOptions, completion: @escaping (Result<RecordingStart, Error>) -> Void)
   func stopRecording(completion: @escaping (Result<String, Error>) -> Void)
-  func calibrateWhiteBalance(completion: @escaping (Result<CalibrationResult, Error>) -> Void)
+  func calibrateWhiteBalance(whitePoint: Bool, completion: @escaping (Result<CalibrationResult, Error>) -> Void)
   /// Calibrate the linear black point from a dark field. Returns nothing on
   /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
   /// dark enough. Replaces the removed calibrateBlackBalance.
   func calibrateBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func enableWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
+  func disableWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
+  func enableWhitePoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func disableWhitePoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func clearWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
+  func enableBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func disableBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func clearBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
   func createPreviewTexture(stream: StreamId, completion: @escaping (Result<Int64, Error>) -> Void)
   func destroyPreviewTexture(textureId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
 }
@@ -1109,8 +1117,10 @@ class CameraEngineHostApiSetup {
     }
     let calibrateWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      calibrateWhiteBalanceChannel.setMessageHandler { _, reply in
-        api.calibrateWhiteBalance { result in
+      calibrateWhiteBalanceChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let whitePointArg = args[0] as! Bool
+        api.calibrateWhiteBalance(whitePoint: whitePointArg) { result in
           switch result {
           case .success(let res):
             reply(wrapResult(res))
@@ -1139,6 +1149,126 @@ class CameraEngineHostApiSetup {
       }
     } else {
       calibrateBlackPointChannel.setMessageHandler(nil)
+    }
+    let enableWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      enableWhiteBalanceChannel.setMessageHandler { _, reply in
+        api.enableWhiteBalance { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      enableWhiteBalanceChannel.setMessageHandler(nil)
+    }
+    let disableWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disableWhiteBalanceChannel.setMessageHandler { _, reply in
+        api.disableWhiteBalance { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      disableWhiteBalanceChannel.setMessageHandler(nil)
+    }
+    let enableWhitePointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhitePoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      enableWhitePointChannel.setMessageHandler { _, reply in
+        api.enableWhitePoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      enableWhitePointChannel.setMessageHandler(nil)
+    }
+    let disableWhitePointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhitePoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disableWhitePointChannel.setMessageHandler { _, reply in
+        api.disableWhitePoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      disableWhitePointChannel.setMessageHandler(nil)
+    }
+    let clearWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      clearWhiteBalanceChannel.setMessageHandler { _, reply in
+        api.clearWhiteBalance { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      clearWhiteBalanceChannel.setMessageHandler(nil)
+    }
+    let enableBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      enableBlackPointChannel.setMessageHandler { _, reply in
+        api.enableBlackPoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      enableBlackPointChannel.setMessageHandler(nil)
+    }
+    let disableBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disableBlackPointChannel.setMessageHandler { _, reply in
+        api.disableBlackPoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      disableBlackPointChannel.setMessageHandler(nil)
+    }
+    let clearBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      clearBlackPointChannel.setMessageHandler { _, reply in
+        api.clearBlackPoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      clearBlackPointChannel.setMessageHandler(nil)
     }
     let createPreviewTextureChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.createPreviewTexture\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

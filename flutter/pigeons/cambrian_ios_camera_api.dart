@@ -344,14 +344,42 @@ abstract class CameraEngineHostApi {
   String stopRecording();
 
   // Calibration
+  //
+  // calibrateWhiteBalance samples a white field, locks the hardware gains, and
+  // derives + enables the WB chroma residual and — when [whitePoint] is true —
+  // the white-point level (brightfield). Throws CameraErrorCode.calibrationFailed
+  // when the field isn't bright enough.
   @async
-  CalibrationResult calibrateWhiteBalance();
+  CalibrationResult calibrateWhiteBalance(bool whitePoint);
 
   /// Calibrate the linear black point from a dark field. Returns nothing on
   /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
   /// dark enough. Replaces the removed calibrateBlackBalance.
   @async
   void calibrateBlackPoint();
+
+  // Calibration toggles — flip the stored coefficients on/off without resampling.
+  // enable* throw CameraErrorCode.invalidState when the matching calibration has
+  // not run; disable*/clear* never throw. White point is gated to white balance:
+  // enableWhitePoint requires WB active, and disableWhiteBalance also turns the
+  // white point off. clear* discard the stored coefficients (a re-calibrate is
+  // then required).
+  @async
+  void enableWhiteBalance();
+  @async
+  void disableWhiteBalance();
+  @async
+  void enableWhitePoint();
+  @async
+  void disableWhitePoint();
+  @async
+  void clearWhiteBalance();
+  @async
+  void enableBlackPoint();
+  @async
+  void disableBlackPoint();
+  @async
+  void clearBlackPoint();
 
   // Texture bridge
   @async

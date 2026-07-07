@@ -106,11 +106,35 @@ class CambrianIosCameraPlugin :
     override fun stopRecording(callback: (Result<String>) -> Unit) =
         callback(Result.failure(iosOnly("stopRecording")))
 
-    override fun calibrateWhiteBalance(callback: (Result<CalibrationResult>) -> Unit) =
+    override fun calibrateWhiteBalance(whitePoint: Boolean, callback: (Result<CalibrationResult>) -> Unit) =
         callback(Result.failure(iosOnly("calibrateWhiteBalance")))
 
-    override fun calibrateBlackBalance(callback: (Result<CalibrationResult>) -> Unit) =
-        callback(Result.failure(iosOnly("calibrateBlackBalance")))
+    override fun calibrateBlackPoint(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("calibrateBlackPoint")))
+
+    override fun enableWhiteBalance(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("enableWhiteBalance")))
+
+    override fun disableWhiteBalance(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("disableWhiteBalance")))
+
+    override fun enableWhitePoint(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("enableWhitePoint")))
+
+    override fun disableWhitePoint(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("disableWhitePoint")))
+
+    override fun clearWhiteBalance(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("clearWhiteBalance")))
+
+    override fun enableBlackPoint(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("enableBlackPoint")))
+
+    override fun disableBlackPoint(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("disableBlackPoint")))
+
+    override fun clearBlackPoint(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("clearBlackPoint")))
 
     override fun createPreviewTexture(stream: StreamId, callback: (Result<Long>) -> Unit) =
         callback(Result.failure(iosOnly("createPreviewTexture")))

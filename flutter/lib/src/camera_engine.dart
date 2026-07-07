@@ -226,8 +226,14 @@ class CameraEngine {
 
   // MARK: - Calibration
 
-  Future<g.CalibrationResult> calibrateWhiteBalance() =>
-      _guard(_api.calibrateWhiteBalance);
+  /// Calibrate white balance from a white field.
+  ///
+  /// Locks the hardware gains and derives + enables the WB chroma residual and,
+  /// when [whitePoint] is true (brightfield, the default), the white-point level.
+  /// Throws a [CameraException] with [CameraErrorCode.calibrationFailed] when the
+  /// field isn't bright enough.
+  Future<g.CalibrationResult> calibrateWhiteBalance({bool whitePoint = true}) =>
+      _guard(() => _api.calibrateWhiteBalance(whitePoint));
 
   /// Calibrate the linear black point from a dark field.
   ///
@@ -237,6 +243,36 @@ class CameraEngine {
   /// field wasn't dark enough) when a valid black point can't be derived.
   /// Replaces the removed `calibrateBlackBalance`.
   Future<void> calibrateBlackPoint() => _guard(_api.calibrateBlackPoint);
+
+  // Calibration toggles — flip the stored coefficients without resampling.
+  // `enable*` throw a [CameraException] ([CameraErrorCode.invalidState]) when the
+  // matching calibration hasn't run; `disable*`/`clear*` never throw. White point
+  // is gated to white balance (enable white point needs WB active;
+  // [disableWhiteBalance] also turns the white point off).
+
+  /// Re-enable the stored WB chroma correction (throws if never calibrated).
+  Future<void> enableWhiteBalance() => _guard(_api.enableWhiteBalance);
+
+  /// Disable the WB chroma correction (also disables the white point).
+  Future<void> disableWhiteBalance() => _guard(_api.disableWhiteBalance);
+
+  /// Enable the stored white-point level (requires WB active; throws otherwise).
+  Future<void> enableWhitePoint() => _guard(_api.enableWhitePoint);
+
+  /// Disable the white-point level (keeps the WB chroma correction).
+  Future<void> disableWhitePoint() => _guard(_api.disableWhitePoint);
+
+  /// Discard the stored WB coefficients (a re-calibrate is then required).
+  Future<void> clearWhiteBalance() => _guard(_api.clearWhiteBalance);
+
+  /// Re-enable the stored black point (throws if never calibrated).
+  Future<void> enableBlackPoint() => _guard(_api.enableBlackPoint);
+
+  /// Disable the black point (keeps the stored offsets).
+  Future<void> disableBlackPoint() => _guard(_api.disableBlackPoint);
+
+  /// Discard the stored black point (a re-calibrate is then required).
+  Future<void> clearBlackPoint() => _guard(_api.clearBlackPoint);
 
   // MARK: - Texture bridge
 

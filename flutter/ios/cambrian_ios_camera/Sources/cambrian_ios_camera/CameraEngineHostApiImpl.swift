@@ -207,12 +207,11 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
     // MARK: - Calibration
 
     func calibrateWhiteBalance(
+        whitePoint: Bool,
         completion: @escaping (Result<CalibrationResult, any Error>) -> Void
     ) {
         guardOpenReturning(completion) { engine in
-            // White point is not yet surfaced to Flutter (§8.2), so calibrate
-            // chroma only (whitePoint: false) — preserves the prior Dart behavior.
-            let r = try await engine.calibrateWhite(whitePoint: false)
+            let r = try await engine.calibrateWhite(whitePoint: whitePoint)
             return r.toPigeon()
         }
     }
@@ -226,6 +225,34 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
             // mapped to CameraErrorCode.calibrationFailed by `asPigeonError()`.
             _ = try await engine.calibrateBlack()
         }
+    }
+
+    // Calibration toggles (§8.2). enable* propagate EngineError.{whiteBalance,
+    // blackPoint}NotCalibrated → CameraErrorCode.invalidState via asPigeonError();
+    // disable*/clear* never throw.
+    func enableWhiteBalance(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { try await $0.enableWhiteBalance() }
+    }
+    func disableWhiteBalance(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { await $0.disableWhiteBalance() }
+    }
+    func enableWhitePoint(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { try await $0.enableWhitePoint() }
+    }
+    func disableWhitePoint(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { await $0.disableWhitePoint() }
+    }
+    func clearWhiteBalance(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { await $0.clearWhiteBalance() }
+    }
+    func enableBlackPoint(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { try await $0.enableBlackPoint() }
+    }
+    func disableBlackPoint(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { await $0.disableBlackPoint() }
+    }
+    func clearBlackPoint(completion: @escaping (Result<Void, any Error>) -> Void) {
+        guardOpen(completion) { await $0.clearBlackPoint() }
     }
 
     // MARK: - Texture bridge (implemented in TextureBridge.swift — Task 10)

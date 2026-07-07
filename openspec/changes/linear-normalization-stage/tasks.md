@@ -47,7 +47,7 @@
 ## 8. Flutter surface
 
 - [x] 8.1 Remove the legacy black-balance Dart/Pigeon method entirely (breaking — no forwarder); add `void calibrateBlackPoint()` + `CameraErrorCode.calibrationFailed` to the Pigeon API and Dart `CameraEngine`, with the adapter mapping `EngineError.blackPointCalibrationFailed` → `calibrationFailed` (and friendlier messages for bare `MetalError`/`CancellationError`). Regenerated Pigeon + mocks; `flutter test` + `flutter build ios` green.
-- [ ] 8.2 Surface the white-point toggle and any new WB / white-point parameter fields through the Pigeon API and Dart `CameraEngine` (depends on §5).
+- [x] 8.2 Surface the white-point toggle and any new WB / white-point parameter fields through the Pigeon API and Dart `CameraEngine` (depends on §5).
 
 ## 9. Verification & docs
 
