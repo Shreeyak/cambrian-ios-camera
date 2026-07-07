@@ -539,8 +539,6 @@ let y = evenDown((res.height - h) / 2)
 ⋮----
 static func validateRequestedResolution(_ size: Size?, supportedSizes: [Size]) throws {
 ⋮----
-public func sampleCenterPatch() async throws -> RgbSample {
-⋮----
 func sampleCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
 func _activeFormatSizeForTest() async throws -> Size {
@@ -1689,8 +1687,6 @@ private let _latestTrackerBuffer = Mailbox<CVPixelBuffer>()
 var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
 var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 ⋮----
-private let _processedFallbackScratch = Mailbox<CVPixelBuffer>()
-⋮----
 let latestNaturalPTSNs: ManagedAtomic<Int64> = ManagedAtomic(0)
 ⋮----
 private let trackerLanczos: MPSImageLanczosScale
@@ -1777,14 +1773,12 @@ let yTexture: MTLTexture
 let cbcrTexture: MTLTexture
 ⋮----
 let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)
-let processedPair: (buffer: CVPixelBuffer, texture: MTLTexture)
 ⋮----
 let trackerPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
 ⋮----
 let commandBuffer = commandQueue.makeCommandBuffer()!
 ⋮----
 let naturalTexI = naturalPair.texture
-let processedTexI = processedPair.texture
 ⋮----
 let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
 let threadGroups = MTLSize(
@@ -1807,7 +1801,6 @@ let logFirstAfterGate = logNextCommit
 ⋮----
 let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 let fn = frameNumber
-let processedBuf = processedPair.buffer
 let trackerBuf = trackerPair?.buffer
 let trackerTex = trackerPair?.texture
 let consumers = self.consumers
@@ -1864,8 +1857,6 @@ let yTex = try texturePool.makeYTexture(from: pixelBuffer)
 let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
 let nat = try texturePool.dequeuePoolTexture(
 ⋮----
-let proc = try texturePool.dequeuePoolTexture(
-⋮----
 let out = try texturePool.dequeueEightBitPoolTexture(
 ⋮----
 let cb = commandQueue.makeCommandBuffer()!
@@ -1873,8 +1864,6 @@ let tg = MTLSize(width: 16, height: 16, depth: 1)
 let groups = MTLSize(
 ⋮----
 func drainLastBuffer() {
-⋮----
-func currentProcessedTex() -> MTLTexture {
 ⋮----
 func seedPreviewMailboxes() {
 ⋮----
@@ -1901,8 +1890,6 @@ let trimCount = Int(Double(count) * Constants.centerPatchTrimRatio)
 let r = trimmedMean(buffer: bufR, count: count, trim: trimCount)
 let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
 let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
-⋮----
-func dispatchCenterPatch() async throws -> RgbSample {
 ⋮----
 func dispatchCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
@@ -1957,9 +1944,9 @@ var color: ColorUniform = uniforms.withLock { $0.color }
 ⋮----
 struct CoreComparisonForTest {
 let separateNatural: CVPixelBuffer
-let separateProcessed: CVPixelBuffer
 let fusedNatural: CVPixelBuffer
-let fusedProcessed: CVPixelBuffer
+let separatePacked: CVPixelBuffer
+let fusedPacked: CVPixelBuffer
 ⋮----
 private func encodeSeparateCoreForTest(
 ⋮----
@@ -1979,11 +1966,11 @@ let sepPacked = try texturePool.dequeueEightBitPoolTexture(
 ⋮----
 let fusNat = try texturePool.dequeuePoolTexture(
 ⋮----
-let fusProc = try texturePool.dequeuePoolTexture(
-⋮----
 let fusPacked = try texturePool.dequeueEightBitPoolTexture(
 ⋮----
 func benchmarkCoresForTest(
+⋮----
+let proc = try texturePool.dequeuePoolTexture(
 ⋮----
 let packed = try texturePool.dequeueEightBitPoolTexture(
 ⋮----

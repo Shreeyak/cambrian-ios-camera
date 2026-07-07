@@ -227,27 +227,27 @@ static inline float4 decodeYuvBt601(
 // `yuvGradedFusedPackPSO` / `...NoPackPSO`).
 constant bool kWritePacked [[function_constant(0)]];
 
-// yuvGradedFused — the production frame core, fusing three former passes into one
-// dispatch. It reads the YUV planes ONCE and produces up to three outputs from
-// values held in registers, eliminating the two full-frame RGBA16F texture
+// yuvGradedFused — the production frame core, fusing the former decode+grade+pack
+// passes into one dispatch. It reads the YUV planes ONCE and produces its outputs
+// from values held in registers, eliminating the two full-frame RGBA16F texture
 // re-reads the old three-encoder path paid (decode wrote `natural`; grade re-read
 // `natural`; pack re-read `processed`).
 //
-// THE THREE OUTPUTS — each is a live pipeline intermediate with a DISTINCT consumer;
-// that is WHY they cannot collapse into fewer textures (a fresh reader's first question):
-//   • naturalTex   (RGBA16F) — the UN-graded decode. Calibration tap only
-//                              (`_latestNaturalTex16F`): black-point / WB read it back.
-//                              No streaming consumer — see optimization C (write on-demand).
-//   • processedTex (RGBA16F) — the GRADED frame at full precision. Consumed ONLY by the
-//                              NV12 video encode (Pass-5, while recording). NOT delivered
-//                              to consumers — the processed lane delivers `packedTex`
-//                              (BGRA8); if that is missing the frame is dropped, no 16F
-//                              fallback. So this write is dead weight when not recording
-//                              (see optimization B), and could move to BGRA8 entirely.
-//   • packedTex    (BGRA8)   — the GRADED frame at 8-bit. Tracker (MPS/blit) source AND
-//                              the processed-lane mailbox (the NORMAL delivery format).
-//                              Dropped entirely when kWritePacked=false (no such consumer
-//                              this frame — no .tracker subscriber and no mailbox target).
+// THE TWO OUTPUTS — each is a live pipeline surface with a DISTINCT role; that is WHY
+// they cannot collapse into one (a fresh reader's first question):
+//   • naturalTex (RGBA16F) — the UN-graded decode, kept at 16F for linear-light
+//                            precision. Calibration tap only (`_latestNaturalTex16F`):
+//                            black-point / WB read it back. No streaming consumer.
+//                            (optimization C gates this write to armed calibration.)
+//   • packedTex  (BGRA8)   — the GRADED frame at 8-bit — the pipeline's SINGLE graded
+//                            surface. Feeds ALL graded consumers: tracker (MPS/blit)
+//                            source, processed-lane delivery mailbox (the normal
+//                            format), AND the NV12 video recorder (which reads 8-bit
+//                            `.rgb` and writes 8-bit YUV — the 16F processed texture
+//                            the recorder used to read was retired, optimization B).
+//                            Dropped when kWritePacked=false (no graded consumer this
+//                            frame — no .tracker subscriber and no mailbox target;
+//                            `grd` is then computed but unused).
 //
 // PER-THREAD DATA FLOW (one output pixel `gid`):
 //
@@ -260,33 +260,30 @@ constant bool kWritePacked [[function_constant(0)]];
 //                                 ▼
 //                          grd (float3, graded, f32 regs)
 //                                 │
-//         processedTex.write(grd,nat.a) ◀────┤   ← 16F processed (NV12 encode when
-//                                            │      recording only — NOT delivered)
 //                    if kWritePacked:        │
-//         packedTex.write(clamp(grd,0,1)) ◀──┘   ← BGRA8 packed (tracker source +
-//                                                   processed-lane mailbox)
+//         packedTex.write(clamp(grd,0,1)) ◀──┘   ← BGRA8 graded (tracker + delivery
+//                                                   mailbox + NV12 recorder)
 //
-// PRECISION NOTE (why fused output is ~1 ULP off the old separate path, NOT a bug):
-//   old:  grade re-read `natural` FROM the rgba16Float texture → graded the
-//         16F-truncated decode.  pack re-read `processed` FROM 16F likewise.
-//   fused: grades the float32 REGISTER `nat.rgb`; only `naturalTex.write` truncates
-//         to 16F. So `naturalTex` is byte-identical between paths (both store
-//         16F(decode)), while `processed`/`packed` differ by ≲ one 16F ULP of the
-//         decode input (~5e-4). Equivalence is asserted at 1e-3 tolerance, not ==.
+// PRECISION NOTE (why fused packed is ~1 LSB off the old separate path, NOT a bug):
+//   old:  pack re-read `processed` FROM the rgba16Float texture → clamped the
+//         16F-truncated grade, then quantized to 8-bit.
+//   fused: clamps+quantizes the float32 REGISTER grade directly (no 16F round trip).
+//         So `packedTex` differs from the old path by ≲ 1 LSB at 8-bit; `naturalTex`
+//         is byte-identical (both store 16F(decode)). The equivalence test asserts
+//         packed-vs-packed at ~5e-3 (8-bit) and natural-vs-natural at 1e-4.
 //
-// OUTPUT BINDINGS — all are WRITE-ONLY; none is read back within the kernel, so
+// OUTPUT BINDINGS — both are WRITE-ONLY; neither is read back within the kernel, so
 // there is no intra-kernel texture hazard (the grade reads the register `nat`, not
-// `naturalTex`). Downstream passes (NV12 encode reads `processedTex`; tracker reads
-// `packedTex`) are separate encoders in the same command buffer, so Metal inserts
-// the usual inter-pass barrier — same ordering the old path had.
+// `naturalTex`). Downstream passes (tracker + NV12 encode read `packedTex`) are
+// separate encoders in the same command buffer, so Metal inserts the usual inter-pass
+// barrier — same ordering the old path had.
 kernel void yuvGradedFused(
-    texture2d<float, access::read>  yTex         [[texture(0)]],
-    texture2d<float, access::read>  cbcrTex      [[texture(1)]],
-    texture2d<float, access::write> naturalTex   [[texture(2)]],
-    texture2d<float, access::write> processedTex [[texture(3)]],
-    texture2d<float, access::write> packedTex    [[texture(4), function_constant(kWritePacked)]],
-    constant CropUniform&           crop         [[buffer(0)]],
-    constant ColorUniform&          color        [[buffer(1)]],
+    texture2d<float, access::read>  yTex       [[texture(0)]],
+    texture2d<float, access::read>  cbcrTex    [[texture(1)]],
+    texture2d<float, access::write> naturalTex [[texture(2)]],
+    texture2d<float, access::write> packedTex  [[texture(3), function_constant(kWritePacked)]],
+    constant CropUniform&           crop       [[buffer(0)]],
+    constant ColorUniform&          color      [[buffer(1)]],
     uint2 gid [[thread_position_in_grid]])
 {
     // Bounds guard on the output (crop-region) dims — extra tile threads may exceed it.
@@ -302,12 +299,12 @@ kernel void yuvGradedFused(
     float4 nat = decodeYuvBt601(yTex, cbcrTex, src);
     naturalTex.write(nat, gid);
 
-    // Grade in registers from the f32 decode (see PRECISION NOTE). Write processed (16F).
+    // Grade in registers from the f32 decode (see PRECISION NOTE), then pack to
+    // BGRA8 — the SINGLE graded surface (tracker source, delivery mailbox, and the
+    // NV12 recorder all read this now). clamp[0,1] matches the old rgba16fToBgra8
+    // kernel (a bgra8Unorm write clamps anyway; explicit for parity). Dropped in the
+    // no-pack variant (no graded consumer this frame — grd is then unused).
     float3 grd = gradePixel(nat.rgb, color);
-    processedTex.write(float4(grd, nat.a), gid);
-
-    // Pack to BGRA8 only for the tracker/mailbox variant. clamp[0,1] matches the
-    // old rgba16fToBgra8 kernel (a bgra8Unorm write clamps anyway; explicit for parity).
     if (kWritePacked) {
         packedTex.write(clamp(float4(grd, nat.a), 0.0, 1.0), gid);
     }

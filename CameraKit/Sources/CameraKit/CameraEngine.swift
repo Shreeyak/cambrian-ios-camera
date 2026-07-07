@@ -1479,19 +1479,6 @@ public actor CameraEngine {
         }
     }
 
-    /// Stage 04: dispatches the center-patch sampler and returns per-channel trimmed mean.
-    ///
-    /// Samples processedTex's CENTER_PATCH_SIZE_PX x CENTER_PATCH_SIZE_PX center, awaits
-    /// completion, sorts each channel and returns the trimmed mean per
-    /// CENTER_PATCH_TRIM_PERCENT (07-settings.md §Center-patch sampling).
-    ///
-    /// - Throws: `EngineError.notOpen` if the session is not open.
-    /// - Throws: `EngineError.metal(_:)` on Metal failures.
-    public func sampleCenterPatch() async throws -> RgbSample {
-        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-        return try await pipeline.dispatchCenterPatch()
-    }
-
     /// WB-calibration sampler — reads from `naturalTex` (Pass-1 output).
     ///
     /// See `MetalPipeline.dispatchCenterPatchOnNatural` for the rationale.

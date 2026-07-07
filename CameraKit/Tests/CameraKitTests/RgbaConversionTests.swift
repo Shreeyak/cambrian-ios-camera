@@ -176,15 +176,16 @@ struct RgbaConversionMailboxFormatTests {
         #expect(CVPixelBufferGetPixelFormatType(processed) == kCVPixelFormatType_32BGRA)
     }
 
-    /// Load-bearing guarantee: the 16F textures survive as INTERNAL compute
-    /// intermediates.
+    /// Load-bearing guarantee: the natural 16F texture survives as an INTERNAL
+    /// compute intermediate.
     ///
-    /// Calibration sampling reads `latestNaturalTex16F`; the diagnostic
-    /// center-patch reads `latestProcessedTex16F`. They are never a delivery
-    /// surface — that is the BGRA8 mailboxes. Keep this isolated so a future
-    /// edit can't silently erode the 16F-for-the-math contract.
-    @Test("Internal calibration/sampling textures stay .rgba16Float")
-    func calibrationAndSamplingTexturesStay16F() throws {
+    /// Calibration sampling reads `latestNaturalTex16F` (kept at 16F for linear-light
+    /// precision). It is never a delivery surface — that is the BGRA8 mailboxes. Keep
+    /// this isolated so a future edit can't silently erode the 16F-for-the-math
+    /// contract. (optimization B: the graded 16F processed texture was retired — the
+    /// graded surface is now BGRA8; `latestProcessedTex16F` is a test-only seam.)
+    @Test("Internal calibration natural texture stays .rgba16Float")
+    func calibrationNaturalTextureStays16F() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             Issue.record("no metal device")
             return
@@ -201,7 +202,6 @@ struct RgbaConversionMailboxFormatTests {
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         #expect(pipeline.latestNaturalTex16F?.pixelFormat == .rgba16Float)
-        #expect(pipeline.latestProcessedTex16F?.pixelFormat == .rgba16Float)
     }
 
     /// The processed preview texture (`currentProcessedTexture()` reads it) is

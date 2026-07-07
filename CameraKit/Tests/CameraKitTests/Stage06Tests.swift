@@ -58,7 +58,6 @@ struct Stage06Tests {
         #expect(pipeline.latestProcessedBuffer != nil, "processed lane seeded on open")
         #expect(pipeline.latestProcessedBgra8Tex != nil)
         #expect(pipeline.latestNaturalTex16F != nil, "calibration RGBA16F texture seeded")
-        #expect(pipeline.latestProcessedTex16F != nil)
 
         // The bridge buffer must be BGRA8 (the unconditional Flutter delivery format).
         let proc8 = try #require(pipeline.latestProcessedBuffer)
@@ -102,7 +101,7 @@ struct Stage06Tests {
     // MARK: - Test — 06:true-crop-output-resolution
 
     /// P2a true crop: a pipeline built with `outputSize`/`cropOrigin` emits
-    /// natural + processed textures sized to the crop region, not the sensor.
+    /// natural (16F) + graded (BGRA8) textures sized to the crop region, not the sensor.
     ///
     /// The synthetic YUV sample buffer is sensor-sized (1024×768); Pass-1 reads
     /// the (256,192)-offset 512×384 sub-region into the output textures.
@@ -125,7 +124,7 @@ struct Stage06Tests {
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         let nat = try #require(pipeline.latestNaturalTex16F)
-        let proc = try #require(pipeline.latestProcessedTex16F)
+        let proc = try #require(pipeline.latestProcessedBgra8Tex)
         #expect(nat.width == 512)
         #expect(nat.height == 384)
         #expect(proc.width == 512)

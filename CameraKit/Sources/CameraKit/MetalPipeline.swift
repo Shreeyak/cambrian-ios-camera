@@ -176,13 +176,14 @@ final class MetalPipeline: @unchecked Sendable {
     /// delivery surface.
     ///
     /// `_latestNaturalTex16F` is the Pass-1 output sampled by WB / black-point
-    /// calibration (`dispatchCenterPatchOnNatural` / `readbackNaturalCenterRegion`);
-    /// `_latestProcessedTex16F` is the Pass-2 graded output sampled by the
-    /// diagnostic center-patch (`dispatchCenterPatch` / `sampleCenterPatch`).
-    /// They stay 16F because the math wants float headroom — the camera is
-    /// 8-bit-locked, so this precision only buys anything in-shader, never at
-    /// the delivery boundary. The preview/bridge surfaces are the BGRA8
-    /// mailboxes below.
+    /// calibration (`dispatchCenterPatchOnNatural` / `readbackNaturalCenterRegion`).
+    /// It stays 16F because the calibration math wants float headroom near black —
+    /// the camera is 8-bit-locked, so this precision only buys anything in-shader,
+    /// never at the delivery boundary. The preview/bridge surfaces are the BGRA8
+    /// mailboxes below. `_latestProcessedTex16F` is production-unused after
+    /// optimization B (the graded surface is BGRA8) — it survives only as the
+    /// target the Stage-04 grade golden tests install via `setLatestProcessedForTest`
+    /// and read back through `encodeGradeOnly`.
     ///
     /// Single writer on the AVF delivery queue (`addCompletedHandler`
     /// callback); readers on MainActor / sessionQueue. See `Mailbox<T>` for the
@@ -222,14 +223,6 @@ final class MetalPipeline: @unchecked Sendable {
 
     var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
     var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
-
-    /// Retains the pre-first-frame fallback scratch buffer for the processed lane.
-    ///
-    /// Keeps the returned blank texture valid through the caller's GPU dispatch
-    /// (CoreVideo retain contract). Separate from `_latestProcessedBuffer`: the
-    /// scratch is RGBA16F, not a BGRA8 delivery surface, and must never reach
-    /// `currentPixelBuffer(stream:)`.
-    private let _processedFallbackScratch = Mailbox<CVPixelBuffer>()
 
     /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex16F`.
     ///
@@ -346,7 +339,7 @@ final class MetalPipeline: @unchecked Sendable {
     ///
     /// Allocated once in init().
     private let encoderPool: CVPixelBufferPool
-    // Compute PSO for the rgba16fToNV12 kernel (Stage 10 / Task 7 shader).
+    // Compute PSO for the gradedToNV12 kernel (Stage 10 / Task 7 shader; sources BGRA8).
     private let nv12EncodePSO: MTLComputePipelineState
     /// Engine sets this to true at startRecording(), false at stopRecording()/pause().
     ///
@@ -550,11 +543,11 @@ final class MetalPipeline: @unchecked Sendable {
         }
         self.extractCenterRegionPSO = try device.makeComputePipelineState(function: fnExtract)
 
-        // 9. Stage 10: encoder NV12 pool + rgba16fToNV12 PSO (Pass 5).
+        // 9. Stage 10: encoder NV12 pool + gradedToNV12 PSO (Pass 5).
         //    P2a — Pass-5 encodes processedTexI (outputSize); NV12 pool follows.
         encoderPool = try texturePool.makeEncoderNV12Pool(size: resolvedOutputSize)
-        guard let fnEncode = library.makeFunction(name: "rgba16fToNV12") else {
-            throw MetalError.pipelineStateCompilation("rgba16fToNV12 missing")
+        guard let fnEncode = library.makeFunction(name: "gradedToNV12") else {
+            throw MetalError.pipelineStateCompilation("gradedToNV12 missing")
         }
         nv12EncodePSO = try device.makeComputePipelineState(function: fnEncode)
 
@@ -569,18 +562,18 @@ final class MetalPipeline: @unchecked Sendable {
     /// Must be called on the `delivery` DispatchQueue (ADR-02).
     /// Frames that cannot be processed are silently dropped.
     /// Shared graded core — encodes `decode → grade → pack` into `commandBuffer`
-    /// as ONE fused dispatch (`yuvGradedFused`), producing all outputs from
+    /// as ONE fused dispatch (`yuvGradedFused`), producing its outputs from
     /// registers after a single YUV read.
     ///
-    /// Role names (linear-normalization-stage §3.0, replacing the historical
-    /// Pass-1 / Pass-2 / Pass-7p numbers) — now fused stages of one kernel, not
-    /// separate encoders:
-    /// - **decode**: YUV→RGB + crop → `natural` (16F).
-    /// - **grade**: color transform (`gradePixel`) → `processed` (16F).
-    ///   The single insertion point for the linear-light normalization (§2).
-    /// - **pack**: →BGRA8 `packed`, written only when `packed` is non-nil (NoPack
-    ///   PSO variant otherwise) — the streaming path passes nil with no .tracker
-    ///   subscriber / on pool exhaustion; the still path always supplies a target.
+    /// Two outputs (the 16F `processed` texture was retired — optimization B; every
+    /// graded consumer now reads the BGRA8 `packed` surface):
+    /// - **natural** (RGBA16F): YUV→RGB + crop. The calibration tap only.
+    /// - **packed** (BGRA8): the graded frame (`gradePixel` — the single insertion
+    ///   point for the linear-light normalization, §2). The one graded surface:
+    ///   tracker source, delivery mailbox, and NV12 recorder all read it. Written
+    ///   only when `packed` is non-nil (NoPack PSO variant otherwise) — the streaming
+    ///   path passes nil with no .tracker subscriber / on pool exhaustion; the still
+    ///   path always supplies a target.
     ///
     /// Called by both `renderFrame` (streaming) and `renderStill` (one-shot) so
     /// the grade — and the normalization folded into it — lives in exactly one
@@ -591,7 +584,6 @@ final class MetalPipeline: @unchecked Sendable {
         y yTexture: MTLTexture,
         cbcr cbcrTexture: MTLTexture,
         natural naturalTex: MTLTexture,
-        processed processedTex: MTLTexture,
         packed packedTex: MTLTexture?,
         color colorSnapshot: ColorUniform,
         crop cropSnapshot: CropUniform,
@@ -599,11 +591,10 @@ final class MetalPipeline: @unchecked Sendable {
         threadGroupSize: MTLSize
     ) {
         // Fused decode → grade (+ normalization) → pack in ONE dispatch. Reads the
-        // YUV planes once and produces natural (16F), processed (16F), and — when a
-        // `packedTex` target is supplied — packed (BGRA8), all from registers. This
-        // eliminates the two full-frame RGBA16F re-reads the old three-encoder path
-        // paid (grade re-read `natural`; pack re-read `processed`). Kernel math and
-        // the ~1-ULP precision note live in ColorShaders.metal `yuvGradedFused`.
+        // YUV planes once and produces natural (16F) and — when a `packedTex` target
+        // is supplied — packed (BGRA8), from registers. This eliminates the two
+        // full-frame RGBA16F re-reads the old three-encoder path paid. Kernel math
+        // and the precision note live in ColorShaders.metal `yuvGradedFused`.
         //
         // Variant select: the NoPack PSO drops the BGRA8 write entirely (no bound
         // packed texture) when `packedTex == nil` — a frame with no .tracker
@@ -613,9 +604,8 @@ final class MetalPipeline: @unchecked Sendable {
         core.setTexture(yTexture, index: 0)
         core.setTexture(cbcrTexture, index: 1)
         core.setTexture(naturalTex, index: 2)
-        core.setTexture(processedTex, index: 3)
         if let packedTex {
-            core.setTexture(packedTex, index: 4)
+            core.setTexture(packedTex, index: 3)
         }
         var cropLocal = cropSnapshot  // setBytes needs a mutable address
         core.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
@@ -641,14 +631,13 @@ final class MetalPipeline: @unchecked Sendable {
             return  // drop frame on texture-wrap failure
         }
 
-        // 3. Dequeue per-frame pool buffers.
+        // 3. Dequeue per-frame pool buffers. The 16F processed pool was retired from
+        //    production (optimization B) — the graded surface is BGRA8 (`packed`); the
+        //    natural 16F pool remains for the calibration tap.
         let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)
-        let processedPair: (buffer: CVPixelBuffer, texture: MTLTexture)
         do {
             naturalPair = try texturePool.dequeuePoolTexture(
                 pool: naturalPool, width: outputSize.width, height: outputSize.height)
-            processedPair = try texturePool.dequeuePoolTexture(
-                pool: processedPool, width: outputSize.width, height: outputSize.height)
         } catch {
             return  // pool exhausted — drop frame
         }
@@ -678,7 +667,6 @@ final class MetalPipeline: @unchecked Sendable {
         let commandBuffer = commandQueue.makeCommandBuffer()!
 
         let naturalTexI = naturalPair.texture
-        let processedTexI = processedPair.texture
 
         // Threadgroup config for the pointwise core passes (16×16 tiles over outputSize).
         let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
@@ -702,11 +690,11 @@ final class MetalPipeline: @unchecked Sendable {
             try? texturePool.dequeueEightBitPoolTexture(
                 pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height)
 
-        // 6–7. Shared graded core: decode → grade (+ normalization) → pack.
+        // 6–7. Shared graded core: decode → grade (+ normalization) → pack (BGRA8).
         encodeGradedCore(
             into: commandBuffer,
             y: yTexture, cbcr: cbcrTexture,
-            natural: naturalTexI, processed: processedTexI,
+            natural: naturalTexI,
             packed: processedEightBitPair?.texture,
             color: colorSnapshot, crop: cropSnapshot,
             threadGroups: threadGroups, threadGroupSize: threadGroupSize)
@@ -746,11 +734,14 @@ final class MetalPipeline: @unchecked Sendable {
         // Pool exhaustion drops this frame from the recorder; preview is unaffected
         // (domain 06 Recording-Sink Back-Pressure).
         var encoderPairForCompletion: (buffer: CVPixelBuffer, yTex: MTLTexture, cbcrTex: MTLTexture)?
-        if isRecording.load(ordering: .acquiring) {
+        // NV12 sources the BGRA8 graded surface (`packed`) — optimization B retired the
+        // 16F processed texture. If the pack buffer was dropped this frame (rare
+        // alloc/wrap failure), skip the recorder for this frame (preview unaffected).
+        if isRecording.load(ordering: .acquiring), let gradedTex = processedEightBitPair?.texture {
             if let enc = try? texturePool.dequeueEncoderBuffer(pool: encoderPool) {
                 let pass5 = commandBuffer.makeComputeCommandEncoder()!
                 pass5.setComputePipelineState(nv12EncodePSO)
-                pass5.setTexture(processedTexI, index: 0)
+                pass5.setTexture(gradedTex, index: 0)
                 pass5.setTexture(enc.yTex, index: 1)
                 pass5.setTexture(enc.cbcrTex, index: 2)
                 let cbcrW = enc.cbcrTex.width
@@ -780,7 +771,6 @@ final class MetalPipeline: @unchecked Sendable {
         // is not Sendable; capture derived values (CMTime, metadata snapshot) instead.
         let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let fn = frameNumber
-        let processedBuf = processedPair.buffer
         let trackerBuf = trackerPair?.buffer
         let trackerTex = trackerPair?.texture
         let consumers = self.consumers
@@ -911,14 +901,9 @@ final class MetalPipeline: @unchecked Sendable {
             }
             // BGRA8 mailbox (read by `captureImage`): store only the real BGRA8
             // buffer; on the rare miss keep the previous good frame, never a 16F one.
+            // (optimization B: the 16F processed texture is no longer produced in
+            // production — `_latestProcessedTex16F` is written only by test seams now.)
             if let processedEightBitBuf { self._latestProcessedBuffer.store(processedEightBitBuf) }
-            self._latestProcessedTex16F.store(processedTexI)
-            // `processedTexI` (16F) is read by the NV12 pass (and mailboxed above for
-            // calibration); it is backed by `processedBuf`. Delivery no longer
-            // references `processedBuf`, so retain it here until GPU completion —
-            // else the pool could recycle the buffer mid-read (the command buffer
-            // keeps the MTLTexture alive, but not the CVPixelBuffer's pool lease).
-            withExtendedLifetime(processedBuf) {}
             if let pTex = processedEightBitTex { self._latestProcessedBgra8Tex.store(pTex) }
             if let tBuf = trackerBuf, let tTex = trackerTex {
                 self._latestTrackerBuffer.store(tBuf)
@@ -957,8 +942,6 @@ final class MetalPipeline: @unchecked Sendable {
         let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
         let nat = try texturePool.dequeuePoolTexture(
             pool: naturalPool, width: outputSize.width, height: outputSize.height)
-        let proc = try texturePool.dequeuePoolTexture(
-            pool: processedPool, width: outputSize.width, height: outputSize.height)
         let out = try texturePool.dequeueEightBitPoolTexture(
             pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height)
 
@@ -971,11 +954,11 @@ final class MetalPipeline: @unchecked Sendable {
             depth: 1)
 
         // Shared graded core: decode → grade (+ normalization) → pack. The still
-        // always supplies a pack target (`out`).
+        // always supplies a pack target (`out`), the BGRA8 graded still.
         encodeGradedCore(
             into: cb,
             y: yTex, cbcr: cbcrTex,
-            natural: nat.texture, processed: proc.texture,
+            natural: nat.texture,
             packed: out.texture,
             color: color, crop: crop,
             threadGroups: groups, threadGroupSize: tg)
@@ -999,29 +982,6 @@ final class MetalPipeline: @unchecked Sendable {
     /// Safe to call from any thread (Metal contract for waitUntilScheduled).
     func drainLastBuffer() {
         lastCommandBuffer?.waitUntilScheduled()
-    }
-
-    /// Returns the latest processed texture for the right-half MTKView.
-    ///
-    /// Reads the internal `latestProcessedTex16F` `Mailbox<T>` (G-13
-    /// single-writer model) — the RGBA16F Pass-2 graded output, sampled by
-    /// `dispatchCenterPatch` / `sampleCenterPatch` (NOT the BGRA8 preview
-    /// surface). Falls back to dequeuing a blank pool buffer on the first call
-    /// before any frame arrives.
-    func currentProcessedTex() -> MTLTexture {
-        if let t = latestProcessedTex16F { return t }
-        if let pair = try? texturePool.dequeuePoolTexture(
-            pool: processedPool, width: outputSize.width, height: outputSize.height
-        ) {
-            // Pre-first-frame fallback: retain the RGBA16F scratch buffer in a
-            // dedicated slot (NOT `_latestProcessedBuffer`, which is the BGRA8
-            // delivery surface) so the returned blank texture stays valid for
-            // the caller's GPU dispatch.
-            _processedFallbackScratch.store(pair.buffer)
-            _latestProcessedTex16F.store(pair.texture)
-            return pair.texture
-        }
-        fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
     }
 
     /// Pre-seed the processed preview mailboxes (and the internal 16F natural
@@ -1049,11 +1009,7 @@ final class MetalPipeline: @unchecked Sendable {
         {
             _latestNaturalTex16F.store(nat.texture)
         }
-        if let proc = try? texturePool.dequeuePoolTexture(
-            pool: processedPool, width: outputSize.width, height: outputSize.height)
-        {
-            _latestProcessedTex16F.store(proc.texture)
-        }
+        // (optimization B: no 16F processed seed — the graded surface is BGRA8 below.)
         if let proc8 = try? texturePool.dequeueEightBitPoolTexture(
             pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height)
         {
@@ -1141,15 +1097,6 @@ final class MetalPipeline: @unchecked Sendable {
         let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
         let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
         return RgbSample(r: Double(r), g: Double(g), b: Double(b))
-    }
-
-    /// Public entry point — samples the latest **processed** texture (post Pass-2 grade).
-    ///
-    /// Used for diagnostic / metric paths. Calibration paths should prefer
-    /// `dispatchCenterPatchOnNatural()` so the sample isn't biased by the
-    /// previously-applied calibration state.
-    func dispatchCenterPatch() async throws -> RgbSample {
-        try await dispatchCenterPatch(on: currentProcessedTex())
     }
 
     /// WB calibration entry point — samples the latest **natural** texture (Pass-1 output).
@@ -1422,13 +1369,13 @@ extension MetalPipeline {
         }
     }
 
-    // Bundle of the natural (16F) + processed (16F) outputs from BOTH the
+    // Bundle of the natural (16F) + packed (BGRA8 graded) outputs from BOTH the
     // pre-fusion three-encoder core and the fused core, for equivalence testing.
     struct CoreComparisonForTest {
         let separateNatural: CVPixelBuffer
-        let separateProcessed: CVPixelBuffer
         let fusedNatural: CVPixelBuffer
-        let fusedProcessed: CVPixelBuffer
+        let separatePacked: CVPixelBuffer
+        let fusedPacked: CVPixelBuffer
     }
 
     /// Test-only: the PRE-FUSION three-encoder core (decode → grade → pack).
@@ -1475,9 +1422,10 @@ extension MetalPipeline {
     /// Test-only: runs the OLD separate core and the NEW fused core for equivalence.
     ///
     /// Both run on the SAME y/cbcr input + color/crop, in one command buffer, and
-    /// return their natural and processed outputs so the test can assert equivalence.
-    /// Both paths write a BGRA8 pack target too (exercising the fused Pack PSO
-    /// variant), but only the 16F lanes are returned for comparison.
+    /// return their natural (16F) and packed (BGRA8, the graded surface) outputs so
+    /// the test can assert equivalence. The separate path also writes a 16F processed
+    /// intermediate (its `rgba16fToBgra8` pack reads it), but the fused path no longer
+    /// produces one (optimization B) — so the graded comparison is packed-vs-packed.
     func encodeCoreComparisonForTest(
         y: MTLTexture, cbcr: MTLTexture, size: Size, color: ColorUniform, crop: CropUniform
     ) async throws -> CoreComparisonForTest {
@@ -1489,8 +1437,6 @@ extension MetalPipeline {
             pool: eightBitProcessedPool, width: size.width, height: size.height)
         let fusNat = try texturePool.dequeuePoolTexture(
             pool: naturalPool, width: size.width, height: size.height)
-        let fusProc = try texturePool.dequeuePoolTexture(
-            pool: processedPool, width: size.width, height: size.height)
         let fusPacked = try texturePool.dequeueEightBitPoolTexture(
             pool: eightBitProcessedPool, width: size.width, height: size.height)
 
@@ -1505,7 +1451,7 @@ extension MetalPipeline {
             color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
         encodeGradedCore(
             into: cb, y: y, cbcr: cbcr,
-            natural: fusNat.texture, processed: fusProc.texture, packed: fusPacked.texture,
+            natural: fusNat.texture, packed: fusPacked.texture,
             color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
 
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
@@ -1517,8 +1463,8 @@ extension MetalPipeline {
             cb.commit()
         }
         return CoreComparisonForTest(
-            separateNatural: sepNat.buffer, separateProcessed: sepProc.buffer,
-            fusedNatural: fusNat.buffer, fusedProcessed: fusProc.buffer)
+            separateNatural: sepNat.buffer, fusedNatural: fusNat.buffer,
+            separatePacked: sepPacked.buffer, fusedPacked: fusPacked.buffer)
     }
 
     /// Test-only A/B microbenchmark: mean GPU wall-time per frame of the separate
@@ -1550,7 +1496,7 @@ extension MetalPipeline {
                 if fused {
                     encodeGradedCore(
                         into: cb, y: y, cbcr: cbcr,
-                        natural: nat.texture, processed: proc.texture, packed: packed.texture,
+                        natural: nat.texture, packed: packed.texture,
                         color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
                 } else {
                     encodeSeparateCoreForTest(

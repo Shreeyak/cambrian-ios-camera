@@ -125,23 +125,26 @@ struct Stage04Tests {
 
     // MARK: - Test 3 — 04:center-patch-trimmed-mean
 
-    /// Inject a uniform fill into processedTex (R=0.4, G=0.6, B=0.2).
+    /// Inject a uniform fill into naturalTex (R=0.4, G=0.6, B=0.2).
     ///
-    /// dispatchCenterPatch returns (0.4, 0.6, 0.2) within ULP.
-    /// Then inject a gradient + 10% outliers; trimmed mean discards them.
+    /// dispatchCenterPatchOnNatural returns (0.4, 0.6, 0.2) within ULP.
+    /// Then inject 5% outliers; trimmed mean discards them. Samples the NATURAL
+    /// tap — the processed-patch entry point was removed with `sampleCenterPatch`;
+    /// the trimmed-mean sampler (`dispatchCenterPatch(on:)`) is the same code, and
+    /// natural is the texture calibration actually samples.
     @Test func centerPatchTrimmedMean() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let size = Size(width: 256, height: 256)  // > centerPatchSizePx so center fits
         let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
 
-        // Dequeue a processed buffer from the pool, fill it, then install it as latest.
+        // Dequeue a natural buffer from the pool, fill it, then install it as latest.
         let (pBuf1, pTex1) = try pipeline.texturePoolForTest.dequeuePoolTexture(
-            pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
 
         // Uniform fill — trimmed mean exactly equals the fill value.
         try fillBufferUniform(pBuf1, r: 0.4, g: 0.6, b: 0.2, a: 1.0)
-        pipeline.setLatestProcessedForTest(buffer: pBuf1, texture: pTex1)
-        let s1 = try await pipeline.dispatchCenterPatch()
+        pipeline.setLatestNaturalForTest(texture: pTex1)
+        let s1 = try await pipeline.dispatchCenterPatchOnNatural()
         #expect(abs(s1.r - 0.4) < 1e-3)
         #expect(abs(s1.g - 0.6) < 1e-3)
         #expect(abs(s1.b - 0.2) < 1e-3)
@@ -156,10 +159,10 @@ struct Stage04Tests {
         // centerPatchTrimRatio (with a stride-placement safety margin) or
         // residual outliers leak through and the mean drifts.
         let (pBuf2, pTex2) = try pipeline.texturePoolForTest.dequeuePoolTexture(
-            pool: pipeline.processedPoolForTest, width: size.width, height: size.height)
+            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
         try fillBufferWithOutliers(pBuf2, base: 0.5, outlier: 1.0, outlierFraction: 0.05)
-        pipeline.setLatestProcessedForTest(buffer: pBuf2, texture: pTex2)
-        let s2 = try await pipeline.dispatchCenterPatch()
+        pipeline.setLatestNaturalForTest(texture: pTex2)
+        let s2 = try await pipeline.dispatchCenterPatchOnNatural()
         #expect(abs(s2.r - 0.5) < 1e-3)
         #expect(abs(s2.g - 0.5) < 1e-3)
         #expect(abs(s2.b - 0.5) < 1e-3)
@@ -545,12 +548,14 @@ struct Stage04Tests {
                 #expect(abs(fNg - gRef) < 2e-3, "\(tag) natural G \(fNg) != BT.601 \(gRef)")
                 #expect(abs(fNb - bRef) < 2e-3, "\(tag) natural B \(fNb) != BT.601 \(bRef)")
 
-                // Processed: fused ≡ separate within 1e-3 (the fusion equivalence claim).
-                let (sPr, sPg, sPb, _) = try sampleCenterPixel(cmp.separateProcessed)
-                let (fPr, fPg, fPb, _) = try sampleCenterPixel(cmp.fusedProcessed)
-                #expect(abs(fPr - sPr) < 1e-3, "\(tag) processed R fused \(fPr) != sep \(sPr)")
-                #expect(abs(fPg - sPg) < 1e-3, "\(tag) processed G fused \(fPg) != sep \(sPg)")
-                #expect(abs(fPb - sPb) < 1e-3, "\(tag) processed B fused \(fPb) != sep \(sPb)")
+                // Graded: fused packed ≡ separate packed within 5e-3 (the fusion
+                // equivalence claim). Both are the 8-bit clamped grade; they differ by
+                // ≲1 LSB (fused clamps the f32 register, separate the 16F texture).
+                let (sPr, sPg, sPb, _) = try sampleCenterPixelBGRA8(cmp.separatePacked)
+                let (fPr, fPg, fPb, _) = try sampleCenterPixelBGRA8(cmp.fusedPacked)
+                #expect(abs(fPr - sPr) < 5e-3, "\(tag) packed R fused \(fPr) != sep \(sPr)")
+                #expect(abs(fPg - sPg) < 5e-3, "\(tag) packed G fused \(fPg) != sep \(sPg)")
+                #expect(abs(fPb - sPb) < 5e-3, "\(tag) packed B fused \(fPb) != sep \(sPb)")
             }
         }
     }
@@ -767,6 +772,27 @@ struct Stage04Tests {
             unpackHalf(row[cx * 4 + 2]),
             unpackHalf(row[cx * 4 + 3])
         )
+    }
+
+    /// Reads the (R, G, B, A) at the center pixel of a BGRA8 (`kCVPixelFormatType_32BGRA`)
+    /// IOSurface buffer, returned as normalized [0,1] floats. Memory order is B,G,R,A.
+    private func sampleCenterPixelBGRA8(_ buffer: CVPixelBuffer) throws -> (Float, Float, Float, Float) {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else {
+            throw MetalError.unsupportedFormat
+        }
+        let cx = width / 2
+        let cy = height / 2
+        let row = base.advanced(by: cy * bytesPerRow).assumingMemoryBound(to: UInt8.self)
+        let b = Float(row[cx * 4 + 0]) / 255
+        let g = Float(row[cx * 4 + 1]) / 255
+        let r = Float(row[cx * 4 + 2]) / 255
+        let a = Float(row[cx * 4 + 3]) / 255
+        return (r, g, b, a)
     }
 
     // MARK: - Float16 packing helpers

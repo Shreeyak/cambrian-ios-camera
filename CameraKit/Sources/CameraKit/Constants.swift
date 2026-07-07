@@ -32,7 +32,8 @@ enum Constants {
     // Session-only teardown budget for setResolution (03-camera-session.md).
     static let resolutionResizeTimeoutSeconds: Double = 5.0
     // Stage 04 — color pipeline + sample-center-patch (architecture/constants.md).
-    /// Square center-patch size in pixels for `sampleCenterPatch()` (constants.md line 35).
+    /// Square center-patch size in pixels for the calibration center-patch sampler
+    /// (`dispatchCenterPatchOnNatural`) (constants.md line 35).
     static let centerPatchSizePx: Int = 96
     /// Per-side trim ratio for the patch sampler's trimmed mean.
     ///
