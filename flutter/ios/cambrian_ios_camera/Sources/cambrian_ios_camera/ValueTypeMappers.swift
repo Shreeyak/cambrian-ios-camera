@@ -429,7 +429,9 @@ extension Error {
                 return cam.asPigeonError()
             case .metal, .interop, .recording, .capture:
                 pigeonCode = .unknownError
-                message = String(describing: engErr)
+                // Task #1: use the wrapped error's LocalizedError description instead
+                // of dumping the enum case (delegated via EngineError.errorDescription).
+                message = engErr.errorDescription ?? String(describing: engErr)
                 isFatal = false
             }
             return PigeonError(

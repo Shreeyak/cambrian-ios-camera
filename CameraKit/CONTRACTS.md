@@ -1482,6 +1482,8 @@ public init(code: ErrorCode, message: String, isFatal: Bool) {
 ⋮----
 public enum EngineError: Error, Sendable {
 ⋮----
+public var errorDescription: String? { message }
+⋮----
 public var errorDescription: String? {
 ⋮----
 public enum MetalError: Error, Sendable, Equatable {
