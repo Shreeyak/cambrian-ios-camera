@@ -571,6 +571,10 @@ func awaitNaturalAfter(_ pts: CMTime) async {
 let targetNs = Int64(CMTimeGetSeconds(pts) * 1_000_000_000)
 let deadline = ContinuousClock.now + .seconds(1)
 ⋮----
+func awaitNaturalRefresh() async {
+⋮----
+let seed = pipeline.latestNaturalPTSNs.load(ordering: .acquiring)
+⋮----
 func awaitAESettled() async {
 ⋮----
 public func calibrateWhite(whitePoint: Bool = true) async throws -> CalibrationResult {
@@ -1707,8 +1711,11 @@ private let deviceSnapshot: Mailbox<DeviceStateSnapshot>
 ⋮----
 private let commandQueue: MTLCommandQueue
 ⋮----
-private let yuvGradedFusedPackPSO: MTLComputePipelineState
-private let yuvGradedFusedNoPackPSO: MTLComputePipelineState
+private let fusedPSOs: [MTLComputePipelineState]
+⋮----
+private static func fusedPSOIndex(natural: Bool, packed: Bool) -> Int {
+⋮----
+let naturalTapArmed = ManagedAtomic<Bool>(false)
 ⋮----
 private let yuvToRgbaPSO: MTLComputePipelineState
 private let colorTransformPSO: MTLComputePipelineState
@@ -1750,11 +1757,14 @@ let trackerW = rawW - (rawW % 2)
 ⋮----
 let library: MTLLibrary
 ⋮----
-func makeFusedPSO(writePacked: Bool) throws -> MTLComputePipelineState {
+func makeFusedPSO(writeNatural: Bool, writePacked: Bool) throws -> MTLComputePipelineState {
 let constants = MTLFunctionConstantValues()
-var flag = writePacked
+var n = writeNatural
+var p = writePacked
 ⋮----
 let fn: MTLFunction
+⋮----
+var psos: [MTLComputePipelineState] = []
 ⋮----
 let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
 let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
@@ -1772,13 +1782,13 @@ func renderFrame(sampleBuffer: CMSampleBuffer) throws {
 let yTexture: MTLTexture
 let cbcrTexture: MTLTexture
 ⋮----
-let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)
+let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
 ⋮----
 let trackerPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
 ⋮----
 let commandBuffer = commandQueue.makeCommandBuffer()!
 ⋮----
-let naturalTexI = naturalPair.texture
+let naturalTexI = naturalPair?.texture
 ⋮----
 let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
 let threadGroups = MTLSize(
@@ -1801,6 +1811,7 @@ let logFirstAfterGate = logNextCommit
 ⋮----
 let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 let fn = frameNumber
+let naturalBufForCompletion = naturalPair?.buffer
 let trackerBuf = trackerPair?.buffer
 let trackerTex = trackerPair?.texture
 let consumers = self.consumers
@@ -1847,6 +1858,9 @@ let frameMeta =
 // intermediate for calibration/diagnostic sampling — never delivered
 // (remove-natural-lane). `captureImage` reads the processed BGRA8 buffer
 // mailbox; `captureNaturalPicture` converts on demand via `renderStill`.
+// Natural tap (opt C): stored + PTS-advanced ONLY when it was written this
+// frame (a calibration is armed). Retain its pool buffer here until GPU
+// completion so the write target isn't recycled mid-render.
 ⋮----
 let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
 var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
@@ -1855,8 +1869,6 @@ func renderStill(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
 ⋮----
 let yTex = try texturePool.makeYTexture(from: pixelBuffer)
 let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
-let nat = try texturePool.dequeuePoolTexture(
-⋮----
 let out = try texturePool.dequeueEightBitPoolTexture(
 ⋮----
 let cb = commandQueue.makeCommandBuffer()!
@@ -1934,6 +1946,8 @@ var eightBitProcessedPoolForTest: CVPixelBufferPool { eightBitProcessedPool }
 ⋮----
 func setLatestNaturalForTest(texture: MTLTexture) {
 ⋮----
+func setNaturalTapArmedForTest(_ armed: Bool) {
+⋮----
 func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
 ⋮----
 func setColorUniformsForTest(_ params: ProcessingParameters) {
@@ -1969,6 +1983,8 @@ let fusNat = try texturePool.dequeuePoolTexture(
 let fusPacked = try texturePool.dequeueEightBitPoolTexture(
 ⋮----
 func benchmarkCoresForTest(
+⋮----
+let nat = try texturePool.dequeuePoolTexture(
 ⋮----
 let proc = try texturePool.dequeuePoolTexture(
 ⋮----

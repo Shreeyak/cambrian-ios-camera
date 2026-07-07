@@ -1666,6 +1666,25 @@ public actor CameraEngine {
         }
     }
 
+    /// Awaits a fresh natural tap after arming it (opt C).
+    ///
+    /// With the natural write gated to armed calibration, the tap's published PTS is
+    /// frozen while disarmed. After `naturalTapArmed` is set, this waits for the PTS
+    /// to ADVANCE past its armed-instant value — i.e. a genuinely fresh natural frame
+    /// has been written — so the first calibration sample never reads a stale tap.
+    /// Bounded to 1s (matches `awaitNaturalAfter`); returns early on refresh.
+    func awaitNaturalRefresh() async {
+        guard let pipeline = metalPipeline else { return }
+        let seed = pipeline.latestNaturalPTSNs.load(ordering: .acquiring)
+        let deadline = ContinuousClock.now + .seconds(1)
+        while ContinuousClock.now < deadline {
+            if pipeline.latestNaturalPTSNs.load(ordering: .acquiring) > seed {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+    }
+
     /// Awaits `isAdjustingExposure == false` after a WB-preset apply.
     ///
     /// AE drift (often triggered by the user repointing the camera at the gray
@@ -1699,6 +1718,11 @@ public actor CameraEngine {
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
         let task = Task<CalibrationResult, Error> { [self] in
             do {
+                // opt C: the natural tap is written only while armed. Arm for the whole
+                // calibration span, then await a fresh natural before the first sample.
+                metalPipeline?.naturalTapArmed.store(true, ordering: .releasing)
+                defer { metalPipeline?.naturalTapArmed.store(false, ordering: .releasing) }
+                await awaitNaturalRefresh()
                 let before = try await sampleCenterPatchOnNatural()
                 try Task.checkCancellation()
                 // White-field validation (symmetric with calibrateBlack's dark gate):
@@ -1795,6 +1819,10 @@ public actor CameraEngine {
         // the real payload (BlackPointDebug) is stashed in `lastBlackPointDebug`.
         let task = Task<CalibrationResult, Error> { [self] in
             guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+            // opt C: arm the natural tap for the readback, then await a fresh natural.
+            pipeline.naturalTapArmed.store(true, ordering: .releasing)
+            defer { pipeline.naturalTapArmed.store(false, ordering: .releasing) }
+            await awaitNaturalRefresh()
             // Read back only the centered sampled patch (not the full frame) — the
             // GPU extracts it, so calibration never touches the multi-megapixel CPU
             // path.

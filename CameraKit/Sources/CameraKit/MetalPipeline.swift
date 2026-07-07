@@ -281,12 +281,24 @@ final class MetalPipeline: @unchecked Sendable {
     // MARK: - Shared properties
 
     private let commandQueue: MTLCommandQueue
-    // Fused decode→grade→pack PSOs (kernel-fusion): the production frame core. Two
-    // variants of `yuvGradedFused`, selected at build time by the `kWritePacked`
-    // function constant — `Pack` writes the BGRA8 tracker/mailbox output, `NoPack`
-    // drops that binding for frames with no .tracker subscriber and no mailbox target.
-    private let yuvGradedFusedPackPSO: MTLComputePipelineState
-    private let yuvGradedFusedNoPackPSO: MTLComputePipelineState
+    // Fused decode→grade→pack PSOs (kernel-fusion): the production frame core. Four
+    // build-time variants of `yuvGradedFused` over the (kWriteNatural × kWritePacked)
+    // function constants, indexed by `fusedPSOIndex(natural:packed:)`. Steady state
+    // uses natural=false,packed=true (graded surface only); a frame with no graded
+    // consumer drops packed; an armed calibration turns natural on (opt C).
+    private let fusedPSOs: [MTLComputePipelineState]
+
+    /// Variant index into `fusedPSOs`: bit1 = writeNatural, bit0 = writePacked.
+    private static func fusedPSOIndex(natural: Bool, packed: Bool) -> Int {
+        (natural ? 2 : 0) | (packed ? 1 : 0)
+    }
+
+    /// Armed only while a calibration samples the natural tap (opt C).
+    ///
+    /// When false, `renderFrame` skips the natural pool dequeue + write + mailbox/PTS
+    /// store, so the steady-state frame writes just the BGRA8 graded surface. Set from
+    /// the actor (calibrate*); read on the `delivery` queue — hence a `ManagedAtomic`.
+    let naturalTapArmed = ManagedAtomic<Bool>(false)
     // Pre-fusion single-purpose PSOs. `yuvToRgba` (decode) and `rgba16fToBgra8`
     // (pack) are NO LONGER on the production path (folded into yuvGradedFused); they
     // — and `colorTransform` (grade) — are retained ONLY as the reference passes for
@@ -451,13 +463,15 @@ final class MetalPipeline: @unchecked Sendable {
         }
 
         // 4b'. Fused decode→grade→pack — the production frame core. One kernel source
-        //      (`yuvGradedFused`) compiled into two PSOs via the `kWritePacked`
-        //      function constant: `Pack` (writes the BGRA8 tracker/mailbox output) and
-        //      `NoPack` (drops that binding). See encodeGradedCore for selection.
-        func makeFusedPSO(writePacked: Bool) throws -> MTLComputePipelineState {
+        //      (`yuvGradedFused`) compiled into FOUR PSOs over the (kWriteNatural ×
+        //      kWritePacked) function constants (index 0 = natural, 1 = packed).
+        //      Ordered so `fusedPSOIndex(natural:packed:)` selects them directly.
+        func makeFusedPSO(writeNatural: Bool, writePacked: Bool) throws -> MTLComputePipelineState {
             let constants = MTLFunctionConstantValues()
-            var flag = writePacked
-            constants.setConstantValue(&flag, type: .bool, index: 0)
+            var n = writeNatural
+            var p = writePacked
+            constants.setConstantValue(&n, type: .bool, index: 0)
+            constants.setConstantValue(&p, type: .bool, index: 1)
             let fn: MTLFunction
             do {
                 fn = try library.makeFunction(name: "yuvGradedFused", constantValues: constants)
@@ -468,8 +482,13 @@ final class MetalPipeline: @unchecked Sendable {
             return try device.makeComputePipelineState(function: fn)
         }
         do {
-            yuvGradedFusedPackPSO = try makeFusedPSO(writePacked: true)
-            yuvGradedFusedNoPackPSO = try makeFusedPSO(writePacked: false)
+            var psos: [MTLComputePipelineState] = []
+            for natural in [false, true] {
+                for packed in [false, true] {
+                    psos.append(try makeFusedPSO(writeNatural: natural, writePacked: packed))
+                }
+            }
+            fusedPSOs = psos  // index = natural*2 + packed, matching fusedPSOIndex
         } catch let e as MetalError {
             throw e
         } catch {
@@ -583,7 +602,7 @@ final class MetalPipeline: @unchecked Sendable {
         into commandBuffer: MTLCommandBuffer,
         y yTexture: MTLTexture,
         cbcr cbcrTexture: MTLTexture,
-        natural naturalTex: MTLTexture,
+        natural naturalTex: MTLTexture?,
         packed packedTex: MTLTexture?,
         color colorSnapshot: ColorUniform,
         crop cropSnapshot: CropUniform,
@@ -591,19 +610,22 @@ final class MetalPipeline: @unchecked Sendable {
         threadGroupSize: MTLSize
     ) {
         // Fused decode → grade (+ normalization) → pack in ONE dispatch. Reads the
-        // YUV planes once and produces natural (16F) and — when a `packedTex` target
-        // is supplied — packed (BGRA8), from registers. This eliminates the two
-        // full-frame RGBA16F re-reads the old three-encoder path paid. Kernel math
-        // and the precision note live in ColorShaders.metal `yuvGradedFused`.
+        // YUV planes once and produces — when their targets are supplied — natural
+        // (16F, armed calibration only) and packed (BGRA8, the graded surface), from
+        // registers. This eliminates the two full-frame RGBA16F re-reads the old
+        // three-encoder path paid. Kernel math + precision note in ColorShaders.metal.
         //
-        // Variant select: the NoPack PSO drops the BGRA8 write entirely (no bound
-        // packed texture) when `packedTex == nil` — a frame with no .tracker
-        // subscriber and no mailbox target. The still path always supplies `packedTex`.
+        // Variant select: one of four `yuvGradedFused` PSOs by which outputs are
+        // present. An unbound output's write is dropped at compile time (function
+        // constant). Steady state = natural nil + packed present.
         let core = commandBuffer.makeComputeCommandEncoder()!
-        core.setComputePipelineState(packedTex != nil ? yuvGradedFusedPackPSO : yuvGradedFusedNoPackPSO)
+        core.setComputePipelineState(
+            fusedPSOs[Self.fusedPSOIndex(natural: naturalTex != nil, packed: packedTex != nil)])
         core.setTexture(yTexture, index: 0)
         core.setTexture(cbcrTexture, index: 1)
-        core.setTexture(naturalTex, index: 2)
+        if let naturalTex {
+            core.setTexture(naturalTex, index: 2)
+        }
         if let packedTex {
             core.setTexture(packedTex, index: 3)
         }
@@ -632,15 +654,15 @@ final class MetalPipeline: @unchecked Sendable {
         }
 
         // 3. Dequeue per-frame pool buffers. The 16F processed pool was retired from
-        //    production (optimization B) — the graded surface is BGRA8 (`packed`); the
-        //    natural 16F pool remains for the calibration tap.
-        let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)
-        do {
-            naturalPair = try texturePool.dequeuePoolTexture(
+        //    production (optimization B) — the graded surface is BGRA8 (`packed`). The
+        //    natural 16F tap is dequeued ONLY while a calibration is armed (opt C);
+        //    steady-state frames never touch the natural pool. A dequeue miss here just
+        //    skips the tap for this frame — calibration awaits a fresh natural anyway.
+        let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
+            naturalTapArmed.load(ordering: .acquiring)
+            ? try? texturePool.dequeuePoolTexture(
                 pool: naturalPool, width: outputSize.width, height: outputSize.height)
-        } catch {
-            return  // pool exhausted — drop frame
-        }
+            : nil
 
         // Tracker buffer only when someone is subscribed to .tracker (no wasteful alloc).
         // Pool is BGRA8; dequeueEightBitPoolTexture wraps it as .bgra8Unorm — Pass-4's
@@ -666,13 +688,14 @@ final class MetalPipeline: @unchecked Sendable {
         // 5. Command buffer.
         let commandBuffer = commandQueue.makeCommandBuffer()!
 
-        let naturalTexI = naturalPair.texture
+        let naturalTexI = naturalPair?.texture
 
         // Threadgroup config for the pointwise core passes (16×16 tiles over outputSize).
+        // Derived from outputSize (not a texture) since natural may be unbound.
         let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
         let threadGroups = MTLSize(
-            width: (naturalTexI.width + 15) / 16,
-            height: (naturalTexI.height + 15) / 16,
+            width: (outputSize.width + 15) / 16,
+            height: (outputSize.height + 15) / 16,
             depth: 1
         )
 
@@ -771,6 +794,7 @@ final class MetalPipeline: @unchecked Sendable {
         // is not Sendable; capture derived values (CMTime, metadata snapshot) instead.
         let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let fn = frameNumber
+        let naturalBufForCompletion = naturalPair?.buffer  // opt C: retain the armed tap buffer
         let trackerBuf = trackerPair?.buffer
         let trackerTex = trackerPair?.texture
         let consumers = self.consumers
@@ -841,7 +865,7 @@ final class MetalPipeline: @unchecked Sendable {
                             "[gpuprofile] avg=\(String(format: "%.2f", avgMs))ms "
                                 + "max=\(String(format: "%.2f", maxMs))ms over "
                                 + "\(Self.gpuProfileWindow) frames "
-                                + "out=\(naturalTexI.width)x\(naturalTexI.height) "
+                                + "out=\(self.outputSize.width)x\(self.outputSize.height) "
                                 + "recording=\(rec) (budget 33.3ms)")
                     }
                 }
@@ -881,23 +905,28 @@ final class MetalPipeline: @unchecked Sendable {
             // intermediate for calibration/diagnostic sampling — never delivered
             // (remove-natural-lane). `captureImage` reads the processed BGRA8 buffer
             // mailbox; `captureNaturalPicture` converts on demand via `renderStill`.
-            self._latestNaturalTex16F.store(naturalTexI)
-            if logFirstAfterGate {
-                CameraKitLog.notice(
-                    .metal, "[resume] first texture stored (t1c) — preview texture live")
-            }
-            // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` can
-            // confirm naturalTex has been refreshed past a given timestamp. CAS
-            // loop ensures we only advance the published PTS — out-of-order
-            // command-buffer completion (rare but possible across Metal queues)
-            // must not regress the timeline.
-            let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
-            var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
-            while captureNs > cur {
-                let (ok, actual) = self.latestNaturalPTSNs.compareExchange(
-                    expected: cur, desired: captureNs, ordering: .releasing)
-                if ok { break }
-                cur = actual
+            // Natural tap (opt C): stored + PTS-advanced ONLY when it was written this
+            // frame (a calibration is armed). Retain its pool buffer here until GPU
+            // completion so the write target isn't recycled mid-render.
+            if let naturalTexI {
+                self._latestNaturalTex16F.store(naturalTexI)
+                if logFirstAfterGate {
+                    CameraKitLog.notice(
+                        .metal, "[resume] first texture stored (t1c) — preview texture live")
+                }
+                // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` /
+                // `awaitNaturalRefresh` can confirm the tap has advanced past a given
+                // timestamp. CAS loop only advances the published PTS — out-of-order
+                // command-buffer completion (rare across Metal queues) must not regress it.
+                let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+                var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
+                while captureNs > cur {
+                    let (ok, actual) = self.latestNaturalPTSNs.compareExchange(
+                        expected: cur, desired: captureNs, ordering: .releasing)
+                    if ok { break }
+                    cur = actual
+                }
+                withExtendedLifetime(naturalBufForCompletion) {}
             }
             // BGRA8 mailbox (read by `captureImage`): store only the real BGRA8
             // buffer; on the rare miss keep the previous good frame, never a 16F one.
@@ -940,8 +969,6 @@ final class MetalPipeline: @unchecked Sendable {
         }
         let yTex = try texturePool.makeYTexture(from: pixelBuffer)
         let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
-        let nat = try texturePool.dequeuePoolTexture(
-            pool: naturalPool, width: outputSize.width, height: outputSize.height)
         let out = try texturePool.dequeueEightBitPoolTexture(
             pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height)
 
@@ -953,12 +980,12 @@ final class MetalPipeline: @unchecked Sendable {
             height: (outputSize.height + 15) / 16,
             depth: 1)
 
-        // Shared graded core: decode → grade (+ normalization) → pack. The still
-        // always supplies a pack target (`out`), the BGRA8 graded still.
+        // Shared graded core: decode → grade (+ normalization) → pack. The still needs
+        // only the graded BGRA8 output (`out`); the natural tap is unused here (nil).
         encodeGradedCore(
             into: cb,
             y: yTex, cbcr: cbcrTex,
-            natural: nat.texture,
+            natural: nil,
             packed: out.texture,
             color: color, crop: crop,
             threadGroups: groups, threadGroupSize: tg)
@@ -1312,6 +1339,12 @@ extension MetalPipeline {
         // remove-natural-lane: only the internal 16F natural texture survives (the
         // calibration sampler input); there is no streaming natural buffer mailbox.
         _latestNaturalTex16F.store(texture)
+    }
+
+    /// Arms/disarms the natural tap (opt C) so a test can make `renderFrame` write the
+    /// natural 16F texture, mirroring an armed calibration.
+    func setNaturalTapArmedForTest(_ armed: Bool) {
+        naturalTapArmed.store(armed, ordering: .releasing)
     }
 
     func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {

@@ -117,6 +117,8 @@ struct Stage06Tests {
             gateOpen: true)
 
         // Source is sensor-sized; Pass-1 reads the offset sub-region.
+        // Arm the natural tap (opt C) so renderFrame writes the 16F natural texture.
+        pipeline.setNaturalTapArmedForTest(true)
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
         try pipeline.renderFrame(sampleBuffer: sb)
         // Mailbox stores happen in addCompletedHandler, which fires as part of
@@ -141,6 +143,7 @@ struct Stage06Tests {
             device: device, captureSize: sensor, gateOpen: true)
         #expect(pipeline.outputSize == sensor)
 
+        pipeline.setNaturalTapArmedForTest(true)  // opt C: make renderFrame write natural
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
         try pipeline.renderFrame(sampleBuffer: sb)
         pipeline.lastCommandBuffer?.waitUntilCompleted()

@@ -221,11 +221,15 @@ static inline float4 decodeYuvBt601(
     return float4(R, G, B, 1.0);
 }
 
-// Compile-time variant switch: when false, the `packedTex` binding and the BGRA8
-// write are dropped entirely (no bound texture required). The host builds two
-// PSOs from this one source — one per value of kWritePacked (MetalPipeline.swift
-// `yuvGradedFusedPackPSO` / `...NoPackPSO`).
-constant bool kWritePacked [[function_constant(0)]];
+// Compile-time variant switches: when false, the corresponding output binding and
+// its write are dropped entirely (no bound texture required). The host builds FOUR
+// PSOs from this one source — one per (kWriteNatural × kWritePacked) combination.
+//   • kWriteNatural — the 16F calibration tap. OFF in steady state (optimization C:
+//     nobody reads it), turned ON only while a calibration is armed.
+//   • kWritePacked  — the BGRA8 graded surface. OFF only when no graded consumer
+//     exists this frame (no .tracker subscriber, no mailbox target).
+constant bool kWriteNatural [[function_constant(0)]];
+constant bool kWritePacked  [[function_constant(1)]];
 
 // yuvGradedFused — the production frame core, fusing the former decode+grade+pack
 // passes into one dispatch. It reads the YUV planes ONCE and produces its outputs
@@ -253,8 +257,9 @@ constant bool kWritePacked [[function_constant(0)]];
 //
 //     yTex,cbcrTex ──decodeYuvBt601(src)──▶ nat (float4, gamma R'G'B', f32 regs)
 //                                            │
+//               if kWriteNatural:            │
 //                     naturalTex.write(nat) ◀┤   ← 16F natural (calibration tap;
-//                                            │      also the decode reference)
+//                                            │      armed-only, opt C)
 //                          gradePixel(nat)  ─┘
 //                                 │
 //                                 ▼
@@ -280,24 +285,29 @@ constant bool kWritePacked [[function_constant(0)]];
 kernel void yuvGradedFused(
     texture2d<float, access::read>  yTex       [[texture(0)]],
     texture2d<float, access::read>  cbcrTex    [[texture(1)]],
-    texture2d<float, access::write> naturalTex [[texture(2)]],
+    texture2d<float, access::write> naturalTex [[texture(2), function_constant(kWriteNatural)]],
     texture2d<float, access::write> packedTex  [[texture(3), function_constant(kWritePacked)]],
     constant CropUniform&           crop       [[buffer(0)]],
     constant ColorUniform&          color      [[buffer(1)]],
     uint2 gid [[thread_position_in_grid]])
 {
-    // Bounds guard on the output (crop-region) dims — extra tile threads may exceed it.
-    if (gid.x >= naturalTex.get_width() || gid.y >= naturalTex.get_height()) {
+    // Bounds guard on the output (crop-region) dims. Read them from the CropUniform
+    // (host sets width/height = outputSize), NOT from a texture — either output may
+    // be unbound depending on the function-constant variant.
+    if (gid.x >= crop.width || gid.y >= crop.height) {
         return;
     }
 
     // Map the output pixel to its source pixel in the full capture-resolution frame.
     uint2 src = uint2(gid.x + crop.originX, gid.y + crop.originY);
 
-    // Decode once (float32 registers). Write the natural lane (16F) — the
-    // calibration sampler input, and the byte-identical decode reference.
+    // Decode once (float32 registers). Write the natural lane (16F) only when a
+    // calibration is armed (kWriteNatural) — the calibration sampler input; nobody
+    // reads it in steady state (optimization C).
     float4 nat = decodeYuvBt601(yTex, cbcrTex, src);
-    naturalTex.write(nat, gid);
+    if (kWriteNatural) {
+        naturalTex.write(nat, gid);
+    }
 
     // Grade in registers from the f32 decode (see PRECISION NOTE), then pack to
     // BGRA8 — the SINGLE graded surface (tracker source, delivery mailbox, and the

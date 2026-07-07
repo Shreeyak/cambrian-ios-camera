@@ -182,8 +182,9 @@ struct RgbaConversionMailboxFormatTests {
     /// Calibration sampling reads `latestNaturalTex16F` (kept at 16F for linear-light
     /// precision). It is never a delivery surface — that is the BGRA8 mailboxes. Keep
     /// this isolated so a future edit can't silently erode the 16F-for-the-math
-    /// contract. (optimization B: the graded 16F processed texture was retired — the
-    /// graded surface is now BGRA8; `latestProcessedTex16F` is a test-only seam.)
+    /// contract. (opt B: the graded 16F processed texture was retired — the graded
+    /// surface is BGRA8. opt C: the natural tap is written only while armed, so the
+    /// test arms it before rendering.)
     @Test("Internal calibration natural texture stays .rgba16Float")
     func calibrationNaturalTextureStays16F() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -196,12 +197,43 @@ struct RgbaConversionMailboxFormatTests {
             captureSize: Size(width: 256, height: 192),
             gateOpen: true,
             consumers: consumers)
+        pipeline.setNaturalTapArmedForTest(true)  // opt C: arm so renderFrame writes natural
         let sample = try makeSyntheticYUVSampleBufferForRgba8Tests(
             width: 256, height: 192)
         try pipeline.renderFrame(sampleBuffer: sample)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         #expect(pipeline.latestNaturalTex16F?.pixelFormat == .rgba16Float)
+    }
+
+    /// opt C: the natural tap is written ONLY while armed. A disarmed `renderFrame`
+    /// leaves it unwritten (steady-state saving); arming makes the next frame write it.
+    @Test("Natural tap is written only while armed (opt C)")
+    func naturalTapGatedByArm() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            Issue.record("no metal device")
+            return
+        }
+        let pipeline = try MetalPipeline(
+            device: device,
+            captureSize: Size(width: 256, height: 192),
+            gateOpen: true,
+            consumers: ConsumerRegistry())
+
+        // Disarmed (default): natural tap is not produced.
+        let s1 = try makeSyntheticYUVSampleBufferForRgba8Tests(width: 256, height: 192)
+        try pipeline.renderFrame(sampleBuffer: s1)
+        pipeline.lastCommandBuffer?.waitUntilCompleted()
+        #expect(pipeline.latestNaturalTex16F == nil, "disarmed: natural tap must not be written")
+        // The graded BGRA8 surface is still delivered every frame.
+        #expect(pipeline.latestProcessedBgra8Tex != nil, "graded surface delivered while disarmed")
+
+        // Armed: the next frame writes the natural tap.
+        pipeline.setNaturalTapArmedForTest(true)
+        let s2 = try makeSyntheticYUVSampleBufferForRgba8Tests(width: 256, height: 192)
+        try pipeline.renderFrame(sampleBuffer: s2)
+        pipeline.lastCommandBuffer?.waitUntilCompleted()
+        #expect(pipeline.latestNaturalTex16F != nil, "armed: natural tap must be written")
     }
 
     /// The processed preview texture (`currentProcessedTexture()` reads it) is
