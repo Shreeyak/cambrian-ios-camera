@@ -80,18 +80,17 @@ static inline float linearToSrgb(float c) {
 // coefficients to RGBA buffers).
 constant float3 COLOR_LUMA_WEIGHT = float3(0.2126, 0.7152, 0.0722);
 
-kernel void colorTransform(texture2d<float, access::read>  inTex  [[texture(0)]],
-                           texture2d<float, access::write> outTex [[texture(1)]],
-                           constant ColorUniform&          u      [[buffer(0)]],
-                           uint2 gid [[thread_position_in_grid]])
-{
-    if (gid.x >= outTex.get_width() || gid.y >= outTex.get_height()) {
-        return;
-    }
-
-    float4 srgb = inTex.read(gid);
-    float3 c = srgb.rgb;
-
+// gradePixel — the ENTIRE pointwise color transform for ONE RGB triple, in
+// registers. This is the single source of truth for the color pipeline math:
+// both `colorTransform` (the standalone grade kernel, retained as a test seam)
+// and the fused `yuvGradedFused` kernel below call this, so there is exactly one
+// definition of "normalize → brightness → contrast → saturation → gamma".
+//
+// Input/output are gamma-encoded R'G'B' (the working/display space). Alpha is the
+// caller's concern (this helper never touches it). The five steps run in the order
+// fixed by the header (§Order); each has a documented identity point so an
+// all-identity ColorUniform is a no-op (modulo the gated sRGB round-trip below).
+static inline float3 gradePixel(float3 c, constant ColorUniform& u) {
     // 0. Linear-light normalization (linear-normalization-stage) — runs BEFORE the
     //    gamma-space grade below. Black point / WB chroma / white point are physical
     //    (multiply/subtract on light) and are only correct in LINEAR light, so this
@@ -151,7 +150,165 @@ kernel void colorTransform(texture2d<float, access::read>  inTex  [[texture(0)]]
     float safeGamma = max(u.gamma, 1e-3);
     c = pow(max(c, 0.0), float3(1.0 / safeGamma));
 
-    outTex.write(float4(c, srgb.a), gid);
+    return c;
+}
+
+// colorTransform — standalone grade kernel: read RGBA16F `natural`, grade,
+// write RGBA16F `processed`. After the decode→grade→pack fusion
+// (`yuvGradedFused`) this kernel is NO LONGER on the production frame path; it is
+// retained because (a) the Stage-04 golden tests drive it via `encodeGradeOnly`
+// to validate `gradePixel` in isolation, and (b) the fused-vs-separate
+// equivalence test needs a reference grade. Because it shares `gradePixel` with
+// the fused kernel, those golden tests transitively validate the fused grade.
+kernel void colorTransform(texture2d<float, access::read>  inTex  [[texture(0)]],
+                           texture2d<float, access::write> outTex [[texture(1)]],
+                           constant ColorUniform&          u      [[buffer(0)]],
+                           uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= outTex.get_width() || gid.y >= outTex.get_height()) {
+        return;
+    }
+
+    float4 srgb = inTex.read(gid);
+    outTex.write(float4(gradePixel(srgb.rgb, u), srgb.a), gid);
+}
+
+// ---------------------------------------------------------------------------
+// Fused decode → grade → pack (kernel-fusion optimization)
+// ---------------------------------------------------------------------------
+//
+// `CropUniform` and `decodeYuvBt601` are DUPLICATED from YUVToRGBA.metal. Metal
+// compiles each .metal file as a separate translation unit, so a shared struct /
+// helper would require a shared .h header — and a SwiftPM Metal build treats a
+// stray header inconsistently, so we copy instead. KEEP IN SYNC with
+// YUVToRGBA.metal: the byte layout of `CropUniform` and the BT.601 coefficients
+// MUST match exactly. Two device tests guard against silent divergence by running
+// the OLD `yuvToRgba`+`colorTransform` path and this fused kernel on the SAME
+// input and asserting the outputs agree: `fusedVsSeparateCoreEquivalence` (chroma-
+// rich input) catches BT.601 COEFFICIENT drift, and `fusedCropOriginMatchesSeparate`
+// (spatially-varying input + non-zero, non-square crop origin) catches CROP-ORIGIN
+// drift (e.g. a `gid.x + crop.originY` typo). Divergence fails a test, not ships.
+
+// Mirrors struct CropUniform in YUVToRGBA.metal (and Swift `CropUniform`). The
+// shader uses only originX/originY; width/height are carried for host layout parity.
+struct CropUniform {
+    uint originX;
+    uint originY;
+    uint width;
+    uint height;
+};
+
+// BT.601 full-range YCbCr 4:2:0 → RGBA decode for ONE output pixel. `src` is the
+// source pixel in the FULL capture frame (caller adds the crop origin), so this
+// is a true 1:1 sub-region read (no zoom). Byte-for-byte the same math as
+// `yuvToRgba` in YUVToRGBA.metal — see the KEEP IN SYNC note above.
+static inline float4 decodeYuvBt601(
+    texture2d<float, access::read> yTex,
+    texture2d<float, access::read> cbcrTex,
+    uint2 src)
+{
+    // Luma — full-range: Y already in [0, 1].
+    float Y = yTex.read(src).r;
+    // Chroma — 4:2:0: chroma plane is half-resolution in both dimensions.
+    float2 UV = cbcrTex.read(uint2(src.x / 2, src.y / 2)).rg;
+    // Center chroma around 0 (UV values from .rg8Unorm are [0, 1]).
+    float Cb = UV.x - 0.5;
+    float Cr = UV.y - 0.5;
+    // BT.601 full-range matrix.
+    float R = Y + 1.402   * Cr;
+    float G = Y - 0.344136 * Cb - 0.714136 * Cr;
+    float B = Y + 1.772   * Cb;
+    return float4(R, G, B, 1.0);
+}
+
+// Compile-time variant switch: when false, the `packedTex` binding and the BGRA8
+// write are dropped entirely (no bound texture required). The host builds two
+// PSOs from this one source — one per value of kWritePacked (MetalPipeline.swift
+// `yuvGradedFusedPackPSO` / `...NoPackPSO`).
+constant bool kWritePacked [[function_constant(0)]];
+
+// yuvGradedFused — the production frame core, fusing three former passes into one
+// dispatch. It reads the YUV planes ONCE and produces up to three outputs from
+// values held in registers, eliminating the two full-frame RGBA16F texture
+// re-reads the old three-encoder path paid (decode wrote `natural`; grade re-read
+// `natural`; pack re-read `processed`).
+//
+// THE THREE OUTPUTS — each is a live pipeline intermediate with a DISTINCT consumer;
+// that is WHY they cannot collapse into fewer textures (a fresh reader's first question):
+//   • naturalTex   (RGBA16F) — the UN-graded decode. Calibration tap only
+//                              (`_latestNaturalTex16F`): black-point / WB read it back.
+//                              No streaming consumer — see optimization C (write on-demand).
+//   • processedTex (RGBA16F) — the GRADED frame at full precision. Consumed by the NV12
+//                              video encode (Pass-5, only while recording) AND as the
+//                              processed-lane delivery fallback when the BGRA8 mailbox
+//                              buffer was dropped on pool exhaustion. See optimization B.
+//   • packedTex    (BGRA8)   — the GRADED frame at 8-bit. Tracker (MPS/blit) source AND
+//                              the processed-lane mailbox (the NORMAL delivery format).
+//                              Dropped entirely when kWritePacked=false (no such consumer
+//                              this frame — no .tracker subscriber and no mailbox target).
+//
+// PER-THREAD DATA FLOW (one output pixel `gid`):
+//
+//     yTex,cbcrTex ──decodeYuvBt601(src)──▶ nat (float4, gamma R'G'B', f32 regs)
+//                                            │
+//                     naturalTex.write(nat) ◀┤   ← 16F natural (calibration tap;
+//                                            │      also the decode reference)
+//                          gradePixel(nat)  ─┘
+//                                 │
+//                                 ▼
+//                          grd (float3, graded, f32 regs)
+//                                 │
+//         processedTex.write(grd,nat.a) ◀────┤   ← 16F processed (NV12 encode when
+//                                            │      recording; delivery fallback)
+//                    if kWritePacked:        │
+//         packedTex.write(clamp(grd,0,1)) ◀──┘   ← BGRA8 packed (tracker source +
+//                                                   processed-lane mailbox)
+//
+// PRECISION NOTE (why fused output is ~1 ULP off the old separate path, NOT a bug):
+//   old:  grade re-read `natural` FROM the rgba16Float texture → graded the
+//         16F-truncated decode.  pack re-read `processed` FROM 16F likewise.
+//   fused: grades the float32 REGISTER `nat.rgb`; only `naturalTex.write` truncates
+//         to 16F. So `naturalTex` is byte-identical between paths (both store
+//         16F(decode)), while `processed`/`packed` differ by ≲ one 16F ULP of the
+//         decode input (~5e-4). Equivalence is asserted at 1e-3 tolerance, not ==.
+//
+// OUTPUT BINDINGS — all are WRITE-ONLY; none is read back within the kernel, so
+// there is no intra-kernel texture hazard (the grade reads the register `nat`, not
+// `naturalTex`). Downstream passes (NV12 encode reads `processedTex`; tracker reads
+// `packedTex`) are separate encoders in the same command buffer, so Metal inserts
+// the usual inter-pass barrier — same ordering the old path had.
+kernel void yuvGradedFused(
+    texture2d<float, access::read>  yTex         [[texture(0)]],
+    texture2d<float, access::read>  cbcrTex      [[texture(1)]],
+    texture2d<float, access::write> naturalTex   [[texture(2)]],
+    texture2d<float, access::write> processedTex [[texture(3)]],
+    texture2d<float, access::write> packedTex    [[texture(4), function_constant(kWritePacked)]],
+    constant CropUniform&           crop         [[buffer(0)]],
+    constant ColorUniform&          color        [[buffer(1)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    // Bounds guard on the output (crop-region) dims — extra tile threads may exceed it.
+    if (gid.x >= naturalTex.get_width() || gid.y >= naturalTex.get_height()) {
+        return;
+    }
+
+    // Map the output pixel to its source pixel in the full capture-resolution frame.
+    uint2 src = uint2(gid.x + crop.originX, gid.y + crop.originY);
+
+    // Decode once (float32 registers). Write the natural lane (16F) — the
+    // calibration sampler input, and the byte-identical decode reference.
+    float4 nat = decodeYuvBt601(yTex, cbcrTex, src);
+    naturalTex.write(nat, gid);
+
+    // Grade in registers from the f32 decode (see PRECISION NOTE). Write processed (16F).
+    float3 grd = gradePixel(nat.rgb, color);
+    processedTex.write(float4(grd, nat.a), gid);
+
+    // Pack to BGRA8 only for the tracker/mailbox variant. clamp[0,1] matches the
+    // old rgba16fToBgra8 kernel (a bgra8Unorm write clamps anyway; explicit for parity).
+    if (kWritePacked) {
+        packedTex.write(clamp(float4(grd, nat.a), 0.0, 1.0), gid);
+    }
 }
 
 // Copies the centered `dst`-sized square window of `src` into `dst`, so

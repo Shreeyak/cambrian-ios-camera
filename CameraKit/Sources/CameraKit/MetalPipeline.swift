@@ -288,6 +288,17 @@ final class MetalPipeline: @unchecked Sendable {
     // MARK: - Shared properties
 
     private let commandQueue: MTLCommandQueue
+    // Fused decode→grade→pack PSOs (kernel-fusion): the production frame core. Two
+    // variants of `yuvGradedFused`, selected at build time by the `kWritePacked`
+    // function constant — `Pack` writes the BGRA8 tracker/mailbox output, `NoPack`
+    // drops that binding for frames with no .tracker subscriber and no mailbox target.
+    private let yuvGradedFusedPackPSO: MTLComputePipelineState
+    private let yuvGradedFusedNoPackPSO: MTLComputePipelineState
+    // Pre-fusion single-purpose PSOs. `yuvToRgba` (decode) and `rgba16fToBgra8`
+    // (pack) are NO LONGER on the production path (folded into yuvGradedFused); they
+    // — and `colorTransform` (grade) — are retained ONLY as the reference passes for
+    // the fused-vs-separate equivalence test (`encodeSeparateCoreForTest`) and the
+    // `encodeGradeOnly` grade golden tests. Do not add production callers.
     private let yuvToRgbaPSO: MTLComputePipelineState
     private let colorTransformPSO: MTLComputePipelineState
     private let centerPatchPSO: MTLComputePipelineState
@@ -446,6 +457,32 @@ final class MetalPipeline: @unchecked Sendable {
             throw MetalError.pipelineStateCompilation(error.localizedDescription)
         }
 
+        // 4b'. Fused decode→grade→pack — the production frame core. One kernel source
+        //      (`yuvGradedFused`) compiled into two PSOs via the `kWritePacked`
+        //      function constant: `Pack` (writes the BGRA8 tracker/mailbox output) and
+        //      `NoPack` (drops that binding). See encodeGradedCore for selection.
+        func makeFusedPSO(writePacked: Bool) throws -> MTLComputePipelineState {
+            let constants = MTLFunctionConstantValues()
+            var flag = writePacked
+            constants.setConstantValue(&flag, type: .bool, index: 0)
+            let fn: MTLFunction
+            do {
+                fn = try library.makeFunction(name: "yuvGradedFused", constantValues: constants)
+            } catch {
+                throw MetalError.pipelineStateCompilation(
+                    "yuvGradedFused specialization failed: \(error.localizedDescription)")
+            }
+            return try device.makeComputePipelineState(function: fn)
+        }
+        do {
+            yuvGradedFusedPackPSO = try makeFusedPSO(writePacked: true)
+            yuvGradedFusedNoPackPSO = try makeFusedPSO(writePacked: false)
+        } catch let e as MetalError {
+            throw e
+        } catch {
+            throw MetalError.pipelineStateCompilation(error.localizedDescription)
+        }
+
         // 4c. Center-patch sampler.
         guard let patchFunction = library.makeFunction(name: "centerPatchHistogram") else {
             throw MetalError.pipelineStateCompilation("centerPatchHistogram not found")
@@ -531,16 +568,19 @@ final class MetalPipeline: @unchecked Sendable {
     ///
     /// Must be called on the `delivery` DispatchQueue (ADR-02).
     /// Frames that cannot be processed are silently dropped.
-    /// Shared graded core — encodes `decode → grade → pack` into `commandBuffer`.
+    /// Shared graded core — encodes `decode → grade → pack` into `commandBuffer`
+    /// as ONE fused dispatch (`yuvGradedFused`), producing all outputs from
+    /// registers after a single YUV read.
     ///
     /// Role names (linear-normalization-stage §3.0, replacing the historical
-    /// Pass-1 / Pass-2 / Pass-7p numbers):
-    /// - **decode**: YUV→RGB + crop (`yuvToRgba`) → `natural`.
-    /// - **grade**: color transform (`colorTransform`) `natural` → `processed`.
+    /// Pass-1 / Pass-2 / Pass-7p numbers) — now fused stages of one kernel, not
+    /// separate encoders:
+    /// - **decode**: YUV→RGB + crop → `natural` (16F).
+    /// - **grade**: color transform (`gradePixel`) → `processed` (16F).
     ///   The single insertion point for the linear-light normalization (§2).
-    /// - **pack**: RGBA16F→BGRA8 (`rgba16fToBgra8`) `processed` → `packed`,
-    ///   encoded only when `packed` is non-nil — the streaming path skips it on
-    ///   pool exhaustion; the still path always supplies a target.
+    /// - **pack**: →BGRA8 `packed`, written only when `packed` is non-nil (NoPack
+    ///   PSO variant otherwise) — the streaming path passes nil with no .tracker
+    ///   subscriber / on pool exhaustion; the still path always supplies a target.
     ///
     /// Called by both `renderFrame` (streaming) and `renderStill` (one-shot) so
     /// the grade — and the normalization folded into it — lives in exactly one
@@ -558,36 +598,31 @@ final class MetalPipeline: @unchecked Sendable {
         threadGroups: MTLSize,
         threadGroupSize: MTLSize
     ) {
-        // decode — YUV → RGBA into `natural`, with the crop uniform.
-        let decode = commandBuffer.makeComputeCommandEncoder()!
-        decode.setComputePipelineState(yuvToRgbaPSO)
-        decode.setTexture(yTexture, index: 0)
-        decode.setTexture(cbcrTexture, index: 1)
-        decode.setTexture(naturalTex, index: 2)
+        // Fused decode → grade (+ normalization) → pack in ONE dispatch. Reads the
+        // YUV planes once and produces natural (16F), processed (16F), and — when a
+        // `packedTex` target is supplied — packed (BGRA8), all from registers. This
+        // eliminates the two full-frame RGBA16F re-reads the old three-encoder path
+        // paid (grade re-read `natural`; pack re-read `processed`). Kernel math and
+        // the ~1-ULP precision note live in ColorShaders.metal `yuvGradedFused`.
+        //
+        // Variant select: the NoPack PSO drops the BGRA8 write entirely (no bound
+        // packed texture) when `packedTex == nil` — a frame with no .tracker
+        // subscriber and no mailbox target. The still path always supplies `packedTex`.
+        let core = commandBuffer.makeComputeCommandEncoder()!
+        core.setComputePipelineState(packedTex != nil ? yuvGradedFusedPackPSO : yuvGradedFusedNoPackPSO)
+        core.setTexture(yTexture, index: 0)
+        core.setTexture(cbcrTexture, index: 1)
+        core.setTexture(naturalTex, index: 2)
+        core.setTexture(processedTex, index: 3)
+        if let packedTex {
+            core.setTexture(packedTex, index: 4)
+        }
         var cropLocal = cropSnapshot  // setBytes needs a mutable address
-        decode.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
-        decode.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-        decode.endEncoding()
-
-        // grade — color transform `natural` → `processed`. Normalization (§2)
-        // folds into this kernel: linearize → affine → re-encode → grade.
-        let grade = commandBuffer.makeComputeCommandEncoder()!
-        grade.setComputePipelineState(colorTransformPSO)
-        grade.setTexture(naturalTex, index: 0)
-        grade.setTexture(processedTex, index: 1)
+        core.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
         var colorLocal = colorSnapshot
-        grade.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
-        grade.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-        grade.endEncoding()
-
-        // pack — RGBA16F → BGRA8 `processed` → `packed`, only when a target is supplied.
-        guard let packedTex else { return }
-        let pack = commandBuffer.makeComputeCommandEncoder()!
-        pack.setComputePipelineState(rgba16fToBgra8PSO)
-        pack.setTexture(processedTex, index: 0)
-        pack.setTexture(packedTex, index: 1)
-        pack.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-        pack.endEncoding()
+        core.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 1)
+        core.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        core.endEncoding()
     }
 
     func renderFrame(sampleBuffer: CMSampleBuffer) throws {
@@ -1372,6 +1407,160 @@ extension MetalPipeline {
             }
             commandBuffer.commit()
         }
+    }
+
+    // Bundle of the natural (16F) + processed (16F) outputs from BOTH the
+    // pre-fusion three-encoder core and the fused core, for equivalence testing.
+    struct CoreComparisonForTest {
+        let separateNatural: CVPixelBuffer
+        let separateProcessed: CVPixelBuffer
+        let fusedNatural: CVPixelBuffer
+        let fusedProcessed: CVPixelBuffer
+    }
+
+    /// Test-only: the PRE-FUSION three-encoder core (decode → grade → pack).
+    ///
+    /// Byte-for-byte the old `encodeGradedCore` body. Retained ONLY as the reference
+    /// path for `encodeCoreComparisonForTest`; the fused kernel must reproduce its
+    /// natural/processed outputs (within 1e-3 — see the fused-kernel precision note).
+    private func encodeSeparateCoreForTest(
+        into commandBuffer: MTLCommandBuffer,
+        y yTexture: MTLTexture, cbcr cbcrTexture: MTLTexture,
+        natural naturalTex: MTLTexture, processed processedTex: MTLTexture,
+        packed packedTex: MTLTexture?,
+        color colorSnapshot: ColorUniform, crop cropSnapshot: CropUniform,
+        threadGroups: MTLSize, threadGroupSize: MTLSize
+    ) {
+        let decode = commandBuffer.makeComputeCommandEncoder()!
+        decode.setComputePipelineState(yuvToRgbaPSO)
+        decode.setTexture(yTexture, index: 0)
+        decode.setTexture(cbcrTexture, index: 1)
+        decode.setTexture(naturalTex, index: 2)
+        var cropLocal = cropSnapshot
+        decode.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
+        decode.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        decode.endEncoding()
+
+        let grade = commandBuffer.makeComputeCommandEncoder()!
+        grade.setComputePipelineState(colorTransformPSO)
+        grade.setTexture(naturalTex, index: 0)
+        grade.setTexture(processedTex, index: 1)
+        var colorLocal = colorSnapshot
+        grade.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
+        grade.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        grade.endEncoding()
+
+        guard let packedTex else { return }
+        let pack = commandBuffer.makeComputeCommandEncoder()!
+        pack.setComputePipelineState(rgba16fToBgra8PSO)
+        pack.setTexture(processedTex, index: 0)
+        pack.setTexture(packedTex, index: 1)
+        pack.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        pack.endEncoding()
+    }
+
+    /// Test-only: runs the OLD separate core and the NEW fused core for equivalence.
+    ///
+    /// Both run on the SAME y/cbcr input + color/crop, in one command buffer, and
+    /// return their natural and processed outputs so the test can assert equivalence.
+    /// Both paths write a BGRA8 pack target too (exercising the fused Pack PSO
+    /// variant), but only the 16F lanes are returned for comparison.
+    func encodeCoreComparisonForTest(
+        y: MTLTexture, cbcr: MTLTexture, size: Size, color: ColorUniform, crop: CropUniform
+    ) async throws -> CoreComparisonForTest {
+        let sepNat = try texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: size.width, height: size.height)
+        let sepProc = try texturePool.dequeuePoolTexture(
+            pool: processedPool, width: size.width, height: size.height)
+        let sepPacked = try texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: size.width, height: size.height)
+        let fusNat = try texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: size.width, height: size.height)
+        let fusProc = try texturePool.dequeuePoolTexture(
+            pool: processedPool, width: size.width, height: size.height)
+        let fusPacked = try texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: size.width, height: size.height)
+
+        let cb = commandQueue.makeCommandBuffer()!
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (size.width + 15) / 16, height: (size.height + 15) / 16, depth: 1)
+
+        encodeSeparateCoreForTest(
+            into: cb, y: y, cbcr: cbcr,
+            natural: sepNat.texture, processed: sepProc.texture, packed: sepPacked.texture,
+            color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+        encodeGradedCore(
+            into: cb, y: y, cbcr: cbcr,
+            natural: fusNat.texture, processed: fusProc.texture, packed: fusPacked.texture,
+            color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            cb.addCompletedHandler { cb in
+                cb.status == .error
+                    ? c.resume(throwing: MetalError.commandBufferFailed(code: -9))
+                    : c.resume()
+            }
+            cb.commit()
+        }
+        return CoreComparisonForTest(
+            separateNatural: sepNat.buffer, separateProcessed: sepProc.buffer,
+            fusedNatural: fusNat.buffer, fusedProcessed: fusProc.buffer)
+    }
+
+    /// Test-only A/B microbenchmark: mean GPU wall-time per frame of the separate
+    /// core vs the fused core, measured back-to-back in ONE session (same thermal
+    /// state, same input) so the delta is the fusion saving, not run-to-run drift.
+    ///
+    /// Each path encodes `iterations` cores into one command buffer (each writes the
+    /// same textures, so Metal serializes them exactly like consecutive real frames),
+    /// then divides the command buffer's `gpuEndTime − gpuStartTime` by `iterations`.
+    /// A warm-up run precedes measurement to prime PSOs/caches. Returns microseconds
+    /// per frame for each path.
+    func benchmarkCoresForTest(
+        y: MTLTexture, cbcr: MTLTexture, size: Size, color: ColorUniform, crop: CropUniform,
+        iterations: Int
+    ) async throws -> (separateMicrosPerFrame: Double, fusedMicrosPerFrame: Double) {
+        let nat = try texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: size.width, height: size.height)
+        let proc = try texturePool.dequeuePoolTexture(
+            pool: processedPool, width: size.width, height: size.height)
+        let packed = try texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: size.width, height: size.height)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (size.width + 15) / 16, height: (size.height + 15) / 16, depth: 1)
+
+        func timeRun(fused: Bool) async throws -> Double {
+            let cb = commandQueue.makeCommandBuffer()!
+            for _ in 0..<iterations {
+                if fused {
+                    encodeGradedCore(
+                        into: cb, y: y, cbcr: cbcr,
+                        natural: nat.texture, processed: proc.texture, packed: packed.texture,
+                        color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+                } else {
+                    encodeSeparateCoreForTest(
+                        into: cb, y: y, cbcr: cbcr,
+                        natural: nat.texture, processed: proc.texture, packed: packed.texture,
+                        color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+                }
+            }
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                cb.addCompletedHandler { cb in
+                    cb.status == .error
+                        ? c.resume(throwing: MetalError.commandBufferFailed(code: -10))
+                        : c.resume()
+                }
+                cb.commit()
+            }
+            return (cb.gpuEndTime - cb.gpuStartTime) * 1_000_000 / Double(iterations)
+        }
+
+        _ = try await timeRun(fused: true)  // warm-up (prime PSOs/caches/clocks)
+        let separate = try await timeRun(fused: false)
+        let fused = try await timeRun(fused: true)
+        return (separate, fused)
     }
 }
 #endif

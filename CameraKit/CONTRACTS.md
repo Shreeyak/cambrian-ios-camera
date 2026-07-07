@@ -1710,6 +1710,10 @@ let consumers: ConsumerRegistry
 private let deviceSnapshot: Mailbox<DeviceStateSnapshot>
 ⋮----
 private let commandQueue: MTLCommandQueue
+⋮----
+private let yuvGradedFusedPackPSO: MTLComputePipelineState
+private let yuvGradedFusedNoPackPSO: MTLComputePipelineState
+⋮----
 private let yuvToRgbaPSO: MTLComputePipelineState
 private let colorTransformPSO: MTLComputePipelineState
 private let centerPatchPSO: MTLComputePipelineState
@@ -1750,20 +1754,22 @@ let trackerW = rawW - (rawW % 2)
 ⋮----
 let library: MTLLibrary
 ⋮----
+func makeFusedPSO(writePacked: Bool) throws -> MTLComputePipelineState {
+let constants = MTLFunctionConstantValues()
+var flag = writePacked
+⋮----
+let fn: MTLFunction
+⋮----
 let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
 let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
 ⋮----
 private func encodeGradedCore(
 ⋮----
-let decode = commandBuffer.makeComputeCommandEncoder()!
+let core = commandBuffer.makeComputeCommandEncoder()!
 ⋮----
 var cropLocal = cropSnapshot
 ⋮----
-let grade = commandBuffer.makeComputeCommandEncoder()!
-⋮----
 var colorLocal = colorSnapshot
-⋮----
-let pack = commandBuffer.makeComputeCommandEncoder()!
 ⋮----
 func renderFrame(sampleBuffer: CMSampleBuffer) throws {
 ⋮----
@@ -1950,6 +1956,43 @@ func setColorUniformsForTest(_ params: ProcessingParameters) {
 func encodeGradeOnly() async throws {
 ⋮----
 var color: ColorUniform = uniforms.withLock { $0.color }
+⋮----
+struct CoreComparisonForTest {
+let separateNatural: CVPixelBuffer
+let separateProcessed: CVPixelBuffer
+let fusedNatural: CVPixelBuffer
+let fusedProcessed: CVPixelBuffer
+⋮----
+private func encodeSeparateCoreForTest(
+⋮----
+let decode = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+let grade = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+let pack = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+func encodeCoreComparisonForTest(
+⋮----
+let sepNat = try texturePool.dequeuePoolTexture(
+⋮----
+let sepProc = try texturePool.dequeuePoolTexture(
+⋮----
+let sepPacked = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+let fusNat = try texturePool.dequeuePoolTexture(
+⋮----
+let fusProc = try texturePool.dequeuePoolTexture(
+⋮----
+let fusPacked = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+func benchmarkCoresForTest(
+⋮----
+let packed = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+func timeRun(fused: Bool) async throws -> Double {
+⋮----
+let separate = try await timeRun(fused: false)
+let fused = try await timeRun(fused: true)
 ```
 
 ## File: CameraKit/Sources/CameraKit/OutputPathResolution.swift

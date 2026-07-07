@@ -467,7 +467,252 @@ struct Stage04Tests {
         }
     }
 
+    // MARK: - Test 5 — kernel-fusion: fused core ≡ separate core
+
+    /// The fused `yuvGradedFused` kernel (decode→grade→pack in one dispatch) must
+    /// reproduce the pre-fusion three-encoder core (`yuvToRgba`→`colorTransform`→
+    /// `rgba16fToBgra8`) on the SAME YUV input. Runs both on identical y/cbcr planes
+    /// through `encodeCoreComparisonForTest` and asserts:
+    ///   • fused natural ≡ separate natural (both store 16F(decode) — byte-identical);
+    ///   • fused natural ≡ an independent hand-computed BT.601 decode — the chroma-rich
+    ///     input exercises the matrix, so this catches COEFFICIENT drift in the
+    ///     DUPLICATED `decodeYuvBt601` (crop-ORIGIN drift is caught separately by
+    ///     `fusedCropOriginMatchesSeparate`, which this test can't — input is uniform);
+    ///   • fused processed ≡ separate processed within 1e-3 (they differ by ≲ one 16F
+    ///     ULP because fused grades the f32 register, separate grades the 16F texture —
+    ///     see the `yuvGradedFused` precision note; NOT byte-identical, by construction).
+    /// Covers grade identity AND a full non-trivial grade+normalization, over a neutral
+    /// and a chroma-rich input.
+    @Test func fusedVsSeparateCoreEquivalence() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 64, height: 64)
+
+        // Non-trivial grade + normalization (all three normalization ops on).
+        var full = ProcessingParameters.identity
+        full.brightness = 0.3
+        full.contrast = 0.2
+        full.saturation = -0.1
+        full.gamma = 1.2
+        full.blackPointEnabled = true
+        full.blackPointR = 0.02
+        full.blackPointG = 0.02
+        full.blackPointB = 0.02
+        full.wbChromaEnabled = true
+        full.wbChromaR = 1.1
+        full.wbChromaG = 1.0
+        full.wbChromaB = 0.9
+        full.whitePointEnabled = true
+        full.whitePointLevel = 1.3
+
+        let colors: [(name: String, y: Float, cb: Float, cr: Float)] = [
+            ("neutral", 0.50, 0.50, 0.50),  // grey: Cb=Cr=0 after centering
+            ("chroma", 0.55, 0.40, 0.65),  // colored: exercises the BT.601 matrix
+        ]
+        let configs: [(name: String, params: ProcessingParameters)] = [
+            ("identity", .identity),
+            ("full", full),
+        ]
+
+        for color in colors {
+            let (yTex, cbcrTex, yQ, cbQ, crQ) = makeYCbCrTextures(
+                device: device, width: size.width, height: size.height,
+                y: color.y, cb: color.cb, cr: color.cr)
+
+            // Independent BT.601 decode from the QUANTIZED unorm8 samples the GPU reads.
+            let cbC = cbQ - 0.5
+            let crC = crQ - 0.5
+            let rRef = yQ + 1.402 * crC
+            let gRef = yQ - 0.344136 * cbC - 0.714136 * crC
+            let bRef = yQ + 1.772 * cbC
+
+            for config in configs {
+                let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+                let color32 = ColorUniform(config.params)
+                let crop = pipeline.uniforms.withLock { $0.crop }
+
+                let cmp = try await pipeline.encodeCoreComparisonForTest(
+                    y: yTex, cbcr: cbcrTex, size: size, color: color32, crop: crop)
+
+                let tag = "\(color.name)/\(config.name)"
+
+                // Natural: fused ≡ separate (byte-identical), and ≡ hand BT.601.
+                let (sNr, sNg, sNb, _) = try sampleCenterPixel(cmp.separateNatural)
+                let (fNr, fNg, fNb, _) = try sampleCenterPixel(cmp.fusedNatural)
+                #expect(abs(fNr - sNr) < 1e-4, "\(tag) natural R fused \(fNr) != sep \(sNr)")
+                #expect(abs(fNg - sNg) < 1e-4, "\(tag) natural G fused \(fNg) != sep \(sNg)")
+                #expect(abs(fNb - sNb) < 1e-4, "\(tag) natural B fused \(fNb) != sep \(sNb)")
+                #expect(abs(fNr - rRef) < 2e-3, "\(tag) natural R \(fNr) != BT.601 \(rRef)")
+                #expect(abs(fNg - gRef) < 2e-3, "\(tag) natural G \(fNg) != BT.601 \(gRef)")
+                #expect(abs(fNb - bRef) < 2e-3, "\(tag) natural B \(fNb) != BT.601 \(bRef)")
+
+                // Processed: fused ≡ separate within 1e-3 (the fusion equivalence claim).
+                let (sPr, sPg, sPb, _) = try sampleCenterPixel(cmp.separateProcessed)
+                let (fPr, fPg, fPb, _) = try sampleCenterPixel(cmp.fusedProcessed)
+                #expect(abs(fPr - sPr) < 1e-3, "\(tag) processed R fused \(fPr) != sep \(sPr)")
+                #expect(abs(fPg - sPg) < 1e-3, "\(tag) processed G fused \(fPg) != sep \(sPg)")
+                #expect(abs(fPb - sPb) < 1e-3, "\(tag) processed B fused \(fPb) != sep \(sPb)")
+            }
+        }
+    }
+
+    // MARK: - Test 5b — kernel-fusion: crop-origin parity
+
+    /// A cropped pipeline (captureSize > outputSize, non-zero non-square origin) run
+    /// over a spatially-varying luma gradient. The fused `decodeYuvBt601` and the
+    /// separate `yuvToRgba` both map output pixel → `gid + cropOrigin`; a crop-origin
+    /// typo in EITHER duplicated copy (e.g. `gid.x + crop.originY`) reads a different
+    /// source pixel of the gradient, so fused-vs-separate diverges and this fails.
+    /// `fusedVsSeparateCoreEquivalence` can't catch that (uniform input, origin 0).
+    @Test func fusedCropOriginMatchesSeparate() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let capture = Size(width: 64, height: 64)
+        let output = Size(width: 32, height: 32)
+        let origin = (x: 16, y: 8)  // even (4:2:0) and non-square so an X/Y swap diverges
+
+        let pipeline = try MetalPipeline(
+            device: device, captureSize: capture,
+            outputSize: output, cropOrigin: origin, gateOpen: true)
+        let crop = pipeline.uniforms.withLock { $0.crop }
+
+        // Horizontal luma gradient Y(x) = x/width; uniform neutral chroma.
+        let (yTex, cbcrTex) = makeGradientYCbCrTextures(
+            device: device, width: capture.width, height: capture.height)
+
+        let cmp = try await pipeline.encodeCoreComparisonForTest(
+            y: yTex, cbcr: cbcrTex, size: output, color: ColorUniform(.identity), crop: crop)
+
+        let (sNr, _, _, _) = try sampleCenterPixel(cmp.separateNatural)
+        let (fNr, _, _, _) = try sampleCenterPixel(cmp.fusedNatural)
+        #expect(abs(fNr - sNr) < 1e-4, "cropped decode diverged: fused \(fNr) vs sep \(sNr)")
+
+        // Anchor to the source: center of the 32² output (cx=16) at origin.x=16 maps
+        // to source x = 32; neutral chroma → R = Y(32) = round(32/64·255)/255.
+        let srcX = output.width / 2 + origin.x
+        let expected = Float(UInt8((Float(srcX) / Float(capture.width) * 255).rounded())) / 255
+        #expect(abs(fNr - expected) < 3e-3, "cropped R \(fNr) != source luma \(expected)")
+    }
+
+    // MARK: - Test 5c — kernel-fusion: A/B GPU throughput benchmark (informational)
+
+    /// Measures mean GPU wall-time per frame of the pre-fusion three-encoder core vs
+    /// the fused core, back-to-back in one session at the production 1024² crop size,
+    /// so the delta is the fusion saving (fewer full-frame RGBA16F re-reads + fewer
+    /// kernel launches) rather than run-to-run thermal drift. Informational: the guard
+    /// only asserts fusion is not materially SLOWER (perf numbers are inherently noisy);
+    /// the actual per-frame microseconds are printed for the record.
+    @Test func fusedCoreThroughputBenchmark() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 1024, height: 1024)  // production center-crop size
+        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+
+        // Chroma-rich input + a full non-trivial grade so the measured cost reflects
+        // the real steady-state pointwise chain (normalization + BCSG), not a no-op.
+        let (yTex, cbcrTex, _, _, _) = makeYCbCrTextures(
+            device: device, width: size.width, height: size.height, y: 0.55, cb: 0.40, cr: 0.65)
+        var full = ProcessingParameters.identity
+        full.brightness = 0.3
+        full.contrast = 0.2
+        full.saturation = -0.1
+        full.gamma = 1.2
+        full.blackPointEnabled = true
+        full.blackPointR = 0.02
+        full.blackPointG = 0.02
+        full.blackPointB = 0.02
+        full.wbChromaEnabled = true
+        full.wbChromaR = 1.1
+        full.whitePointEnabled = true
+        full.whitePointLevel = 1.3
+        let crop = pipeline.uniforms.withLock { $0.crop }
+
+        let (sep, fused) = try await pipeline.benchmarkCoresForTest(
+            y: yTex, cbcr: cbcrTex, size: size, color: ColorUniform(full), crop: crop,
+            iterations: 200)
+        let saved = sep - fused
+        let pct = sep > 0 ? saved / sep * 100 : 0
+        let summary = String(
+            format: "[fusion-bench 1024²] separate=%.1fµs/frame fused=%.1fµs/frame saved=%.1fµs (%.1f%%)",
+            sep, fused, saved, pct)
+        print(summary)
+        #expect(fused <= sep * 1.15, "fused core materially slower — \(summary)")
+    }
+
     // MARK: - Helpers
+
+    /// Builds an `r8Unorm` luma plane with a horizontal gradient `Y(x) = x/width`
+    /// (byte = round(x/width·255)) + a uniform neutral `rg8Unorm` half-res chroma
+    /// plane. The spatial variation is what makes a crop-origin typo observable.
+    private func makeGradientYCbCrTextures(
+        device: MTLDevice, width: Int, height: Int
+    ) -> (yTex: MTLTexture, cbcrTex: MTLTexture) {
+        let yDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r8Unorm, width: width, height: height, mipmapped: false)
+        yDesc.usage = [.shaderRead]
+        let yTex = device.makeTexture(descriptor: yDesc)!
+        var yBytes = [UInt8](repeating: 0, count: width * height)
+        for x in 0..<width {
+            let b = UInt8((Float(x) / Float(width) * 255).rounded())
+            for y in 0..<height { yBytes[y * width + x] = b }
+        }
+        yBytes.withUnsafeBytes {
+            yTex.replace(
+                region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
+                withBytes: $0.baseAddress!, bytesPerRow: width)
+        }
+
+        let cw = width / 2, ch = height / 2
+        let cDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rg8Unorm, width: cw, height: ch, mipmapped: false)
+        cDesc.usage = [.shaderRead]
+        let cbcrTex = device.makeTexture(descriptor: cDesc)!
+        let cBytes = [UInt8](repeating: 128, count: cw * ch * 2)  // Cb=Cr=0.5 → neutral
+        cBytes.withUnsafeBytes {
+            cbcrTex.replace(
+                region: MTLRegionMake2D(0, 0, cw, ch), mipmapLevel: 0,
+                withBytes: $0.baseAddress!, bytesPerRow: cw * 2)
+        }
+        return (yTex, cbcrTex)
+    }
+
+    /// Builds standalone `r8Unorm` (luma) + `rg8Unorm` half-res (chroma) MTLTextures
+    /// filled with one uniform YCbCr sample, mirroring the NV12 planes the live
+    /// decode wraps. Returns the textures plus the QUANTIZED [0,1] sample values the
+    /// GPU actually reads (unorm8 round-trip), so the test's reference math matches
+    /// the shader input exactly.
+    private func makeYCbCrTextures(
+        device: MTLDevice, width: Int, height: Int, y: Float, cb: Float, cr: Float
+    ) -> (yTex: MTLTexture, cbcrTex: MTLTexture, yQ: Float, cbQ: Float, crQ: Float) {
+        let yByte = UInt8((y * 255).rounded())
+        let cbByte = UInt8((cb * 255).rounded())
+        let crByte = UInt8((cr * 255).rounded())
+
+        let yDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r8Unorm, width: width, height: height, mipmapped: false)
+        yDesc.usage = [.shaderRead]
+        let yTex = device.makeTexture(descriptor: yDesc)!
+        let yBytes = [UInt8](repeating: yByte, count: width * height)
+        yBytes.withUnsafeBytes {
+            yTex.replace(
+                region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
+                withBytes: $0.baseAddress!, bytesPerRow: width)
+        }
+
+        let cw = width / 2, ch = height / 2
+        let cDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rg8Unorm, width: cw, height: ch, mipmapped: false)
+        cDesc.usage = [.shaderRead]
+        let cbcrTex = device.makeTexture(descriptor: cDesc)!
+        var cBytes = [UInt8](repeating: 0, count: cw * ch * 2)
+        for i in 0..<(cw * ch) {
+            cBytes[i * 2] = cbByte
+            cBytes[i * 2 + 1] = crByte
+        }
+        cBytes.withUnsafeBytes {
+            cbcrTex.replace(
+                region: MTLRegionMake2D(0, 0, cw, ch), mipmapLevel: 0,
+                withBytes: $0.baseAddress!, bytesPerRow: cw * 2)
+        }
+        return (yTex, cbcrTex, Float(yByte) / 255, Float(cbByte) / 255, Float(crByte) / 255)
+    }
 
     /// Writes a uniform `base` fill, then overwrites a fraction of pixels
     /// with `outlier` value (used to verify trimmed-mean discard).
