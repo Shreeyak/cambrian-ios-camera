@@ -843,6 +843,8 @@ func captureImage(
 ⋮----
 func captureNaturalPicture(
 ⋮----
+func captureNaturalPictureBuffer() async throws -> PixelHandle
+⋮----
 func startRecording(options: RecordingOptions) async throws -> RecordingStart
 func stopRecording() async throws -> String
 ⋮----
@@ -944,6 +946,8 @@ var onSessionEvent: (@Sendable (SessionEvent) -> Void)?
 init() {
 ⋮----
 private(set) var lockedFps: Int = Constants.frameRateTargetFPS
+⋮----
+private(set) var photoQualityPrioritization: PhotoQualityPrioritization = .balanced
 ⋮----
 func configure(
 ⋮----
@@ -1086,6 +1090,10 @@ public var initialSettings: CameraSettings?
 public var trackerHeight: Int?
 ⋮----
 public var captureOrientationAngleDeg: CGFloat
+⋮----
+public var photoQualityPrioritization: PhotoQualityPrioritization
+⋮----
+public enum PhotoQualityPrioritization: String, Sendable, Hashable {
 ⋮----
 public enum CameraMode: String, Sendable, Hashable, Codable {
 ⋮----
@@ -2379,15 +2387,17 @@ let metadata = buildImageProperties(
 ```swift
 final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
 ⋮----
-static func makeSettings() -> AVCapturePhotoSettings {
+static func makeSettings(quality: PhotoQualityPrioritization) -> AVCapturePhotoSettings {
 let fmt = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
 let s = AVCapturePhotoSettings(
 ⋮----
 private var continuation: CheckedContinuation<CVPixelBuffer, Error>?
 ⋮----
-func capture(using output: AVCapturePhotoOutput, on queue: DispatchQueue) async throws -> CVPixelBuffer {
+func capture(
 ⋮----
 func photoOutput(
+⋮----
+var avQualityPrioritization: AVCapturePhotoOutput.QualityPrioritization {
 ```
 
 ## File: CameraKit/Sources/CameraKit/StreamConfiguration.swift

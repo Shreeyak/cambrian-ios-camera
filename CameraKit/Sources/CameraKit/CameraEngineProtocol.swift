@@ -1,5 +1,6 @@
 import CoreVideo
 import Foundation
+import FrameTransport
 
 /// Public surface of `CameraEngine` that the Flutter iOS adapter consumes.
 ///
@@ -47,6 +48,8 @@ public protocol CameraEngineProtocol: Actor {
         outputURL: URL?,
         photosDestination: PhotosDestination
     ) async throws -> StillCaptureOutput
+    /// In-memory natural (pre-grade) still as a leased ``PixelHandle`` (no disk/Photos).
+    func captureNaturalPictureBuffer() async throws -> PixelHandle
 
     // MARK: Recording
     func startRecording(options: RecordingOptions) async throws -> RecordingStart

@@ -1,6 +1,7 @@
 import CameraKit
 import CoreVideo
 import Foundation
+import FrameTransport
 
 /// In-memory test double for `CameraEngineProtocol`.
 ///
@@ -69,6 +70,9 @@ actor MockCameraEngine: CameraEngineProtocol {
         outputURL: URL?, photosDestination: PhotosDestination
     ) async throws -> StillCaptureOutput {
         StillCaptureOutput(filePath: outputURL?.path ?? "/tmp/n.heic")
+    }
+    func captureNaturalPictureBuffer() async throws -> PixelHandle {
+        throw EngineError.notOpen  // mock does not stand up a capture pipeline
     }
     func startRecording(options: RecordingOptions) async throws -> RecordingStart { startResult }
     func stopRecording() async throws -> String { stopResult }
