@@ -1086,20 +1086,22 @@ private struct ExpandedSliderBar: View {
 
     /// Upper bound (ms) of the discrete Shutter range.
     ///
-    /// Set to 20 ms so the top detents exceed the 60-fps exposure ceiling
-    /// (1/60 s ≈ 16.6 ms): pushing shutter past it at a 60-fps target exercises the
-    /// `settingsConflict` reject (configurable-frame-rate: exposure ≤ 1/targetFps).
-    /// Still below the 30-fps ceiling (33 ms), so 30 fps accepts the whole range.
-    private static let shutterMaxMs = 20.0
+    /// Fallback Shutter-slider max (ms), used only when capabilities are unavailable.
+    ///
+    /// Normally the slider's max is the ACTIVE FORMAT's own `exposureDurationRange`
+    /// upper bound (see `body`) — which on this device is already below the frame
+    /// period at every rate (~14 ms @ 60 fps, ~22 ms @ 30 fps), so the fps exposure
+    /// ceiling is never the binding limit and the slider offers only reachable values.
+    private static let shutterFallbackMaxMs = 20.0
 
     /// Log-spaced exposure detents (ms) from `minMs` to `shutterMaxMs`.
     ///
     /// Log spacing (not linear) because the range spans ~400× — linear steps
     /// would cluster everything near the top and give almost no resolution at
     /// the sub-millisecond end, which is exactly where we're sampling.
-    private static func shutterValues(minMs: Double) -> [Double] {
+    private static func shutterValues(minMs: Double, maxMs: Double) -> [Double] {
         let lo = max(minMs, 0.001)
-        let hi = max(shutterMaxMs, lo)
+        let hi = max(maxMs, lo)
         let n = shutterStepCount
         guard n > 1 else { return [lo] }
         let ratio = hi / lo
@@ -1114,7 +1116,12 @@ private struct ExpandedSliderBar: View {
         let caps = viewModel.capabilities
 
         let shutterMinMs = caps.map { Double($0.exposureDurationRangeNs.lowerBound) / 1_000_000 } ?? 0.024
-        let shutterDetents = Self.shutterValues(minMs: shutterMinMs)
+        // Honest max: the active format's own exposure ceiling (varies with fps). The
+        // engine clamps any longer request to this, so the slider shows only reachable
+        // values (e.g. ~14 ms @ 60 fps, ~22 ms @ 30 fps) rather than phantom detents.
+        let shutterMaxMs = caps.map { Double($0.exposureDurationRangeNs.upperBound) / 1_000_000 }
+            ?? Self.shutterFallbackMaxMs
+        let shutterDetents = Self.shutterValues(minMs: shutterMinMs, maxMs: shutterMaxMs)
 
         VStack(alignment: .leading, spacing: 10) {
             row(
