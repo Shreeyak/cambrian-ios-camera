@@ -251,6 +251,13 @@ final class CameraSession: @unchecked Sendable {
 
         if avSession.canAddOutput(photoOutput) {
             avSession.addOutput(photoOutput)
+            // `AVCapturePhotoSettings.photoQualityPrioritization` must be <= the output's
+            // `maxPhotoQualityPrioritization` (default `.balanced`), else `capturePhoto`
+            // throws NSInvalidArgumentException. Raise the ceiling to the configured level
+            // so the per-shot setting (StillPhotoCapture.makeSettings) is always accepted —
+            // `.quality` in particular.
+            photoOutput.maxPhotoQualityPrioritization =
+                photoQualityPrioritization.avQualityPrioritization
         }
 
         avSession.commitConfiguration()
