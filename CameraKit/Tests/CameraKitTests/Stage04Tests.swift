@@ -577,7 +577,11 @@ struct Stage04Tests {
         let pipeline = try MetalPipeline(
             device: device, captureSize: capture,
             outputSize: output, cropOrigin: origin, gateOpen: true)
-        let crop = pipeline.uniforms.withLock { $0.crop }
+        // Isolate the crop-ORIGIN mapping: the horizontal mirror is orthogonal (its
+        // own test, `fusedMirrorFlipsHorizontally`) and this test's hand-computed
+        // source anchor assumes an un-mirrored read.
+        var crop = pipeline.uniforms.withLock { $0.crop }
+        crop.mirrorX = 0
 
         // Horizontal luma gradient Y(x) = x/width; uniform neutral chroma.
         let (yTex, cbcrTex) = makeGradientYCbCrTextures(
@@ -597,7 +601,88 @@ struct Stage04Tests {
         #expect(abs(fNr - expected) < 3e-3, "cropped R \(fNr) != source luma \(expected)")
     }
 
-    // MARK: - Test 5c — kernel-fusion: A/B GPU throughput benchmark (informational)
+    // MARK: - Test 5c — kernel-fusion: horizontal mirror (mirrorX)
+
+    /// The production crop owns a horizontal mirror (`CropUniform.mirrorX == 1`) so
+    /// preview, recording, and BOTH still paths flip identically — "what you see is
+    /// what you get" (it replaces the AVFoundation connection's `isVideoMirrored`,
+    /// which never reached the photo path `capturePhoto` → `renderStill`). Over a
+    /// horizontal luma gradient `Y(x)=x/width`, the mirrored center samples the
+    /// OPPOSITE column: for a 64-wide crop the center (gid.x=32) reads source column
+    /// 31 mirrored vs 32 un-mirrored. Guards that mirrorX flips the sampled column,
+    /// in the correct direction, and that the production crop actually carries it.
+    @Test func fusedMirrorFlipsHorizontally() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 64, height: 64)
+        let (yTex, cbcrTex) = makeGradientYCbCrTextures(
+            device: device, width: size.width, height: size.height)
+        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+
+        // Production crop must own the mirror; derive an un-mirrored twin to compare.
+        let mirrored = pipeline.uniforms.withLock { $0.crop }
+        #expect(mirrored.mirrorX == 1, "production crop must own the horizontal mirror")
+        var unmirrored = mirrored
+        unmirrored.mirrorX = 0
+
+        let m = try await pipeline.encodeCoreComparisonForTest(
+            y: yTex, cbcr: cbcrTex, size: size, color: ColorUniform(.identity), crop: mirrored)
+        let u = try await pipeline.encodeCoreComparisonForTest(
+            y: yTex, cbcr: cbcrTex, size: size, color: ColorUniform(.identity), crop: unmirrored)
+
+        let (mR, _, _, _) = try sampleCenterPixel(m.fusedNatural)
+        let (uR, _, _, _) = try sampleCenterPixel(u.fusedNatural)
+
+        // Center index = width/2 = 32. Un-mirrored reads source col 32; mirrored reads
+        // col (64-1-32)=31. Y(x)=round(x/64·255)/255.
+        let expUnmirrored = Float(UInt8((32.0 / 64.0 * 255).rounded())) / 255
+        let expMirrored = Float(UInt8((31.0 / 64.0 * 255).rounded())) / 255
+        #expect(abs(uR - expUnmirrored) < 3e-3, "unmirrored center R \(uR) != col 32 \(expUnmirrored)")
+        #expect(abs(mR - expMirrored) < 3e-3, "mirrored center R \(mR) != col 31 \(expMirrored)")
+        #expect(abs(mR - uR) > 5e-3, "mirrorX did not flip the sampled column (mR \(mR) ≈ uR \(uR))")
+    }
+
+    // MARK: - Test 5d — kernel-fusion: vertical flip (mirrorY, natural-still path)
+
+    /// The natural still path (`renderStill`) applies `mirrorY` (a vertical flip),
+    /// NOT the video path's `mirrorX`, to compensate the ISP photo buffer that
+    /// arrives 180°-rotated from the video-data-output buffer — so the still lands in
+    /// the same WYSIWYG orientation as the preview (device-confirmed 2026-07-08).
+    /// Over a VERTICAL luma gradient `Y(y)=y/height`, `mirrorY` samples the opposite
+    /// row: for a 64-tall crop the center (gid.y=32) reads source row 31 flipped vs
+    /// 32 un-flipped. Guards that mirrorY flips the sampled row, in the right direction.
+    @Test func fusedMirrorYFlipsVertically() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let size = Size(width: 64, height: 64)
+        let (yTex, cbcrTex) = makeGradientYCbCrTextures(
+            device: device, width: size.width, height: size.height, vertical: true)
+        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
+
+        // Natural-still transform: mirrorX = 0, mirrorY = 1 (vs the video path's
+        // mirrorX = 1). Compare against a no-flip twin.
+        var flipped = pipeline.uniforms.withLock { $0.crop }
+        flipped.mirrorX = 0
+        flipped.mirrorY = 1
+        var plain = flipped
+        plain.mirrorY = 0
+
+        let f = try await pipeline.encodeCoreComparisonForTest(
+            y: yTex, cbcr: cbcrTex, size: size, color: ColorUniform(.identity), crop: flipped)
+        let p = try await pipeline.encodeCoreComparisonForTest(
+            y: yTex, cbcr: cbcrTex, size: size, color: ColorUniform(.identity), crop: plain)
+
+        let (fR, _, _, _) = try sampleCenterPixel(f.fusedNatural)
+        let (pR, _, _, _) = try sampleCenterPixel(p.fusedNatural)
+
+        // Center index = height/2 = 32. Un-flipped reads source row 32; mirrored reads
+        // row (64-1-32)=31. Y(y)=round(y/64·255)/255.
+        let expPlain = Float(UInt8((32.0 / 64.0 * 255).rounded())) / 255
+        let expFlipped = Float(UInt8((31.0 / 64.0 * 255).rounded())) / 255
+        #expect(abs(pR - expPlain) < 3e-3, "un-flipped center R \(pR) != row 32 \(expPlain)")
+        #expect(abs(fR - expFlipped) < 3e-3, "mirrorY center R \(fR) != row 31 \(expFlipped)")
+        #expect(abs(fR - pR) > 5e-3, "mirrorY did not flip the sampled row (fR \(fR) ≈ pR \(pR))")
+    }
+
+    // MARK: - Test 5e — kernel-fusion: A/B GPU throughput benchmark (informational)
 
     /// Measures mean GPU wall-time per frame of the pre-fusion three-encoder core vs
     /// the fused core, back-to-back in one session at the production 1024² crop size,
@@ -653,20 +738,24 @@ struct Stage04Tests {
 
     // MARK: - Helpers
 
-    /// Builds an `r8Unorm` luma plane with a horizontal gradient `Y(x) = x/width`
-    /// (byte = round(x/width·255)) + a uniform neutral `rg8Unorm` half-res chroma
-    /// plane. The spatial variation is what makes a crop-origin typo observable.
+    /// Builds an `r8Unorm` luma gradient + a uniform neutral `rg8Unorm` half-res
+    /// chroma plane. `vertical: false` → `Y(x) = x/width` (spatial variation along
+    /// columns, makes a crop-origin/mirrorX typo observable); `vertical: true` →
+    /// `Y(y) = y/height` (variation along rows, makes mirrorY observable).
     private func makeGradientYCbCrTextures(
-        device: MTLDevice, width: Int, height: Int
+        device: MTLDevice, width: Int, height: Int, vertical: Bool = false
     ) -> (yTex: MTLTexture, cbcrTex: MTLTexture) {
         let yDesc = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .r8Unorm, width: width, height: height, mipmapped: false)
         yDesc.usage = [.shaderRead]
         let yTex = device.makeTexture(descriptor: yDesc)!
         var yBytes = [UInt8](repeating: 0, count: width * height)
-        for x in 0..<width {
-            let b = UInt8((Float(x) / Float(width) * 255).rounded())
-            for y in 0..<height { yBytes[y * width + x] = b }
+        for y in 0..<height {
+            for x in 0..<width {
+                let coord = vertical ? y : x
+                let extent = vertical ? height : width
+                yBytes[y * width + x] = UInt8((Float(coord) / Float(extent) * 255).rounded())
+            }
         }
         yBytes.withUnsafeBytes {
             yTex.replace(

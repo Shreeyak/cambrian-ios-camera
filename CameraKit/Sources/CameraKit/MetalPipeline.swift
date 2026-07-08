@@ -91,6 +91,38 @@ struct CropUniform: Hashable {
     var originY: UInt32
     var width: UInt32
     var height: UInt32
+    /// `1` = mirror the sampled sub-region horizontally (left↔right) inside the
+    /// fused kernel; `0` = no flip.
+    ///
+    /// Single owner of the "what you see is what you get" horizontal mirror:
+    /// applied once in `yuvGradedFused`, so EVERY consumer inherits the exact same
+    /// flip — preview, tracker, NV12 recording, `captureImage`, and the natural
+    /// still via `renderStill`. Replaces the AVFoundation connection's
+    /// `isVideoMirrored`, which only flipped the video-data-output buffers and
+    /// never reached the photo path (`capturePhoto`), so the natural still used to
+    /// come out un-mirrored relative to the preview (see `CameraSession`).
+    var mirrorX: UInt32
+    /// `1` = mirror the sampled sub-region VERTICALLY (top↔bottom); `0` = no flip.
+    ///
+    /// Used only by the natural still path. `AVCapturePhoto.pixelBuffer` (the ISP
+    /// one-shot) arrives 180°-rotated from the AVCaptureVideoDataOutput buffer on
+    /// this device, so `renderStill` compensates with a vertical flip
+    /// (`mirrorX=0, mirrorY=1`) which — composed with that 180° source rotation —
+    /// lands the still in the SAME WYSIWYG orientation as the horizontally-mirrored
+    /// video/preview path (`mirrorX=1, mirrorY=0`).
+    var mirrorY: UInt32
+
+    init(
+        originX: UInt32, originY: UInt32, width: UInt32, height: UInt32,
+        mirrorX: UInt32 = 0, mirrorY: UInt32 = 0
+    ) {
+        self.originX = originX
+        self.originY = originY
+        self.width = width
+        self.height = height
+        self.mirrorX = mirrorX
+        self.mirrorY = mirrorY
+    }
 
     static func full(width: Int, height: Int) -> CropUniform {
         CropUniform(originX: 0, originY: 0, width: UInt32(width), height: UInt32(height))
@@ -530,7 +562,11 @@ final class MetalPipeline: @unchecked Sendable {
                     originX: UInt32(cropOrigin.x),
                     originY: UInt32(cropOrigin.y),
                     width: UInt32(resolvedOutputSize.width),
-                    height: UInt32(resolvedOutputSize.height)
+                    height: UInt32(resolvedOutputSize.height),
+                    // Own the horizontal mirror in Metal (see `CropUniform.mirrorX`):
+                    // every lane + both still paths inherit this single flip, so
+                    // preview == recording == captureImage == captureNaturalPicture.
+                    mirrorX: 1
                 )
             ))
 
@@ -972,7 +1008,15 @@ final class MetalPipeline: @unchecked Sendable {
         let out = try texturePool.dequeueEightBitPoolTexture(
             pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height)
 
-        let (color, crop) = uniforms.withLock { ($0.color, $0.crop) }
+        let (color, baseCrop) = uniforms.withLock { ($0.color, $0.crop) }
+        // The natural still comes from the ISP one-shot (`AVCapturePhoto.pixelBuffer`),
+        // which arrives 180°-rotated from the video-data-output buffer on this device
+        // and ignores the connection transforms. Compensate with a VERTICAL flip (not
+        // the video path's horizontal mirror): composed with the 180° source rotation
+        // this lands the still in the SAME WYSIWYG frame as the preview. See CropUniform.
+        var crop = baseCrop
+        crop.mirrorX = 0
+        crop.mirrorY = 1
         let cb = commandQueue.makeCommandBuffer()!
         let tg = MTLSize(width: 16, height: 16, depth: 1)
         let groups = MTLSize(

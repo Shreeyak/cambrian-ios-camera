@@ -190,12 +190,15 @@ kernel void colorTransform(texture2d<float, access::read>  inTex  [[texture(0)]]
 // drift (e.g. a `gid.x + crop.originY` typo). Divergence fails a test, not ships.
 
 // Mirrors struct CropUniform in YUVToRGBA.metal (and Swift `CropUniform`). The
-// shader uses only originX/originY; width/height are carried for host layout parity.
+// shader uses originX/originY (crop origin), width + mirrorX (horizontal-flip
+// axis + flag); height is carried for host layout parity.
 struct CropUniform {
     uint originX;
     uint originY;
     uint width;
     uint height;
+    uint mirrorX;  // 1 = mirror the sampled sub-region left<->right; 0 = no flip
+    uint mirrorY;  // 1 = flip top<->bottom (natural-still 180deg ISP compensation); 0 = no flip
 };
 
 // BT.601 full-range YCbCr 4:2:0 → RGBA decode for ONE output pixel. `src` is the
@@ -299,7 +302,13 @@ kernel void yuvGradedFused(
     }
 
     // Map the output pixel to its source pixel in the full capture-resolution frame.
-    uint2 src = uint2(gid.x + crop.originX, gid.y + crop.originY);
+    // Independent horizontal (crop.mirrorX) + vertical (crop.mirrorY) flips of the
+    // sampled sub-region. The video/preview path uses mirrorX (WYSIWYG mirror); the
+    // natural still uses mirrorY to compensate its 180deg-rotated ISP photo buffer
+    // (see CropUniform). Both default off for the test seams.
+    uint localX = (crop.mirrorX != 0u) ? (crop.width  - 1u - gid.x) : gid.x;
+    uint localY = (crop.mirrorY != 0u) ? (crop.height - 1u - gid.y) : gid.y;
+    uint2 src = uint2(localX + crop.originX, localY + crop.originY);
 
     // Decode once (float32 registers). Write the natural lane (16F) only when a
     // calibration is armed (kWriteNatural) — the calibration sampler input; nobody

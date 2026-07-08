@@ -315,16 +315,13 @@ final class CameraSession: @unchecked Sendable {
             // post-processing — material sharpness gain on stills.
             connection.preferredVideoStabilizationMode = .off
 
-            // Horizontal (left-right) mirror. On an AVCaptureVideoDataOutput
-            // connection isVideoMirrored flips the delivered pixel buffers
-            // themselves (not a display-only transform), so preview, every
-            // lane, and recording all inherit the flip from this single point.
-            // Must clear the auto-adjust flag first, else the assignment is
-            // ignored.
-            if connection.isVideoMirroringSupported {
-                connection.automaticallyAdjustsVideoMirroring = false
-                connection.isVideoMirrored = true
-            }
+            // Horizontal mirror is now owned by the Metal graded core
+            // (`CropUniform.mirrorX` in `yuvGradedFused`), NOT this connection. The
+            // connection flag only mirrored the video-data-output buffers and never
+            // reached the photo path (`capturePhoto` → `renderStill`), so the natural
+            // still came out un-mirrored relative to the preview. Mirroring in Metal
+            // applies the SAME flip to every lane + both still paths — preview ==
+            // recording == captureImage == captureNaturalPicture.
         }
 
         // Match landscape-right rotation on the photo output connection (ADR-17).

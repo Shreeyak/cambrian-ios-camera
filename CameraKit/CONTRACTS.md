@@ -1644,6 +1644,12 @@ var originY: UInt32
 var width: UInt32
 var height: UInt32
 ⋮----
+var mirrorX: UInt32
+⋮----
+var mirrorY: UInt32
+⋮----
+init(
+⋮----
 static func full(width: Int, height: Int) -> CropUniform {
 ⋮----
 struct PatchUniform {
@@ -1869,6 +1875,8 @@ func renderStill(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
 let yTex = try texturePool.makeYTexture(from: pixelBuffer)
 let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
 let out = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+var crop = baseCrop
 ⋮----
 let cb = commandQueue.makeCommandBuffer()!
 let tg = MTLSize(width: 16, height: 16, depth: 1)
