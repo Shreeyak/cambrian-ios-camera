@@ -1054,7 +1054,6 @@ public let supportedSizes: [Size]
 public let supportedFrameRates: [FrameRateRange]
 ⋮----
 public let activeFrameRate: Int
-public let previewTextureId: Int
 ⋮----
 public let activeCaptureResolution: Size
 public let activeCropRegion: Rect

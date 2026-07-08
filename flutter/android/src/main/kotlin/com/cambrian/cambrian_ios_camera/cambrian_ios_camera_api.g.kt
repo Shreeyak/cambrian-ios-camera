@@ -290,7 +290,6 @@ data class SessionCapabilities (
   val supportedFrameRates: List<PFrameRateRange?>,
   /** The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]). */
   val activeFrameRate: Long,
-  val previewTextureId: Long,
   val activeCaptureResolution: PSize,
   val activeCropRegion: PRect,
   val streamPixelFormat: String,
@@ -311,21 +310,20 @@ data class SessionCapabilities (
       val supportedSizes = pigeonVar_list[0] as List<PSize?>
       val supportedFrameRates = pigeonVar_list[1] as List<PFrameRateRange?>
       val activeFrameRate = pigeonVar_list[2] as Long
-      val previewTextureId = pigeonVar_list[3] as Long
-      val activeCaptureResolution = pigeonVar_list[4] as PSize
-      val activeCropRegion = pigeonVar_list[5] as PRect
-      val streamPixelFormat = pigeonVar_list[6] as String
-      val isoMin = pigeonVar_list[7] as Double
-      val isoMax = pigeonVar_list[8] as Double
-      val exposureDurationMinNs = pigeonVar_list[9] as Long
-      val exposureDurationMaxNs = pigeonVar_list[10] as Long
-      val focusMin = pigeonVar_list[11] as Double
-      val focusMax = pigeonVar_list[12] as Double
-      val zoomMin = pigeonVar_list[13] as Double
-      val zoomMax = pigeonVar_list[14] as Double
-      val evMin = pigeonVar_list[15] as Double
-      val evMax = pigeonVar_list[16] as Double
-      return SessionCapabilities(supportedSizes, supportedFrameRates, activeFrameRate, previewTextureId, activeCaptureResolution, activeCropRegion, streamPixelFormat, isoMin, isoMax, exposureDurationMinNs, exposureDurationMaxNs, focusMin, focusMax, zoomMin, zoomMax, evMin, evMax)
+      val activeCaptureResolution = pigeonVar_list[3] as PSize
+      val activeCropRegion = pigeonVar_list[4] as PRect
+      val streamPixelFormat = pigeonVar_list[5] as String
+      val isoMin = pigeonVar_list[6] as Double
+      val isoMax = pigeonVar_list[7] as Double
+      val exposureDurationMinNs = pigeonVar_list[8] as Long
+      val exposureDurationMaxNs = pigeonVar_list[9] as Long
+      val focusMin = pigeonVar_list[10] as Double
+      val focusMax = pigeonVar_list[11] as Double
+      val zoomMin = pigeonVar_list[12] as Double
+      val zoomMax = pigeonVar_list[13] as Double
+      val evMin = pigeonVar_list[14] as Double
+      val evMax = pigeonVar_list[15] as Double
+      return SessionCapabilities(supportedSizes, supportedFrameRates, activeFrameRate, activeCaptureResolution, activeCropRegion, streamPixelFormat, isoMin, isoMax, exposureDurationMinNs, exposureDurationMaxNs, focusMin, focusMax, zoomMin, zoomMax, evMin, evMax)
     }
   }
   fun toList(): List<Any?> {
@@ -333,7 +331,6 @@ data class SessionCapabilities (
       supportedSizes,
       supportedFrameRates,
       activeFrameRate,
-      previewTextureId,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,

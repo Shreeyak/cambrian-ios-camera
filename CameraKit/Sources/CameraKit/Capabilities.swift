@@ -56,10 +56,11 @@ public struct SessionCapabilities: Sendable, Hashable {
     public let supportedFrameRates: [FrameRateRange]
     /// The frame rate the session is locked to (the resolved `OpenConfiguration.targetFps`).
     public let activeFrameRate: Int
-    public let previewTextureId: Int
-    // remove-natural-lane: `naturalTextureId` was removed with the streaming
-    // natural lane. The Flutter-facing Pigeon field is dropped in
-    // `flutter-single-preview`.
+    // flutter-single-preview: `previewTextureId` (and earlier `naturalTextureId`,
+    // in remove-natural-lane) were removed — dead Stage-05 stubs, always 0, with
+    // no value-reader. Preview textures are allocated on demand via
+    // `createPreviewTexture(stream:)`, so `SessionCapabilities` carries no preview
+    // texture id on either the Swift or Pigeon contract.
     public let activeCaptureResolution: Size
     public let activeCropRegion: Rect
     /// Pixel format string of the *lane buffer* returned by
@@ -106,7 +107,6 @@ public struct SessionCapabilities: Sendable, Hashable {
         supportedSizes: [Size],
         supportedFrameRates: [FrameRateRange] = [],
         activeFrameRate: Int = 30,  // Constants.frameRateTargetFPS (internal); test-constructor default
-        previewTextureId: Int,
         activeCaptureResolution: Size,
         activeCropRegion: Rect,
         streamPixelFormat: String,
@@ -120,7 +120,6 @@ public struct SessionCapabilities: Sendable, Hashable {
         self.supportedSizes = supportedSizes
         self.supportedFrameRates = supportedFrameRates
         self.activeFrameRate = activeFrameRate
-        self.previewTextureId = previewTextureId
         self.activeCaptureResolution = activeCaptureResolution
         self.activeCropRegion = activeCropRegion
         self.streamPixelFormat = streamPixelFormat

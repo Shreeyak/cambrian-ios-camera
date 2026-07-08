@@ -604,7 +604,6 @@ public actor CameraEngine {
             supportedSizes: supportedSizes,
             supportedFrameRates: supportedFrameRates,
             activeFrameRate: session.lockedFps,
-            previewTextureId: 0,  // stub: texture IDs arrive Stage 05
             activeCaptureResolution: captureSize,
             activeCropRegion: activeCropRegion,
             // Lane-buffer format (what `currentPixelBuffer(stream:)` returns),

@@ -233,7 +233,6 @@ class SessionCapabilities {
     required this.supportedSizes,
     required this.supportedFrameRates,
     required this.activeFrameRate,
-    required this.previewTextureId,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
     required this.streamPixelFormat,
@@ -257,8 +256,6 @@ class SessionCapabilities {
 
   /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
   int activeFrameRate;
-
-  int previewTextureId;
 
   PSize activeCaptureResolution;
 
@@ -291,7 +288,6 @@ class SessionCapabilities {
       supportedSizes,
       supportedFrameRates,
       activeFrameRate,
-      previewTextureId,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,
@@ -314,20 +310,19 @@ class SessionCapabilities {
       supportedSizes: (result[0] as List<Object?>?)!.cast<PSize?>(),
       supportedFrameRates: (result[1] as List<Object?>?)!.cast<PFrameRateRange?>(),
       activeFrameRate: result[2]! as int,
-      previewTextureId: result[3]! as int,
-      activeCaptureResolution: result[4]! as PSize,
-      activeCropRegion: result[5]! as PRect,
-      streamPixelFormat: result[6]! as String,
-      isoMin: result[7]! as double,
-      isoMax: result[8]! as double,
-      exposureDurationMinNs: result[9]! as int,
-      exposureDurationMaxNs: result[10]! as int,
-      focusMin: result[11]! as double,
-      focusMax: result[12]! as double,
-      zoomMin: result[13]! as double,
-      zoomMax: result[14]! as double,
-      evMin: result[15]! as double,
-      evMax: result[16]! as double,
+      activeCaptureResolution: result[3]! as PSize,
+      activeCropRegion: result[4]! as PRect,
+      streamPixelFormat: result[5]! as String,
+      isoMin: result[6]! as double,
+      isoMax: result[7]! as double,
+      exposureDurationMinNs: result[8]! as int,
+      exposureDurationMaxNs: result[9]! as int,
+      focusMin: result[10]! as double,
+      focusMax: result[11]! as double,
+      zoomMin: result[12]! as double,
+      zoomMax: result[13]! as double,
+      evMin: result[14]! as double,
+      evMax: result[15]! as double,
     );
   }
 }

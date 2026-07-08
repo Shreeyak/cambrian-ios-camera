@@ -272,7 +272,6 @@ struct SessionCapabilities {
   var supportedFrameRates: [PFrameRateRange?]
   /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
   var activeFrameRate: Int64
-  var previewTextureId: Int64
   var activeCaptureResolution: PSize
   var activeCropRegion: PRect
   var streamPixelFormat: String
@@ -293,26 +292,24 @@ struct SessionCapabilities {
     let supportedSizes = pigeonVar_list[0] as! [PSize?]
     let supportedFrameRates = pigeonVar_list[1] as! [PFrameRateRange?]
     let activeFrameRate = pigeonVar_list[2] as! Int64
-    let previewTextureId = pigeonVar_list[3] as! Int64
-    let activeCaptureResolution = pigeonVar_list[4] as! PSize
-    let activeCropRegion = pigeonVar_list[5] as! PRect
-    let streamPixelFormat = pigeonVar_list[6] as! String
-    let isoMin = pigeonVar_list[7] as! Double
-    let isoMax = pigeonVar_list[8] as! Double
-    let exposureDurationMinNs = pigeonVar_list[9] as! Int64
-    let exposureDurationMaxNs = pigeonVar_list[10] as! Int64
-    let focusMin = pigeonVar_list[11] as! Double
-    let focusMax = pigeonVar_list[12] as! Double
-    let zoomMin = pigeonVar_list[13] as! Double
-    let zoomMax = pigeonVar_list[14] as! Double
-    let evMin = pigeonVar_list[15] as! Double
-    let evMax = pigeonVar_list[16] as! Double
+    let activeCaptureResolution = pigeonVar_list[3] as! PSize
+    let activeCropRegion = pigeonVar_list[4] as! PRect
+    let streamPixelFormat = pigeonVar_list[5] as! String
+    let isoMin = pigeonVar_list[6] as! Double
+    let isoMax = pigeonVar_list[7] as! Double
+    let exposureDurationMinNs = pigeonVar_list[8] as! Int64
+    let exposureDurationMaxNs = pigeonVar_list[9] as! Int64
+    let focusMin = pigeonVar_list[10] as! Double
+    let focusMax = pigeonVar_list[11] as! Double
+    let zoomMin = pigeonVar_list[12] as! Double
+    let zoomMax = pigeonVar_list[13] as! Double
+    let evMin = pigeonVar_list[14] as! Double
+    let evMax = pigeonVar_list[15] as! Double
 
     return SessionCapabilities(
       supportedSizes: supportedSizes,
       supportedFrameRates: supportedFrameRates,
       activeFrameRate: activeFrameRate,
-      previewTextureId: previewTextureId,
       activeCaptureResolution: activeCaptureResolution,
       activeCropRegion: activeCropRegion,
       streamPixelFormat: streamPixelFormat,
@@ -333,7 +330,6 @@ struct SessionCapabilities {
       supportedSizes,
       supportedFrameRates,
       activeFrameRate,
-      previewTextureId,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,

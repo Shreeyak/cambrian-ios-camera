@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cambrian_ios_camera/cambrian_ios_camera.dart';
 
-/// Renders the processed-lane preview texture once it is created, swapping to a
+/// Renders the primary-lane preview texture once it is created, swapping to a
 /// "No signal" placeholder whenever the session isn't actively producing frames.
 class PreviewWidget extends StatefulWidget {
   final CameraEngine engine;

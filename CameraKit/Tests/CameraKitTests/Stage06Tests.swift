@@ -225,7 +225,6 @@ struct ConfigurableTrackerSizeTests {
         let expectedResolution = Size(width: expectedW, height: 480)
         let caps = SessionCapabilities(
             supportedSizes: [size],
-            previewTextureId: 0,
             activeCaptureResolution: size,
             activeCropRegion: Rect(x: 0, y: 0, width: size.width, height: size.height),
             streamPixelFormat: Constants.streamPixelFormatString,

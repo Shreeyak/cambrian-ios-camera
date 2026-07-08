@@ -26,7 +26,6 @@ import Testing
     @Test func sessionCapabilitiesHasNoNaturalTextureId() {
         let caps = SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
-            previewTextureId: 0,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
             streamPixelFormat: Constants.streamPixelFormatString,
@@ -38,6 +37,8 @@ import Testing
             trackerResolution: Size(width: 854, height: 480))
         let fieldNames = Set(Mirror(reflecting: caps).children.compactMap { $0.label })
         #expect(!fieldNames.contains("naturalTextureId"))
-        #expect(fieldNames.contains("previewTextureId"))
+        // flutter-single-preview also retired `previewTextureId` (a dead Stage-05
+        // stub) — the struct now carries no preview texture id at all.
+        #expect(!fieldNames.contains("previewTextureId"))
     }
 }

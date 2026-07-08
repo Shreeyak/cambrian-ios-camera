@@ -477,7 +477,6 @@ struct RgbaConversionStreamPixelFormatTests {
     func streamPixelFormatIsBgra8() {
         let cap = SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
-            previewTextureId: 0,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
             streamPixelFormat: Constants.streamPixelFormatString,

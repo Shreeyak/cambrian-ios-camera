@@ -416,7 +416,6 @@ final class ViewModel {
                 if let caps = self.capabilities {
                     self.capabilities = SessionCapabilities(
                         supportedSizes: caps.supportedSizes,
-                        previewTextureId: caps.previewTextureId,
                         activeCaptureResolution: size,
                         activeCropRegion: caps.activeCropRegion,
                         streamPixelFormat: caps.streamPixelFormat,

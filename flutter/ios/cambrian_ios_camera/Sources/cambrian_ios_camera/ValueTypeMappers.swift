@@ -159,7 +159,6 @@ extension CameraKit.SessionCapabilities {
             supportedSizes: supportedSizes.map { $0.toPigeon() as PSize? },
             supportedFrameRates: supportedFrameRates.map { $0.toPigeon() as PFrameRateRange? },
             activeFrameRate: Int64(activeFrameRate),
-            previewTextureId: Int64(previewTextureId),
             activeCaptureResolution: activeCaptureResolution.toPigeon(),
             activeCropRegion: activeCropRegion.toPigeon(),
             streamPixelFormat: streamPixelFormat,

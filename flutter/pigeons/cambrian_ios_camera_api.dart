@@ -134,7 +134,6 @@ class SessionCapabilities {
     required this.supportedSizes,
     required this.supportedFrameRates,
     required this.activeFrameRate,
-    required this.previewTextureId,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
     required this.streamPixelFormat,
@@ -157,7 +156,6 @@ class SessionCapabilities {
 
   /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
   int activeFrameRate;
-  int previewTextureId;
   PSize activeCaptureResolution;
   PRect activeCropRegion;
   String streamPixelFormat;
