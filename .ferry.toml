@@ -1,0 +1,4 @@
+project   = "ios_example_app/ios_example_app.xcodeproj"
+scheme    = "ios_example_app"
+bundle_id = "com.cambrian.ios-example-app"
+log_file  = "/Documents/camerakit.log"
