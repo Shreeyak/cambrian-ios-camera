@@ -60,9 +60,11 @@ device-only; Dart on host; Swift RunnerTests via `xcodebuild test` (wireless OK)
   confirms `previewTextureId` is absent at runtime, and recompiling the target
   proved the `RgbaConversion`/`Stage06` fixture edits compile. `swift-format lint
   --strict` runs at pre-commit.
-- [~] 4.3 Swift adapter RunnerTests via `xcodebuild test` (wireless OK) — **deferred**
-  to the device pass (ValueTypeMappers/MockCameraEngine field-drops are mirror-consistent
-  with the regenerated Pigeon; host `flutter test` green).
+- [x] 4.3 Swift adapter RunnerTests green on device — **11/11 passed** (NotOpenGuard 3,
+  SceneLifecycle 4, TextureMap 4), via XcodeBuildMCP `test_device` on the `Runner`
+  workspace. Confirms `ValueTypeMappers`/`MockCameraEngine` compile + the preview
+  texture-map behavior is intact after the field removal. (One-time device hygiene:
+  cleared a stale `cambrianIosCameraExample` install that had blocked the fresh install.)
 - [~] 4.4 `integration_test` — **deferred** (needs USB + re-prime
   `flutter build ios --config-only`); folds into the device HITL pass.
 - [x] 4.5 `openspec validate flutter-single-preview --strict` — valid.
