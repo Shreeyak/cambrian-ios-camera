@@ -80,19 +80,62 @@ public actor CameraEngine {
     ///
     /// `nil` until first apply / post-`close()`. Read by
     /// `currentProcessingParametersSnapshot()` (Phase-2 §2b — VM mirror sync
-    /// after engine-side `calibrateBlackBalance()`).
+    /// after engine-side calibration).
     private var currentProcessing: ProcessingParameters?
     /// In-flight calibration sentinel (Phase-2 §2b).
     ///
-    /// Non-nil while `calibrateWhiteBalance()` / `calibrateBlackBalance()` is
+    /// Non-nil while `calibrateWhite()` / `calibrateBlack()` is
     /// running — `updateSettings()` (when WB fields are present) and
     /// `setResolution()` throw `.calibrationInProgress`. `close()` and the
     /// `.interrupted` `SessionState` route call `cancel()` here.
     private var calibrationTask: Task<CalibrationResult, Error>?
+    /// Diagnostics from the most recent `calibrateBlack()` — the calibration
+    /// task shares the `calibrationTask` exclusivity guard (typed `CalibrationResult`),
+    /// so the black-point debug payload is stashed here and returned by the caller.
+    private var lastBlackPointDebug: BlackPointDebug?
     private nonisolated let frameResultContinuationBox =
         Mutex<AsyncStream<FrameResult>.Continuation?>(nil)
     private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
     private var frameCounter: UInt64 = 0
+
+    // Defensive first-frame gate: `open()` waits for the first delivered frame so a
+    // configured-but-dead session fails at the call site instead of silently
+    // stalling. Set true by `onFrameTick` on the first frame; reset in `close()`.
+    private var firstFrameArrived = false
+    private var firstFrameContinuation: CheckedContinuation<Bool, Never>?
+
+    // Set by `performTeardownAndReopen` immediately before its `open()` so that
+    // reopen skips the first-frame check (recovery owns stall detection there).
+    // Read-and-cleared at the top of `open()`.
+    private var pendingRecoveryReopen = false
+
+    // Test-only override for the first-frame deadline (seconds); `nil` = the
+    // `Constants.firstFrameTimeoutSeconds` default. Set to a tiny value to force
+    // the timeout path deterministically. See `_setFirstFrameTimeoutForTest`.
+    var firstFrameTimeoutOverride: Double?
+
+    // recovery-restart-budget: engine-level recovery escalation budgets. They
+    // persist across reopens (the RecoveryCoordinator is recreated per open(), so
+    // its own attempt counter cannot). Reset to 0 on a delivered frame (onFrameTick)
+    // and on a user-initiated open(); incremented per recovery reopen; drive the
+    // quick → full-restart → terminal-fatal escalation in performTeardownAndReopen.
+    private var recoveryReopensWithoutFrame = 0
+    private var fullRestartCount = 0
+
+    // Test-only: the last open configuration, so a test seam can drive a recovery
+    // reopen with the same config. Set at the top of open(). Internal (not private)
+    // so the DEBUG test-support extension can read it.
+    var lastOpenConfiguration: OpenConfiguration?
+
+    // Test-only: when true, onFrameTick drops the frame (no first-frame signal, no
+    // budget reset) so a test can simulate a persistent no-frame fault and exercise
+    // the recovery escalation deterministically without the watchdog.
+    var suppressFrameDeliveryForTest = false
+
+    // Test-only: shrink the escalation budgets so a test reaches the terminal fatal
+    // in a few reopens instead of ~24. `nil` = the Constants defaults.
+    var recoveryMaxRetriesOverride: Int?
+    var maxFullRestartsOverride: Int?
 
     // Phase-2 §2c — active stream-configuration stream.
     private nonisolated let streamConfigContinuationBox =
@@ -271,7 +314,7 @@ public actor CameraEngine {
     ///
     /// Symmetric with `currentSettingsSnapshot()`. Used by
     /// `CalibrationViewModel` to refresh its mirror after engine-side
-    /// `calibrateBlackBalance()`. Phase-2 §2b.
+    /// calibration. Phase-2 §2b.
     public func currentProcessingParametersSnapshot() -> ProcessingParameters? {
         currentProcessing
     }
@@ -282,7 +325,20 @@ public actor CameraEngine {
     /// - Throws: `EngineError.cameraDenied` if permission not granted.
     /// - Throws: `EngineError.noBackCamera` if no back camera found.
     /// - Throws: `EngineError.metal(_:)` if MetalPipeline fails to initialise.
-    public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
+    public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws
+        -> SessionCapabilities
+    {
+        // Read-and-clear the recovery-reopen flag (set by performTeardownAndReopen
+        // just before this call). On a recovery reopen the first-frame check is
+        // skipped — the watchdog + recovery budget own stall detection there.
+        let fromRecovery = pendingRecoveryReopen
+        pendingRecoveryReopen = false
+        if !fromRecovery {
+            // User-driven open starts with a fresh recovery escalation budget.
+            recoveryReopensWithoutFrame = 0
+            fullRestartCount = 0
+        }
+        lastOpenConfiguration = configuration
         guard !isOpen else { throw EngineError.alreadyOpen }
         CameraKitLog.notice(.engine, "open: requesting camera permission")
 
@@ -313,7 +369,9 @@ public actor CameraEngine {
             try session.configure(
                 deliveryQueue: delivery,
                 sampleBufferDelegate: delegate,
-                requestedSize: configuration.captureResolution)
+                requestedSize: configuration.captureResolution,
+                targetFps: configuration.targetFps ?? Constants.frameRateTargetFPS,
+                orientationAngleDeg: configuration.captureOrientationAngleDeg)
         }
 
         // 4. Metal pipeline — pass the shared submission gate (ADR-09).
@@ -381,7 +439,7 @@ public actor CameraEngine {
         //    closure must read it live each frame rather than capture the original
         //    `pipeline` reference (which goes nil at the first `setResolution`).
         delegate.onSampleBuffer = { [weak self] sampleBuffer in
-            try? self?._metalPipeline.latest?.encode(sampleBuffer: sampleBuffer)
+            try? self?._metalPipeline.latest?.renderFrame(sampleBuffer: sampleBuffer)
         }
         delegate.engine = self
 
@@ -420,8 +478,7 @@ public actor CameraEngine {
         delegate.watchdogs = pair
         let hooks = RecoveryCoordinator.Hooks(
             performTeardownAndReopen: { [weak self] in
-                await self?.close()
-                _ = try await self?.open(configuration: configuration)
+                try await self?.performRecoveryReopen(configuration: configuration)
             },
             emitStateRecovering: { [weak self] in
                 await self?.publishStateAsync(.recovering)
@@ -484,8 +541,16 @@ public actor CameraEngine {
         await reconcile()
 
         // Apply persisted ProcessingParameters if any (07-settings.md §Persistence).
+        // §5.3 — gate the restored WB chroma / white-point toggles to the effective
+        // WB mode. Manual WB is NOT silently restored into a stale lock (persistence
+        // strips `.manual`), so WB is auto here unless `initialSettings` set a lock;
+        // a persisted `wbChromaEnabled == true` must therefore start disabled rather
+        // than applying chroma on top of moving auto gains. Coefficients are kept, so
+        // a later `calibrateWhite()`/lock re-activates them.
         if let persistedProcessing = SettingsPersistence.loadProcessing() {
-            await self.setProcessingParams(persistedProcessing)
+            let effectiveWB = currentSettings?.wbMode ?? .auto
+            await self.setProcessingParams(
+                Self.gateWBNormalization(persistedProcessing, wbMode: effectiveWB))
         }
 
         // Mirror the resolved open-time crop (explicit rect or the on-open default)
@@ -497,11 +562,15 @@ public actor CameraEngine {
 
         // 11. Build and return SessionCapabilities.
         let supportedSizes = await device.supportedSizes
+        let supportedFrameRates = await device.supportedFrameRates
         // P2a — the REAL crop rect, derived from the pipeline's outputSize +
         // cropOrigin: full-frame Rect(0,0,captureW,captureH) when uncropped.
         let activeCropRegion = Self.activeCropRect(for: pipeline)
         let isoRange = await device.isoRange
-        let exposureDurationRangeNs = await device.exposureDurationRangeNs
+        // configurable-frame-rate: report the fps-constrained exposure ceiling
+        // (min(sensorMax, 1/lockedFps)) so callers see the real max exposure up front.
+        let exposureDurationRangeNs = Self.fpsConstrainedExposureRange(
+            sensorRange: await device.exposureDurationRangeNs, lockedFps: session.lockedFps)
         let zoomMin = await device.minAvailableVideoZoomFactor
         let zoomMax = await device.maxAvailableVideoZoomFactor
         let evMin = await device.minExposureTargetBias
@@ -510,9 +579,31 @@ public actor CameraEngine {
             .engine,
             "open: pipeline ready — \(captureSize.width)×\(captureSize.height)"
         )
+
+        // Defensive first-frame check. Only on a user-driven open in the active
+        // phase: `.inactive`/`.background` deliberately deliver no frames (gate
+        // closed / no startRunning), and recovery reopens are covered by the
+        // watchdog + recovery budget (running the check there would fight recovery).
+        // If a started session delivers no frame within the deadline, tear down and
+        // throw so the caller detects a dead session at the call site rather than
+        // seeing a frozen preview. Normal first-frame latency is ~100–200 ms.
+        if currentPhase == .active && !fromRecovery {
+            let timeoutS = firstFrameTimeoutOverride ?? Constants.firstFrameTimeoutSeconds
+            let delivered = await awaitFirstFrame(timeout: .seconds(timeoutS))
+            if !delivered {
+                CameraKitLog.error(
+                    .engine,
+                    "open: no frame within \(timeoutS)s — tearing down and throwing "
+                        + "sessionLifecycleTimeout")
+                await close()
+                throw EngineError.sessionLifecycleTimeout
+            }
+        }
+
         return SessionCapabilities(
             supportedSizes: supportedSizes,
-            previewTextureId: 0,  // stub: texture IDs arrive Stage 05
+            supportedFrameRates: supportedFrameRates,
+            activeFrameRate: session.lockedFps,
             activeCaptureResolution: captureSize,
             activeCropRegion: activeCropRegion,
             // Lane-buffer format (what `currentPixelBuffer(stream:)` returns),
@@ -528,7 +619,26 @@ public actor CameraEngine {
     }
 
     /// Closes the camera session and releases all resources.
+    ///
+    /// Finishes consumer lane subscriptions cleanly (no throw). Recovery/restart
+    /// uses `teardown(preserveConsumers:)` instead, which leaves them open.
     public func close() async {
+        await teardown(preserveConsumers: false)
+        // A user close resets the recovery escalation budgets.
+        recoveryReopensWithoutFrame = 0
+        fullRestartCount = 0
+    }
+
+    /// Tears down the live session and pipeline.
+    ///
+    /// When `preserveConsumers` is true (recovery/restart), consumer lane
+    /// subscriptions and the `frameResultStream` are LEFT OPEN and no `.closed`
+    /// state is published, so a subsequent reopen resumes delivery to the same
+    /// subscribers — the restart is transparent to consumers (they see only a frame
+    /// gap). A restart is transparent to consumers IFF it skips
+    /// `ConsumerRegistry.release()` / `failAllLanes()`; lanes are terminated only by
+    /// a user `close()` (clean finish) or the terminal fatal (`failAllLanes` throws).
+    private func teardown(preserveConsumers: Bool) async {
         sessionToken.wrappingIncrement(ordering: .sequentiallyConsistent)
         // Phase-2 §2b — abort any in-flight calibration.
         calibrationTask?.cancel()
@@ -545,29 +655,58 @@ public actor CameraEngine {
         watchdogs = nil
         recovery = nil
         guard isOpen else { return }
-        CameraKitLog.notice(.engine, "close: tearing down pipeline")
+        CameraKitLog.notice(
+            .engine, "teardown: tearing down pipeline (preserveConsumers=\(preserveConsumers))")
         // Disarm watchdogs (placeholder; real watchdog disarm arrives Stage 09).
         submissionGate.store(false, ordering: .sequentiallyConsistent)
+        // Reset the reconcile decision so a later open() re-issues startRunning.
+        // Without this, `startSessionIfNeeded` sees `reconciledSessionRunning == true`
+        // (set on the first open, never cleared by close) and SKIPS startRunning on
+        // reopen — the new AVCaptureSession is configured but never started, so it
+        // delivers no frames. This is the structural close→reopen stall that broke
+        // every engine reuse (setTargetFps, setResolution-via-reopen) at all
+        // resolutions, independent of timing (a settle gap did not help).
+        reconciledSessionRunning = false
         if let session = cameraSession {
             session.sessionQueue.sync { session.stopRunning() }
         }
         if let device = cameraSession?.device {
             await device.cancelKVO()
         }
-        frameResultContinuationBox.withLock {
-            $0?.finish()
-            $0 = nil
+        // Diagnostics stream: finished only on a full close; a restart preserves it
+        // so a subscribed consumer keeps receiving after the reopen.
+        if !preserveConsumers {
+            frameResultContinuationBox.withLock {
+                $0?.finish()
+                $0 = nil
+            }
+            cachedFrameResultStream.store(nil)
         }
-        cachedFrameResultStream.store(nil)
         frameCounter = 0
-        await consumers.release()
+        // Reset the first-frame gate and release any waiter (e.g. a concurrent
+        // open() blocked in awaitFirstFrame) so teardown can't leave it hung.
+        firstFrameArrived = false
+        if let cont = firstFrameContinuation {
+            firstFrameContinuation = nil
+            cont.resume(returning: false)
+        }
+        // Consumer lanes: released (clean finish) only on a full close; a restart
+        // PRESERVES them so surviving subscribers resume from the rebuilt pipeline —
+        // a transparent restart (skips release()/failAllLanes()).
+        if !preserveConsumers {
+            await consumers.release()
+        }
         cameraSession = nil
         captureDelegate = nil
         metalPipeline = nil
         stillCapture = nil
         _metalPipeline.store(nil)
         deliveryQueue = nil
-        publishState(.closed, kind: .command)
+        // A restart does not publish `.closed` (recovery publishes `.recovering`,
+        // the reopen publishes `.streaming`); only a full close publishes `.closed`.
+        if !preserveConsumers {
+            publishState(.closed, kind: .command)
+        }
     }
 
     /// Returns an AsyncStream of SessionState events.
@@ -677,7 +816,19 @@ public actor CameraEngine {
     }
 
     private func onFrameTick() async {
+        // Test-only: simulate a persistent no-frame fault (drop before any signal).
+        if suppressFrameDeliveryForTest { return }
         frameCounter &+= 1
+        // Signal the first delivered frame to a waiting open() (defensive gate).
+        if !firstFrameArrived {
+            firstFrameArrived = true
+            firstFrameContinuation?.resume(returning: true)
+            firstFrameContinuation = nil
+            // recovery-restart-budget: a delivered frame proves recovery succeeded —
+            // reset the escalation budgets.
+            recoveryReopensWithoutFrame = 0
+            fullRestartCount = 0
+        }
         guard frameCounter % UInt64(Constants.frameResultHeartbeatIntervalFrames) == 0,
             let device = cameraSession?.device,
             let snap = await device.lastSnapshot
@@ -701,6 +852,89 @@ public actor CameraEngine {
         frameResultContinuationBox.withLock { $0?.yield(r) }
     }
 
+    /// Wait up to `timeout` for the first delivered frame after the session starts.
+    ///
+    /// Returns true if a frame arrived, false on timeout. Resolved exactly once —
+    /// by `onFrameTick` (frame), the deadline task (timeout), or `close()` — each
+    /// guarded by the actor and the `firstFrameContinuation` nil-check.
+    private func awaitFirstFrame(timeout: Duration) async -> Bool {
+        if firstFrameArrived { return true }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            firstFrameContinuation = cont
+            Task { [weak self] in
+                try? await Task.sleep(for: timeout)
+                await self?.firstFrameTimedOut()
+            }
+        }
+    }
+
+    /// Deadline branch for `awaitFirstFrame`: resumes `false` if still pending.
+    private func firstFrameTimedOut() {
+        if let cont = firstFrameContinuation {
+            firstFrameContinuation = nil
+            cont.resume(returning: false)
+        }
+    }
+
+    // recovery-restart-budget: one recovery reopen attempt, with two-tier escalation
+    // driven by the engine-level budgets (which persist across the coordinator's
+    // per-open recreation). Called from the RecoveryCoordinator's backoff each cycle:
+    //   • quick reopen while within recoveryMaxRetries — preserve consumers, reopen;
+    //   • else a full restart (heavier: settle delay) while within maxFullRestarts,
+    //     resetting the quick budget and emitting a NON-fatal signal;
+    //   • else the terminal permanent fatal — failAllLanes via publishError(isFatal),
+    //     then a full close(); no further reopen.
+    // Every teardown here preserves consumers so a restart is transparent to them;
+    // lanes terminate only at the terminal fatal. A reopen that throws is rethrown so
+    // the coordinator reschedules the next cycle (which re-enters here and escalates).
+    // Internal (not private) so the DEBUG test-support extension can drive it.
+    func performRecoveryReopen(configuration: OpenConfiguration) async throws {
+        let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryQuickReopens
+        let maxRestarts = maxFullRestartsOverride ?? Constants.maxFullRestarts
+        recoveryReopensWithoutFrame += 1
+        if recoveryReopensWithoutFrame <= maxQuick {
+            CameraKitLog.warning(
+                .engine, "[recovery] quick reopen \(recoveryReopensWithoutFrame)/\(maxQuick)")
+            await teardown(preserveConsumers: true)
+            pendingRecoveryReopen = true
+            _ = try await open(configuration: configuration)
+            return
+        }
+        if fullRestartCount < maxRestarts {
+            fullRestartCount += 1
+            // Linear escalation: the quick counter is NOT reset, so once quick
+            // reopens are exhausted we go straight through the full restarts to the
+            // terminal fatal (quick×maxQuick → full×maxRestarts → fatal). We do not
+            // grant a fresh quick round after each full restart — a quick reopen
+            // already fully restarts the session, so extra rounds only delay the
+            // clean fatal (~7s/cycle, watchdog-dominated) without added recovery power.
+            CameraKitLog.warning(
+                .engine, "[recovery] full restart \(fullRestartCount)/\(maxRestarts)")
+            publishError(
+                CameraError(
+                    code: .captureFailure,
+                    message: "camera full restart \(fullRestartCount)/\(maxRestarts)",
+                    isFatal: false))
+            await teardown(preserveConsumers: true)
+            try? await clock.sleep(
+                milliseconds: Int(Constants.fullRestartSettleSeconds * 1000))
+            pendingRecoveryReopen = true
+            _ = try await open(configuration: configuration)
+            return
+        }
+        CameraKitLog.error(
+            .engine, "[recovery] escalation exhausted — permanent fatal, terminating lanes")
+        publishError(
+            CameraError(
+                code: .maxRetriesExceeded,
+                message:
+                    "camera could not recover after \(maxQuick) reopens × \(maxRestarts) restarts",
+                isFatal: true))
+        // Full close: failAllLanes already fired via publishError(isFatal); release
+        // the rest. No reopen — the loop stops here.
+        await close()
+    }
+
     /// Full settings merge→couple→validate→commit→persist pipeline (Stage 03).
     ///
     /// - Merges onto prior state
@@ -713,6 +947,20 @@ public actor CameraEngine {
     /// - Throws: `EngineError.settingsConflict` if range validation fails or Rule 3 pre-readback
     /// - Throws: `EngineError.calibrationInProgress` if a `calibrate*()` is in
     ///   flight and `settings` touches white balance (Phase-2 §2b).
+    ///
+    /// Exposure duration range bounded by the locked frame rate.
+    ///
+    /// A frame's exposure can't exceed its frame duration, so at a locked `fps` the max
+    /// usable exposure is `min(sensorMax, 1/fps)` (configurable-frame-rate). Keeps the
+    /// sensor lower bound; never inverts (clamps the upper to at least the lower).
+    static func fpsConstrainedExposureRange(
+        sensorRange: ClosedRange<Int64>, lockedFps: Int
+    ) -> ClosedRange<Int64> {
+        let ceilingNs = Int64(1_000_000_000 / max(1, lockedFps))
+        let upper = min(sensorRange.upperBound, ceilingNs)
+        return sensorRange.lowerBound...max(sensorRange.lowerBound, upper)
+    }
+
     public func updateSettings(_ settings: CameraSettings) async throws {
         // Phase-2 §2b — block conflicting WB writes during in-flight calibration.
         if calibrationTask != nil && settingsTouchesWhiteBalance(settings) {
@@ -723,7 +971,7 @@ public actor CameraEngine {
 
     /// Same body as `updateSettings(_:)` but skips the calibration-guard.
     ///
-    /// Used by `calibrateWhiteBalance()` so the in-flight calibration can
+    /// Used by `calibrateWhite()` so the in-flight calibration can
     /// commit its own `.manual` lock without tripping its own guard.
     private func _updateSettingsBypassingCalibrationGuard(_ settings: CameraSettings) async throws {
         guard let session = cameraSession, let device = session.device else {
@@ -744,14 +992,22 @@ public actor CameraEngine {
 
         // 3. Range-validate against the device's supported ranges (brief §7).
         let isoRange = await device.isoRange
-        let expRange = await device.exposureDurationRangeNs
+        let sensorExpRange = await device.exposureDurationRangeNs
+        // configurable-frame-rate: the locked frame rate caps the max usable exposure
+        // at 1/targetFps — a frame's exposure cannot exceed its frame duration. Bound
+        // the valid exposure range by that ceiling and reject beyond it (no silent
+        // clamp); a longer exposure needs a lower targetFps opened via OpenConfiguration.
+        let expRange = Self.fpsConstrainedExposureRange(
+            sensorRange: sensorExpRange, lockedFps: session.lockedFps)
         if let iso = resolved.iso, !isoRange.contains(Float(iso)) {
             throw EngineError.settingsConflict(
                 reason: "iso=\(iso) outside supported range \(isoRange)")
         }
         if let exp = resolved.exposureTimeNs, !expRange.contains(exp) {
             throw EngineError.settingsConflict(
-                reason: "exposureTimeNs=\(exp) outside supported range \(expRange)")
+                reason:
+                    "exposureTimeNs=\(exp) outside supported range \(expRange) "
+                    + "(max is 1/\(session.lockedFps)s at the locked frame rate)")
         }
         if let focus = resolved.focusDistance, !(0.0...1.0).contains(focus) {
             throw EngineError.settingsConflict(
@@ -761,6 +1017,18 @@ public actor CameraEngine {
         // 4. Commit through session (ADR-07).
         try await session.applySettings(resolved, on: device)
         currentSettings = resolved
+
+        // 4b. §5.3 — keep the WB chroma / white-point normalization gated to a
+        //     locked white balance. Whenever WB is (or returns to) auto, disable
+        //     those toggles so a software residual never chases moving hardware
+        //     gains. Idempotent and coefficient-preserving; only re-pushes the
+        //     uniforms when a toggle actually flips (so a non-WB settings change in
+        //     auto is a no-op here).
+        let effectiveWB = resolved.wbMode ?? .auto
+        if let cur = currentProcessing {
+            let gated = Self.gateWBNormalization(cur, wbMode: effectiveWB)
+            if gated != cur { await setProcessingParams(gated) }
+        }
 
         // 5. Persist. Detached so the actor doesn't block on I/O.
         let toSave = resolved
@@ -775,6 +1043,33 @@ public actor CameraEngine {
             || settings.wbGainR != nil
             || settings.wbGainG != nil
             || settings.wbGainB != nil
+    }
+
+    /// Gates the WB-derived normalization toggles (chroma residual + white point)
+    /// to a locked white balance (linear-normalization-stage §5.3, design D5).
+    ///
+    /// In **auto** WB the hardware gains move continuously, so a software chroma
+    /// residual layered on top would chase them; the residual is only meaningful
+    /// once gains are locked (`.manual` / `.locked`). This returns `p` unchanged
+    /// when WB is locked, and with `wbChromaEnabled`/`whitePointEnabled` forced off
+    /// otherwise. It does **not** touch the stored coefficients — only the toggles —
+    /// so re-locking re-activates the last calibration without recomputing.
+    ///
+    /// Applied at the two points WB mode is established: the `updateSettings`
+    /// chokepoint (explicit transitions, incl. calibrate's cancel→auto path) and
+    /// the persisted-parameter restore in `open()` (where WB defaults to auto and a
+    /// stale `wbChromaEnabled == true` would otherwise apply chroma in auto).
+    // Internal (not private) so gating unit tests can call it directly via
+    // `@testable import` (linear-normalization-stage §9.1).
+    static func gateWBNormalization(
+        _ p: ProcessingParameters, wbMode: WhiteBalanceMode?
+    ) -> ProcessingParameters {
+        let locked = (wbMode == .manual || wbMode == .locked)
+        guard !locked else { return p }
+        var g = p
+        g.wbChromaEnabled = false
+        g.whitePointEnabled = false
+        return g
     }
 
     /// Session-only teardown + re-select format + restart for new resolution.
@@ -927,14 +1222,12 @@ public actor CameraEngine {
     /// architecture/07-settings.md §ProcessingParameters).
     ///
     /// **Pipeline order (`Shaders/ColorShaders.metal`):**
-    ///   1. Brightness → 2. Contrast → 3. Saturation → 4. Gamma → 5. Black balance.
+    ///   0. Normalization (linear light, pre-grade: black point / WB chroma /
+    ///      white point, fused affine) → 1. Brightness → 2. Contrast →
+    ///      3. Saturation → 4. Gamma.
     ///
-    /// Black balance is the **last** step — pedestal is subtracted from the
-    /// graded output, behaving like a final shadow lift rather than a
-    /// pre-grade noise-floor compensation. Calibration sampling for BB must
-    /// therefore read from a render where BCSG is applied and BB is zeroed
-    /// (see `MetalPipeline.dispatchBBCalibrationSample`) so each calibrate
-    /// isn't biased by the previously-applied pedestal.
+    /// The black point is part of the pre-grade normalization (linear light),
+    /// derived statistically by `calibrateBlack()` from the raw natural lane.
     public func setProcessingParams(_ params: ProcessingParameters) async {
         // Route through the mutex so the delivery-queue snapshot in encode() is always coherent.
         metalPipeline?.uniforms.withLock { storage in
@@ -1185,38 +1478,14 @@ public actor CameraEngine {
         }
     }
 
-    /// Stage 04: dispatches the center-patch sampler and returns per-channel trimmed mean.
-    ///
-    /// Samples processedTex's CENTER_PATCH_SIZE_PX x CENTER_PATCH_SIZE_PX center, awaits
-    /// completion, sorts each channel and returns the trimmed mean per
-    /// CENTER_PATCH_TRIM_PERCENT (07-settings.md §Center-patch sampling).
-    ///
-    /// - Throws: `EngineError.notOpen` if the session is not open.
-    /// - Throws: `EngineError.metal(_:)` on Metal failures.
-    public func sampleCenterPatch() async throws -> RgbSample {
-        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-        return try await pipeline.dispatchCenterPatch()
-    }
-
     /// WB-calibration sampler — reads from `naturalTex` (Pass-1 output).
     ///
     /// See `MetalPipeline.dispatchCenterPatchOnNatural` for the rationale.
     /// Phase-2 §2b: demoted to `internal` — callers go through
-    /// `calibrateWhiteBalance()` instead.
+    /// `calibrateWhite()` instead.
     func sampleCenterPatchOnNatural() async throws -> RgbSample {
         guard let pipeline = metalPipeline else { throw EngineError.notOpen }
         return try await pipeline.dispatchCenterPatchOnNatural()
-    }
-
-    /// BB-calibration sampler — reads from a one-shot scratch render of current
-    /// BCSG with BB zeroed.
-    ///
-    /// See `MetalPipeline.dispatchBBCalibrationSample` for the rationale.
-    /// Phase-2 §2b: demoted to `internal` — callers go through
-    /// `calibrateBlackBalance()` instead.
-    func sampleCenterPatchForBBCalibration() async throws -> RgbSample {
-        guard let pipeline = metalPipeline else { throw EngineError.notOpen }
-        return try await pipeline.dispatchBBCalibrationSample()
     }
 
     /// Test-only: the *measured* dimensions of the device's active capture
@@ -1232,6 +1501,23 @@ public actor CameraEngine {
             throw EngineError.notOpen
         }
         return await device.activeFormatSize
+    }
+
+    /// Test-only: the live locked frame-rate range, derived from the hardware's
+    /// `activeVideoMin/MaxFrameDuration`.
+    ///
+    /// `minFps` comes from the max frame duration, `maxFps` from the min frame
+    /// duration. A correct lock reads back `minFps == maxFps == targetFps`; a
+    /// value like `(1, 30)` after requesting 15 means the lock was reset (e.g. by
+    /// a `sessionPreset` change). Throws `notOpen` when no session is live.
+    func _activeFrameRateRangeForTest() async throws -> (minFps: Double, maxFps: Double) {
+        guard let device = cameraSession?.device else {
+            throw EngineError.notOpen
+        }
+        let (minDur, maxDur) = await device.activeFrameDurationSecondsForTest
+        let maxFps = minDur > 0 ? 1.0 / minDur : 0
+        let minFps = maxDur > 0 ? 1.0 / maxDur : 0
+        return (minFps: minFps, maxFps: maxFps)
     }
 
     /// Test-only: the live applied crop rectangle, derived from the Metal
@@ -1283,7 +1569,7 @@ public actor CameraEngine {
     /// Switches WB to continuous auto, awaits AWB convergence, then reads
     /// Apple's gray-world gains for the now-settled scene.
     ///
-    /// `calibrateWhiteBalance()`'s seed. Phase-2 §2b: demoted to `internal`.
+    /// `calibrateWhite()`'s seed. Phase-2 §2b: demoted to `internal`.
     func freshGrayWorldDeviceWBGains() async throws -> WhiteBalanceGains {
         guard let device = cameraSession?.device else {
             throw EngineError.notOpen
@@ -1379,6 +1665,25 @@ public actor CameraEngine {
         }
     }
 
+    /// Awaits a fresh natural tap after arming it (opt C).
+    ///
+    /// With the natural write gated to armed calibration, the tap's published PTS is
+    /// frozen while disarmed. After `naturalTapArmed` is set, this waits for the PTS
+    /// to ADVANCE past its armed-instant value — i.e. a genuinely fresh natural frame
+    /// has been written — so the first calibration sample never reads a stale tap.
+    /// Bounded to 1s (matches `awaitNaturalAfter`); returns early on refresh.
+    func awaitNaturalRefresh() async {
+        guard let pipeline = metalPipeline else { return }
+        let seed = pipeline.latestNaturalPTSNs.load(ordering: .acquiring)
+        let deadline = ContinuousClock.now + .seconds(1)
+        while ContinuousClock.now < deadline {
+            if pipeline.latestNaturalPTSNs.load(ordering: .acquiring) > seed {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+    }
+
     /// Awaits `isAdjustingExposure == false` after a WB-preset apply.
     ///
     /// AE drift (often triggered by the user repointing the camera at the gray
@@ -1408,12 +1713,31 @@ public actor CameraEngine {
     /// - **Abort on lifecycle**: `close()` and the `.interrupted` SessionState
     ///   transition cancel the in-flight task. The task's catch path returns
     ///   WB to `.auto` before propagating `CancellationError`.
-    public func calibrateWhiteBalance() async throws -> CalibrationResult {
+    public func calibrateWhite(whitePoint: Bool = true) async throws -> CalibrationResult {
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
         let task = Task<CalibrationResult, Error> { [self] in
             do {
+                // opt C: the natural tap is written only while armed. Arm for the whole
+                // calibration span, then await a fresh natural before the first sample.
+                metalPipeline?.naturalTapArmed.store(true, ordering: .releasing)
+                defer { metalPipeline?.naturalTapArmed.store(false, ordering: .releasing) }
+                await awaitNaturalRefresh()
                 let before = try await sampleCenterPatchOnNatural()
                 try Task.checkCancellation()
+                // White-field validation (symmetric with calibrateBlack's dark gate):
+                // reject a dark/garbage field up front — before locking any gains —
+                // since chroma derived from a non-white field is meaningless (huge
+                // gains). Brightness is judged on the pre-lock scene sample.
+                let beforeMeanGamma = (before.r + before.g + before.b) / 3.0
+                guard beforeMeanGamma >= Constants.whiteFieldMinSampleGamma else {
+                    throw EngineError.whiteBalanceCalibrationFailed(
+                        reason:
+                            "The sampled patch was too dark (mean "
+                            + "\(Int((beforeMeanGamma * 100).rounded()))% < "
+                            + "\(Int(Constants.whiteFieldMinSampleGamma * 100))%) to be a white "
+                            + "reference. Point the camera at a bright, evenly-lit white field "
+                            + "and try again.")
+                }
                 let maxGain = try await maxWhiteBalanceGain()
                 let raw = try await freshGrayWorldDeviceWBGains()
                 try Task.checkCancellation()
@@ -1434,7 +1758,27 @@ public actor CameraEngine {
                 manual.wbGainB = Double(gains.blue)
                 try await _updateSettingsBypassingCalibrationGuard(manual)
                 let after = try await sampleCenterPatchOnNatural()
-                CameraKitLog.notice(.engine, "[wb] calibrate done")
+                // §5.1 — decompose the locked white field into the per-channel chroma
+                // residual + scalar white-point level and store all three (the
+                // hardware gains are already committed above). Chroma is enabled now
+                // that WB is locked to manual (it neutralizes the residual cast). The
+                // `whitePoint` argument selects the resulting look: true (default) =
+                // brightfield (white → solid white); false = phase contrast (chroma
+                // only, grey preserved). Toggle later without recalibrating via
+                // `enableWhitePoint()` / `disableWhitePoint()`.
+                let residual = CalibrationCompute.whiteBalanceResidual(whiteSample: after)
+                var proc = currentProcessing ?? .identity
+                proc.wbChromaR = residual.chroma.r
+                proc.wbChromaG = residual.chroma.g
+                proc.wbChromaB = residual.chroma.b
+                proc.whitePointLevel = residual.level
+                proc.wbChromaEnabled = true
+                proc.whitePointEnabled = whitePoint
+                await setProcessingParams(proc)
+                CameraKitLog.notice(
+                    .engine,
+                    "[wb] calibrate done chroma=(\(residual.chroma.r), \(residual.chroma.g), \(residual.chroma.b)) level=\(residual.level) whitePoint=\(whitePoint)"
+                )
                 return CalibrationResult(
                     before: before, after: after,
                     converged: true, iterations: 1)
@@ -1451,34 +1795,215 @@ public actor CameraEngine {
         return try await task.value
     }
 
-    /// Single-shot BB calibration (Phase-2 design §2b).
+    /// Calibrates the linear black point from a dark-field readback (linear-normalization-stage).
     ///
-    /// Samples the center patch through the current BCSG with BB temporarily
-    /// zeroed, computes per-channel pedestal via `CalibrationCompute.blackBalanceOffsets`,
-    /// writes into `ProcessingParameters.blackR/G/B` via `setProcessingParams`.
-    /// Same exclusive + abort-on-lifecycle contract as `calibrateWhiteBalance()`.
-    public func calibrateBlackBalance() async throws -> CalibrationResult {
+    /// Reads back the centered sampled patch of the natural (pre-grade) lane —
+    /// extracted on the GPU, so calibration never touches the full-frame CPU path —
+    /// derives per-channel **linear** offsets (`mean + k·σ` over the near-black
+    /// pixels), writes them into `ProcessingParameters.blackPoint{R,G,B}`, and
+    /// enables the black point. The shader folds the offset into the normalization
+    /// affine pre-grade.
+    ///
+    /// Fails (throwing `EngineError.blackPointCalibrationFailed`) when too little of
+    /// the patch is near-black — `keptFraction < Constants.blackPointMinKeptFraction`
+    /// — so a sliver of dark pixels on an otherwise bright surface can't drive the
+    /// black point. On failure the existing black point is left untouched.
+    /// Same exclusive + abort-on-lifecycle contract as `calibrateWhite()`.
+    ///
+    /// Toggle the calibrated black point on/off without recalibrating via
+    /// `enableBlackPoint()` / `disableBlackPoint()`; `clearBlackPoint()` discards it.
+    public func calibrateBlack() async throws -> BlackPointDebug {
         if calibrationTask != nil { throw EngineError.calibrationInProgress }
+        // The task returns `CalibrationResult` to share `calibrationTask`'s type;
+        // the real payload (BlackPointDebug) is stashed in `lastBlackPointDebug`.
         let task = Task<CalibrationResult, Error> { [self] in
-            let beforeSample = try await sampleCenterPatchForBBCalibration()
+            guard let pipeline = metalPipeline else { throw EngineError.notOpen }
+            // opt C: arm the natural tap for the readback, then await a fresh natural.
+            pipeline.naturalTapArmed.store(true, ordering: .releasing)
+            defer { pipeline.naturalTapArmed.store(false, ordering: .releasing) }
+            await awaitNaturalRefresh()
+            // Read back only the centered sampled patch (not the full frame) — the
+            // GPU extracts it, so calibration never touches the multi-megapixel CPU
+            // path.
+            let rb = try await pipeline.readbackNaturalCenterRegion(
+                side: Constants.centerPatchSizePx)
             try Task.checkCancellation()
-            let offsets = CalibrationCompute.blackBalanceOffsets(sample: beforeSample)
-            let prior = currentProcessing ?? .identity
-            var next = prior
-            next.blackR = offsets.r
-            next.blackG = offsets.g
-            next.blackB = offsets.b
+            let debug = CalibrationCompute.blackPointDebug(
+                pixels: rb.pixels, width: rb.width, height: rb.height,
+                patch: Constants.centerPatchSizePx)
+            lastBlackPointDebug = debug
+            let keptFraction =
+                debug.totalCount > 0 ? Double(debug.keptCount) / Double(debug.totalCount) : 0
+            CameraKitLog.notice(
+                .engine,
+                "[blackpoint] kept \(debug.keptCount)/\(debug.totalCount) "
+                    + "(\(Int((keptFraction * 100).rounded()))%) "
+                    + "offsets r=\(debug.r.offsetLinear) g=\(debug.g.offsetLinear) "
+                    + "b=\(debug.b.offsetLinear) maxγ r=\(debug.r.maxGamma) "
+                    + "g=\(debug.g.maxGamma) b=\(debug.b.maxGamma) region \(rb.width)x\(rb.height)")
+            // Require most of the patch to be near-black; otherwise a stray sliver
+            // of dark pixels on a bright surface would set a bogus black point.
+            // Below the floor ⇒ fail with an operator-facing reason; leave any
+            // existing black point untouched.
+            guard keptFraction >= Constants.blackPointMinKeptFraction else {
+                throw EngineError.blackPointCalibrationFailed(
+                    reason:
+                        "Only \(Int((keptFraction * 100).rounded()))% of the sampled patch "
+                        + "was near-black (need ≥ "
+                        + "\(Int(Constants.blackPointMinKeptFraction * 100))%). Point the "
+                        + "camera at a uniformly dark field and try again.")
+            }
+            var next = currentProcessing ?? .identity
+            next.blackPointR = debug.r.offsetLinear
+            next.blackPointG = debug.g.offsetLinear
+            next.blackPointB = debug.b.offsetLinear
+            next.blackPointEnabled = true
             await setProcessingParams(next)
-            try Task.checkCancellation()
-            let afterSample = try await sampleCenterPatchForBBCalibration()
             return CalibrationResult(
-                before: beforeSample, after: afterSample,
+                before: RgbSample(r: 0, g: 0, b: 0), after: RgbSample(r: 0, g: 0, b: 0),
                 converged: true, iterations: 1)
         }
         calibrationTask = task
         defer { calibrationTask = nil }
-        return try await task.value
+        _ = try await task.value
+        return lastBlackPointDebug
+            ?? CalibrationCompute.blackPointDebug(pixels: [], width: 0, height: 0, patch: 0)
     }
+
+    // MARK: - Normalization toggles (independent enable/disable, no resampling)
+    //
+    // The `calibrate*` procedures above do the full job (sample → compute → enable).
+    // These let a caller live with the result afterward: toggle each setting on/off,
+    // or clear it, operating only on the already-stored coefficients (no patch
+    // resampling). `enable*` throws if the setting was never calibrated. The three
+    // settings — WB chroma, white point, black point — map to the fused affine in
+    // `ColorUniform.init` (chroma·level → `a`, black point → `b`). White point is a
+    // child of chroma: it can't be enabled without it, and disabling chroma disables
+    // it too ("level without chroma" is not a valid state — design D4).
+
+    /// True when white balance is locked (manual/locked) — software chroma/white
+    /// point can only apply on non-moving hardware gains (§5.3).
+    private var isWhiteBalanceLocked: Bool {
+        currentSettings?.wbMode == .manual || currentSettings?.wbMode == .locked
+    }
+
+    /// True once a white field has been calibrated (chroma differs from identity).
+    private var isWhiteBalanceCalibrated: Bool {
+        guard let p = currentProcessing else { return false }
+        return p.wbChromaR != 1.0 || p.wbChromaG != 1.0 || p.wbChromaB != 1.0
+    }
+
+    /// Enables the white-balance chroma residual (neutralizes the cast).
+    ///
+    /// Throws `EngineError.whiteBalanceNotCalibrated` if no white field has been
+    /// calibrated, or if white balance is in auto (a software residual can't sit on
+    /// continuously-moving hardware gains — lock or `calibrateWhite()` first).
+    public func enableWhiteBalance() async throws {
+        guard isWhiteBalanceCalibrated, isWhiteBalanceLocked else {
+            throw EngineError.whiteBalanceNotCalibrated
+        }
+        var next = currentProcessing ?? .identity
+        next.wbChromaEnabled = true
+        await setProcessingParams(next)
+    }
+
+    /// Disables the white-balance chroma residual.
+    ///
+    /// Also disables the white point (it is meaningless without chroma — design D4).
+    /// Coefficients are kept, so `enableWhiteBalance()` restores them without
+    /// recalibrating. The hardware WB mode is untouched (use the WB-mode control to
+    /// return the camera to auto).
+    public func disableWhiteBalance() async {
+        var next = currentProcessing ?? .identity
+        next.wbChromaEnabled = false
+        next.whitePointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Enables the white-point level (brightfield: lifts the neutralized white to the
+    /// target).
+    ///
+    /// Throws `EngineError.whiteBalanceNotCalibrated` unless the chroma residual is
+    /// active — white point is a child of white balance ("level without chroma" is
+    /// not valid). Toggle freely after a `calibrateWhite()`; no resampling.
+    public func enableWhitePoint() async throws {
+        guard currentProcessing?.wbChromaEnabled == true else {
+            throw EngineError.whiteBalanceNotCalibrated
+        }
+        var next = currentProcessing ?? .identity
+        next.whitePointEnabled = true
+        await setProcessingParams(next)
+    }
+
+    /// Disables the white-point level (back to phase contrast: chroma only).
+    public func disableWhitePoint() async {
+        var next = currentProcessing ?? .identity
+        next.whitePointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Discards the white-balance + white-point coefficients (software only) and
+    /// disables both. The inverse of `calibrateWhite()`'s normalization effect.
+    ///
+    /// The hardware WB mode is left as-is — to return the camera to continuous auto
+    /// white balance use the WB-mode control (`updateSettings(wbMode: .auto)`); the
+    /// §5.3 gate then keeps these off until the next `calibrateWhite()`.
+    public func clearWhiteBalance() async {
+        var next = currentProcessing ?? .identity
+        next.wbChromaR = 1.0
+        next.wbChromaG = 1.0
+        next.wbChromaB = 1.0
+        next.wbChromaEnabled = false
+        next.whitePointLevel = 1.0
+        next.whitePointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Re-enables a previously-calibrated black point without recalibrating.
+    ///
+    /// Throws `EngineError.blackPointNotCalibrated` if the stored offsets are still
+    /// identity (never calibrated, or cleared) — there is nothing to enable.
+    public func enableBlackPoint() async throws {
+        guard let p = currentProcessing,
+            p.blackPointR != 0 || p.blackPointG != 0 || p.blackPointB != 0
+        else {
+            throw EngineError.blackPointNotCalibrated
+        }
+        var next = p
+        next.blackPointEnabled = true
+        await setProcessingParams(next)
+    }
+
+    /// Disables the black point, keeping its offsets so `enableBlackPoint()` can
+    /// restore them without recalibrating.
+    public func disableBlackPoint() async {
+        var next = currentProcessing ?? .identity
+        next.blackPointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Discards the black-point offsets and disables it (full reset).
+    ///
+    /// The demo app's "undo". Distinct from `disableBlackPoint()`, which keeps the
+    /// offsets. Other processing parameters are untouched.
+    public func clearBlackPoint() async {
+        var next = currentProcessing ?? .identity
+        next.blackPointR = 0
+        next.blackPointG = 0
+        next.blackPointB = 0
+        next.blackPointEnabled = false
+        await setProcessingParams(next)
+    }
+
+    /// Side length (px) of the centered square patch that calibration samples from
+    /// the primary frame.
+    ///
+    /// Black-point calibration reads back this centered patch and computes its
+    /// statistics over it. Hosts draw their calibration reticle to this size —
+    /// mapped through the preview's aspect-fit scale — so the on-screen rectangle
+    /// marks **exactly** the sampled region, leaving no ambiguity about where
+    /// pixels come from.
+    public static var calibrationPatchSizePx: Int { Constants.centerPatchSizePx }
 
     /// Stage 04: returns the persisted ProcessingParameters without requiring
     /// an active session. Implementation per architecture/07-settings.md
@@ -1625,17 +2150,19 @@ public actor CameraEngine {
     /// - Throws: `EngineError.invalidOutputPath(_:)` if `outputURL` resolves
     ///   outside the app sandbox.
     /// - Throws: `EngineError.capture(_:)` wrapping any other `StillCaptureError`.
-    public func captureNaturalPicture(
-        outputURL: URL? = nil,
-        photosDestination: PhotosDestination = .none
-    ) async throws -> StillCaptureOutput {
-        guard isOpen, let pipeline = metalPipeline, let capture = stillCapture,
-            let session = cameraSession
-        else {
+    /// Shared capture prefix for both natural-still entry points.
+    ///
+    /// still-capture-return-buffer: guards `isOpen` + a running session (`notOpen` /
+    /// capture-`bufferUnavailable`), shoots the ISP one-shot (`capturePhoto`,
+    /// sessionQueue/ADR-07), and crops+grades it through `renderStill` → the graded
+    /// BGRA8 IOSurface-backed `CVPixelBuffer` (same format/surface as the processed
+    /// lane). Both `captureNaturalPicture` (encode→file) and
+    /// `captureNaturalPictureBuffer` (hand back the buffer) call this, differing only
+    /// in delivery. No last-frame fallback on pause (R6).
+    private func renderNaturalStill() async throws -> CVPixelBuffer {
+        guard isOpen, let pipeline = metalPipeline, let session = cameraSession else {
             throw EngineError.notOpen
         }
-        // R6: the ISP one-shot needs a running session — no last-frame fallback
-        // on pause (contract change from the old natural-lane-buffer behavior).
         guard reconciledSessionRunning else {
             throw EngineError.capture(.bufferUnavailable)
         }
@@ -1643,12 +2170,47 @@ public actor CameraEngine {
             .engine,
             "[natural] ISP capture start size=\(pipeline.outputSize.width)x\(pipeline.outputSize.height)"
         )
-
-        // 1. Shoot the ISP one-shot (sessionQueue, ADR-07). Inherits the
-        //    device's live exposure/ISO/WB/focus.
         let photoBuffer = try await session.capturePhoto()
-        // 2. Crop + grade through the live Metal pipeline (matches preview grade).
-        let graded = try await pipeline.gradeOneShot(pixelBuffer: photoBuffer)
+        return try await pipeline.renderStill(pixelBuffer: photoBuffer)
+    }
+
+    /// Captures the graded natural still as an in-memory buffer, skipping disk.
+    ///
+    /// still-capture-return-buffer: returns the graded still as an IOSurface-backed
+    /// BGRA8 `CVPixelBuffer` in the processed-lane format — the same surface a
+    /// downstream consumer treats like a `currentPixelBuffer(stream:)` frame — and
+    /// does NOT encode, write a file, or publish to Photos. Same crop+grade as
+    /// `captureNaturalPicture` (both share `renderNaturalStill`); same
+    /// `notOpen` / `bufferUnavailable` guards.
+    ///
+    /// The buffer is delivered as a leased ``PixelHandle`` the caller owns and MUST
+    /// release. The handle retains the underlying `CVPixelBuffer`, so its pooled
+    /// IOSurface is not recycled until the handle is released (the `CVPixelBufferPool`
+    /// only reclaims buffers with no external references). Hold at most a small number
+    /// at once (typically one) to avoid pinning the still pool.
+    public func captureNaturalPictureBuffer() async throws -> PixelHandle {
+        let graded = try await renderNaturalStill()
+        guard let handle = PixelHandle(pixelBuffer: graded, format: .bgra8) else {
+            throw EngineError.capture(.bufferUnavailable)
+        }
+        CameraKitLog.notice(.engine, "[natural] ISP capture complete → in-memory buffer")
+        return handle
+    }
+
+    public func captureNaturalPicture(
+        outputURL: URL? = nil,
+        photosDestination: PhotosDestination = .none
+    ) async throws -> StillCaptureOutput {
+        // 1–2. Shared capture prefix: guard + ISP one-shot + crop/grade → graded
+        //      BGRA8 IOSurface buffer (still-capture-return-buffer; see renderNaturalStill).
+        let graded = try await renderNaturalStill()
+        // Re-resolve for the encode tail after the capture awaits (state may have
+        // changed during capturePhoto/renderStill; the helper guarded at its start).
+        guard let pipeline = metalPipeline, let capture = stillCapture,
+            let session = cameraSession
+        else {
+            throw EngineError.notOpen
+        }
 
         // 3. Encode in the extension-chosen format with the same EXIF/lane tag
         //    contract as before.

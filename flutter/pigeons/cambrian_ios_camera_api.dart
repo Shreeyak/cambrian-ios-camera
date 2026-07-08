@@ -74,6 +74,7 @@ enum CameraErrorCode {
   invalidState,
   hardwareError,
   notOpen, // Adapter-injected — represents EngineError.notOpen, not an ErrorCode.
+  calibrationFailed, // Adapter-injected — a calibrate*() couldn't complete (e.g. black point: field not dark enough).
 }
 
 // ─── VALUE TYPES ────────────────────────────────────────────────────────────
@@ -96,13 +97,33 @@ class OpenConfiguration {
   OpenConfiguration({
     this.cameraId,
     this.captureResolution,
+    this.targetFps,
     this.cropRegion,
     this.initialSettings,
   });
   String? cameraId;
   PSize? captureResolution;
+
+  /// Target capture frame rate, locked in every mode. `null` → the default (30).
+  ///
+  /// Validated at open against the selected resolution's supported ranges
+  /// (see [SessionCapabilities.supportedFrameRates]); an unsupported
+  /// `(captureResolution, targetFps)` pair fails the open with a configuration error.
+  int? targetFps;
   PRect? cropRegion;
   CameraSettings? initialSettings;
+}
+
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, supported range); a size can appear more than once (e.g. a
+/// full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+/// `FrameRateRange`.
+class PFrameRateRange {
+  PFrameRateRange(this.size, this.minFps, this.maxFps);
+  final PSize size;
+  final int minFps;
+  final int maxFps;
 }
 
 // Pigeon-flattened mirror of CameraKit `SessionCapabilities`. Min/Max pairs
@@ -111,8 +132,8 @@ class OpenConfiguration {
 class SessionCapabilities {
   SessionCapabilities({
     required this.supportedSizes,
-    required this.previewTextureId,
-    required this.naturalTextureId,
+    required this.supportedFrameRates,
+    required this.activeFrameRate,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
     required this.streamPixelFormat,
@@ -128,8 +149,13 @@ class SessionCapabilities {
     required this.evMax,
   });
   List<PSize?> supportedSizes;
-  int previewTextureId;
-  int naturalTextureId;
+
+  /// Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+  /// A caller reads this to pick a valid `(captureResolution, targetFps)`.
+  List<PFrameRateRange?> supportedFrameRates;
+
+  /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
+  int activeFrameRate;
   PSize activeCaptureResolution;
   PRect activeCropRegion;
   String streamPixelFormat;
@@ -179,17 +205,11 @@ class ProcessingParameters {
     required this.brightness,
     required this.contrast,
     required this.saturation,
-    required this.blackR,
-    required this.blackG,
-    required this.blackB,
     required this.gamma,
   });
   double brightness;
   double contrast;
   double saturation;
-  double blackR;
-  double blackG;
-  double blackB;
   double gamma;
 }
 
@@ -227,6 +247,11 @@ class RecordingOptions {
     required this.photosDestination,
   });
   int? bitrateBps;
+
+  /// Advisory writer frame rate. The *capture* rate is locked to
+  /// [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+  /// value here that differs from the session's target does not change the delivered
+  /// frame rate; leave it null to track the session frame rate.
   int? fps;
   String? outputPath;
   PhotosDestination photosDestination;
@@ -317,10 +342,42 @@ abstract class CameraEngineHostApi {
   String stopRecording();
 
   // Calibration
+  //
+  // calibrateWhiteBalance samples a white field, locks the hardware gains, and
+  // derives + enables the WB chroma residual and — when [whitePoint] is true —
+  // the white-point level (brightfield). Throws CameraErrorCode.calibrationFailed
+  // when the field isn't bright enough.
   @async
-  CalibrationResult calibrateWhiteBalance();
+  CalibrationResult calibrateWhiteBalance(bool whitePoint);
+
+  /// Calibrate the linear black point from a dark field. Returns nothing on
+  /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+  /// dark enough. Replaces the removed calibrateBlackBalance.
   @async
-  CalibrationResult calibrateBlackBalance();
+  void calibrateBlackPoint();
+
+  // Calibration toggles — flip the stored coefficients on/off without resampling.
+  // enable* throw CameraErrorCode.invalidState when the matching calibration has
+  // not run; disable*/clear* never throw. White point is gated to white balance:
+  // enableWhitePoint requires WB active, and disableWhiteBalance also turns the
+  // white point off. clear* discard the stored coefficients (a re-calibrate is
+  // then required).
+  @async
+  void enableWhiteBalance();
+  @async
+  void disableWhiteBalance();
+  @async
+  void enableWhitePoint();
+  @async
+  void disableWhitePoint();
+  @async
+  void clearWhiteBalance();
+  @async
+  void enableBlackPoint();
+  @async
+  void disableBlackPoint();
+  @async
+  void clearBlackPoint();
 
   // Texture bridge
   @async

@@ -63,8 +63,9 @@ import Testing
     // 4.2 — grade params appear ONLY in the 3 Hz JSON diagnostics payload.
     @Test func gradeParamsAreInJSONOnly() {
         let processing = ProcessingParameters(
-            brightness: 0.25, contrast: -0.5, saturation: 0.1,
-            blackR: 0.02, blackG: 0.03, blackB: 0.04, gamma: 1.2)
+            brightness: 0.25, contrast: -0.5, saturation: 0.1, gamma: 1.2,
+            blackPointR: 0.02, blackPointG: 0.03, blackPointB: 0.04,
+            blackPointEnabled: true)
         let crop = Rect(x: 240, y: 0, width: 1440, height: 1440)
         let json = FrameDiagnostics.json(
             snapshot: snapshot(), processing: processing, crop: crop)
@@ -72,7 +73,7 @@ import Testing
         // Grade params + crop + WB gains present in the JSON.
         for key in [
             "brightness", "contrast", "saturation", "gamma",
-            "blackR", "blackG", "blackB",
+            "blackPointEnabled", "blackPointR", "blackPointG", "blackPointB",
             "cropX", "cropY", "cropW", "cropH",
             "wbGainR", "wbGainG", "wbGainB",
             "afAdjusting", "wbAdjusting", "aeAdjusting",

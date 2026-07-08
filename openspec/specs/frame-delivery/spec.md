@@ -9,9 +9,7 @@ lease-returning pixel borrows, consumer-specified tracker resolution, and the
 removal of the legacy C-ABI `PixelSink` path. Replaces the bundled all-lanes
 `FrameSet` delivery model with single-lane streams that do not pin unused lanes'
 pool buffers.
-
 ## Requirements
-
 ### Requirement: Per-lane frame streams
 
 CameraKit SHALL deliver frames per lane via `subscribe(stream:buffering:)`
@@ -62,19 +60,38 @@ A fixed global buffering policy SHALL NOT be imposed on all lanes.
 
 The per-lane stream SHALL terminate by throwing **only** when CameraKit judges the
 error terminal (`CameraError.isFatal`). Transient, recoverable faults SHALL NOT
-terminate the stream; delivery resumes after recovery. A clean end of capture
-finishes the stream without throwing.
+terminate the stream; delivery resumes after recovery. A recovery reopen or a full
+restart SHALL be transparent to consumers: the teardown it performs SHALL preserve
+consumer subscriptions (it MUST NOT call `ConsumerRegistry.release()` or
+`failAllLanes`), so a surviving subscriber sees only a frame gap and then resumes
+yielding frames from the rebuilt pipeline. A subscription SHALL be finished
+(without throwing) only by a user-initiated `close()`, and SHALL be finished by
+throwing only by the terminal fatal after recovery escalation is exhausted. A clean
+end of capture finishes the stream without throwing.
 
 #### Scenario: Transient fault does not end the stream
 
 - **WHEN** a recoverable fault occurs and CameraKit recovers
 - **THEN** the lane stream does not throw or finish, and resumes yielding frames
 
+#### Scenario: A full restart is transparent to a subscribed consumer
+
+- **WHEN** a consumer is subscribed to a lane and CameraKit performs a full restart
+  (heavier teardown + settle + fresh open) during recovery
+- **THEN** the consumer's stream is neither finished nor thrown; after the restart
+  it resumes yielding valid frames from the new pipeline
+
 #### Scenario: Terminal fault throws on the stream
 
-- **WHEN** CameraKit determines a fault is terminal (`isFatal == true`)
+- **WHEN** CameraKit determines a fault is terminal (`isFatal == true`), i.e.
+  recovery escalation is exhausted
 - **THEN** the lane stream finishes by throwing that error to the consumer's
   `for try await` loop
+
+#### Scenario: User close finishes the stream cleanly
+
+- **WHEN** the host calls `close()`
+- **THEN** each subscribed lane stream finishes without throwing
 
 ### Requirement: Lease-returning pixel borrow helper
 
@@ -104,14 +121,46 @@ full-resolution `.primary` buffer under the `.tracker` label.
 ### Requirement: Consumer-specified tracker resolution
 
 The tracker lane resolution SHALL be set by the consumer via
-`OpenConfiguration.trackerHeight` (aspect-preserving, even, clamped). The motion
-consumer's expected size is authoritative; CameraKit produces exactly that size and
-does not silently re-resize.
+`OpenConfiguration.trackerHeight` (aspect-preserving against the primary/output
+size, even, clamped to `2…primaryHeight`). The motion consumer's expected size is
+authoritative; CameraKit produces exactly that size and does not silently
+re-resize.
+
+The resolved tracker size (after clamping and even-rounding) SHALL be reported to
+the consumer as `SessionCapabilities.trackerResolution`.
+
+Resampling SHALL depend on whether the resolved tracker size equals the primary
+(output) size:
+
+- **Equal** (i.e. `trackerHeight == primaryHeight`): CameraKit SHALL NOT resample.
+  It SHALL produce the tracker frame by a 1:1 copy of the primary BGRA8 buffer, with
+  no interpolation — the means by which a consumer disables downsampling.
+- **Smaller**: CameraKit SHALL downscale with an anti-aliased resampler
+  (`MPSImageLanczosScale`), not a bilinear sampler.
 
 #### Scenario: Tracker honors the configured size
 
 - **WHEN** a consumer opens with `trackerHeight` set for a square working resolution
 - **THEN** the delivered tracker frames are exactly that square size
+
+#### Scenario: Resolved tracker size is reported back
+
+- **WHEN** a consumer opens with a `trackerHeight` that the engine clamps and/or
+  even-rounds
+- **THEN** `SessionCapabilities.trackerResolution` reports the effective tracker
+  size, and that size equals the size of the delivered tracker frames
+
+#### Scenario: Tracker height equal to primary disables downsampling
+
+- **WHEN** a consumer opens with `trackerHeight` equal to the primary lane height
+- **THEN** `trackerResolution` equals the primary resolution
+- **AND** tracker frames are produced by a 1:1 copy with no resampling
+
+#### Scenario: Smaller tracker is downscaled anti-aliased
+
+- **WHEN** a consumer opens with `trackerHeight` smaller than the primary lane height
+- **THEN** tracker frames are produced by an anti-aliased downscale (MPS Lanczos),
+  not a bilinear sampler
 
 ### Requirement: Remove the C-ABI PixelSink path
 
@@ -125,3 +174,4 @@ path.
 - **WHEN** CameraKit is built after this change
 - **THEN** no C-ABI `PixelSink`/`PixelSinkPool` symbols are vended and the Swift
   `subscribe()` consumer registry remains functional
+

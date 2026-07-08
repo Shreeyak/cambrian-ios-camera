@@ -119,6 +119,12 @@ public actor ConsumerRegistry {
 
     /// Finishes every lane stream by THROWING `error` — the terminal path.
     ///
+    /// A restart is transparent to consumers IFF it skips this and `release()`: the
+    /// recovery/restart teardown preserves subscriptions, so surviving subscribers
+    /// see only a frame gap then resume from the rebuilt pipeline. This is reached
+    /// ONLY at the terminal fatal (recovery escalation exhausted) — the single point
+    /// where consumer streams throw.
+    ///
     /// Called from `CameraEngine.publishError` only when `CameraError.isFatal`.
     /// Drains continuations outside the lock: `finish(throwing:)` synchronously
     /// invokes the `onTermination` handler set in `subscribe`, which re-acquires
@@ -135,8 +141,11 @@ public actor ConsumerRegistry {
 
     /// Finishes every lane stream cleanly (no throw) — the close path.
     ///
-    /// Called from `CameraEngine.close()`. Same out-of-lock drain rationale as
-    /// ``failAllLanes(_:)``.
+    /// Called from `CameraEngine.close()` (a user-initiated close) only. The
+    /// recovery/restart teardown (`teardown(preserveConsumers: true)`) deliberately
+    /// does NOT call this, so a restart is transparent to consumers — surviving
+    /// subscribers see a frame gap then resume from the rebuilt pipeline. Same
+    /// out-of-lock drain rationale as ``failAllLanes(_:)``.
     func release() {
         let toFinish: [AsyncThrowingStream<Frame, Error>.Continuation] = state.withLock { inner in
             let conts = inner.subscribers.values.flatMap { $0.map(\.continuation) }

@@ -86,6 +86,168 @@ public enum EngineError: Error, Sendable {
     /// (`updateSettings(...)` touching white balance, `setResolution(...)`)
     /// must not race with it. Phase-2 design §2b concurrency contract.
     case calibrationInProgress
+    /// A `calibrateBlack()` call could not derive a valid black point — the
+    /// sampled patch was not dark enough (too few near-black pixels). The
+    /// `reason` is operator-facing (e.g. "point at a uniformly dark field").
+    case blackPointCalibrationFailed(reason: String)
+    /// A `calibrateWhite()` call could not derive a valid white reference — the
+    /// sampled patch was not bright enough to be a white field. The `reason` is
+    /// operator-facing (e.g. "point at a bright, evenly-lit white field").
+    case whiteBalanceCalibrationFailed(reason: String)
+    /// `enableWhiteBalance()` / `enableWhitePoint()` was called before a white
+    /// reference was calibrated (or while white balance is in auto, where a
+    /// software residual can't sit on moving hardware gains). Run
+    /// `calibrateWhite()` first.
+    case whiteBalanceNotCalibrated
+    /// `enableBlackPoint()` was called before a dark field was calibrated (the
+    /// stored offsets are still identity). Run `calibrateBlack()` first.
+    case blackPointNotCalibrated
+}
+
+// MARK: - LocalizedError (Task #1 — full sweep)
+//
+// Every CameraKit error type provides an operator-facing `errorDescription` so
+// `error.localizedDescription`, the demo's error banner, and the Flutter
+// `asPigeonError()` message read like instructions, not enum-case names. Wrapping
+// `EngineError` cases delegate to the wrapped error's description. Switches are
+// exhaustive (no `default`) so a new case forces an intentional description.
+
+extension CameraError: LocalizedError {
+    public var errorDescription: String? { message }
+}
+
+extension EngineError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .alreadyOpen:
+            return "The camera is already open."
+        case .notOpen:
+            return "The camera isn't open — call open() first."
+        case .cameraDenied:
+            return "Camera access was denied. Enable camera access for this app in Settings."
+        case .noBackCamera:
+            return "No back camera is available on this device."
+        case .noSupportedFormat(let reason):
+            return "No supported camera format: \(reason)"
+        case .lockForConfigurationFailed:
+            return "Couldn't lock the camera for configuration — it may be in use by another app."
+        case .settingsConflict(let reason):
+            return reason
+        case .sessionLifecycleTimeout:
+            return "The camera didn't start delivering frames in time."
+        case .metal(let e):
+            return e.errorDescription
+        case .interop(let e):
+            return e.errorDescription
+        case .recording(let e):
+            return e.errorDescription
+        case .capture(let e):
+            return e.errorDescription
+        case .fatal(let cam):
+            return cam.errorDescription
+        case .invalidOutputPath(let url):
+            return "The output path is outside the app's sandbox and can't be written: \(url.path)"
+        case .calibrationInProgress:
+            return "A calibration is in progress — try again once it finishes."
+        case .blackPointCalibrationFailed(let reason),
+            .whiteBalanceCalibrationFailed(let reason):
+            return reason
+        case .whiteBalanceNotCalibrated:
+            return
+                "White balance isn't calibrated. Point at a white field and run "
+                + "white-balance calibration before enabling white balance or white point."
+        case .blackPointNotCalibrated:
+            return
+                "Black point isn't calibrated. Point at a dark field and run "
+                + "black-point calibration before enabling the black point."
+        }
+    }
+}
+
+extension MetalError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .commandBufferFailed(let code):
+            return "The GPU command buffer failed (code \(code))."
+        case .textureCacheCreateFailed(let code):
+            return "Couldn't create the Metal texture cache (code \(code))."
+        case .textureWrapFailed(let code):
+            return "Couldn't wrap the pixel buffer as a Metal texture (code \(code))."
+        case .textureAllocationFailed:
+            return "Couldn't allocate a Metal texture."
+        case .pipelineStateCompilation(let detail):
+            return "Metal pipeline compilation failed: \(detail)"
+        case .unsupportedFormat:
+            return "The pixel format isn't supported by the Metal pipeline."
+        case .noFrameAvailable:
+            return "No camera frame is available yet — try again once frames are flowing."
+        }
+    }
+}
+
+extension InteropError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .pixelSinkRegistrationRejected(let code):
+            return "Pixel-sink registration was rejected (code \(code))."
+        case .pipelineHandleUnavailable:
+            return "The native pipeline handle is unavailable (the session isn't open)."
+        case .invalidCallbacks:
+            return "A required frame callback was missing at registration."
+        case .missingOnOverwrite:
+            return "The overwrite callback was missing at registration (drops can't be surfaced)."
+        case .retainMismatch:
+            return "A retain/release mismatch was detected on unregister."
+        }
+    }
+}
+
+extension RecordingError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .writerStartFailed(let status):
+            return "Recording couldn't start (writer status \(status))."
+        case .appendFailed(let status):
+            return "Recording failed while writing frames (append status \(status))."
+        case .finishTimeout:
+            return "Recording timed out while stopping."
+        case .diskFull:
+            return "Recording stopped because the disk is full."
+        case .notReadyForMoreMediaData:
+            return "The recorder wasn't ready for more media data."
+        case .finalizeTimeout:
+            return "Recording timed out while finalizing the file."
+        case .finalizeFailed(let reason):
+            return "Recording couldn't finalize the file: \(reason)"
+        case .cancelledByPause:
+            return "Recording was cancelled because the app was backgrounded."
+        case .missingFileExtension(let name):
+            return "The recording filename \"\(name)\" has no extension — use a name ending in .mp4."
+        case .unsupportedVideoFormat(let ext):
+            return "\"\(ext)\" isn't a supported video format — only .mp4 is supported."
+        }
+    }
+}
+
+extension StillCaptureError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .alreadyInFlight:
+            return "A still capture is already in progress."
+        case .metalReadbackFailed:
+            return "Couldn't read the captured image back from the GPU."
+        case .fileWriteFailed(let path):
+            return "Couldn't write the image to \(path)."
+        case .bufferUnavailable:
+            return
+                "No image is available yet — try again once frames are flowing (a "
+                + "natural picture needs a running session)."
+        case .missingFileExtension(let name):
+            return "The image filename \"\(name)\" has no extension — use .png, .jpg, or .tif."
+        case .unsupportedImageFormat(let ext):
+            return "\"\(ext)\" isn't a supported image format — use .png, .jpg, or .tif."
+        }
+    }
 }
 
 public enum MetalError: Error, Sendable, Equatable {

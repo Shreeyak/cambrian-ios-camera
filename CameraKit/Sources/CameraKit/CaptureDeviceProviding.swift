@@ -12,6 +12,18 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     var uniqueID: String { get async }
     var activeFormatSize: Size { get async }
     var supportedSizes: [Size] { get async }
+    /// Frame-rate ranges per resolution, from the device's 420f formats (incl. slow-mo).
+    ///
+    /// Defaulted to `[]` in an extension so format-less test fakes need not model it;
+    /// `LiveCaptureDevice` supplies the real data.
+    var supportedFrameRates: [FrameRateRange] { get async }
+    /// Test-only: the live `activeVideoMin/MaxFrameDuration` in seconds.
+    ///
+    /// Reads the real values set on the hardware so a device test can confirm the
+    /// fps lock actually stuck (min == max == 1/targetFps) and was not reset — e.g.
+    /// by a later `sessionPreset` change (`activeVideoMinFrameDuration` docs).
+    /// Defaulted to `(0, 0)` for format-less fakes.
+    var activeFrameDurationSecondsForTest: (min: Double, max: Double) { get async }
     var isoRange: ClosedRange<Float> { get async }
     var exposureDurationRangeNs: ClosedRange<Int64> { get async }
     var maxWhiteBalanceGain: Float { get async }
@@ -109,6 +121,21 @@ public protocol CaptureDeviceProviding: AnyObject, Sendable {
     var lensAperture: Float { get async }
 }
 
+extension CaptureDeviceProviding {
+    /// Default: no frame-rate data, for format-less test fakes.
+    ///
+    /// `LiveCaptureDevice` overrides this with the real per-resolution ranges.
+    public var supportedFrameRates: [FrameRateRange] {
+        get async { [] }
+    }
+
+    /// Default: `(0, 0)` for format-less fakes; `LiveCaptureDevice` reads the
+    /// real hardware durations.
+    public var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
+        get async { (0, 0) }
+    }
+}
+
 // MARK: - DeviceStateSnapshot (ADR-14; KVO stream wired Stage 03)
 
 public struct DeviceStateSnapshot: Sendable, Hashable {
@@ -174,6 +201,13 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
         return Size(width: Int(dims.width), height: Int(dims.height))
     }
 
+    var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
+        (
+            CMTimeGetSeconds(avDevice.activeVideoMinFrameDuration),
+            CMTimeGetSeconds(avDevice.activeVideoMaxFrameDuration)
+        )
+    }
+
     var supportedSizes: [Size] {
         // `avDevice.formats` returns one entry per (dimensions, FPS range,
         // binned/full readout, pixel-range) combination — so each resolution
@@ -201,6 +235,39 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
             }
         }
         return unique.sorted { ($0.width * $0.height) > ($1.width * $1.height) }
+    }
+
+    var supportedFrameRates: [FrameRateRange] {
+        // One entry per (size, frame-rate range) across the 420f formats (≥640×480,
+        // matching `supportedSizes`), de-duplicated. A size can appear more than once
+        // — e.g. a full-FOV 1–60 range and a binned 2–240 slow-mo range at the same
+        // dimensions. Sorted by area desc, then maxFps desc, for stable presentation.
+        var seen: Set<FrameRateRange> = []
+        var result: [FrameRateRange] = []
+        for format in avDevice.formats {
+            let desc = format.formatDescription
+            guard
+                CMFormatDescriptionGetMediaSubType(desc)
+                    == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            else { continue }
+            let dims = CMVideoFormatDescriptionGetDimensions(desc)
+            let w = Int(dims.width)
+            let h = Int(dims.height)
+            guard w >= 640, h >= 480 else { continue }
+            let size = Size(width: w, height: h)
+            for range in format.videoSupportedFrameRateRanges {
+                let entry = FrameRateRange(
+                    size: size,
+                    minFps: Int(range.minFrameRate.rounded(.down)),
+                    maxFps: Int(range.maxFrameRate.rounded(.down)))
+                if seen.insert(entry).inserted { result.append(entry) }
+            }
+        }
+        return result.sorted {
+            let lArea = $0.size.width * $0.size.height
+            let rArea = $1.size.width * $1.size.height
+            return lArea != rArea ? lArea > rArea : $0.maxFps > $1.maxFps
+        }
     }
 
     /// Internal debug helper — enumerates every `AVCaptureDevice.Format`.
@@ -339,8 +406,14 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
     }
 
     func setVideoFrameDurationRange(minFrameDurationFps: Int, maxFrameDurationFps: Int) throws {
-        avDevice.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: Int32(minFrameDurationFps))
-        avDevice.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: Int32(maxFrameDurationFps))
+        // Clamp to the active format's supported range — an fps beyond what the
+        // current format supports makes setActiveVideoMin/MaxFrameDuration: throw
+        // an uncaught NSException. See clampFrameDuration.
+        let ranges = avDevice.activeFormat.videoSupportedFrameRateRanges
+        avDevice.activeVideoMinFrameDuration = clampFrameDuration(
+            CMTimeMake(value: 1, timescale: Int32(minFrameDurationFps)), toSupportedRanges: ranges)
+        avDevice.activeVideoMaxFrameDuration = clampFrameDuration(
+            CMTimeMake(value: 1, timescale: Int32(maxFrameDurationFps)), toSupportedRanges: ranges)
     }
 
     private var kvoObserver: DeviceKVOObserver?
@@ -603,4 +676,31 @@ private func bitDepthRangeTag(_ pixelFormat: FourCharCode) -> String {
     case kCVPixelFormatType_32BGRA: return "8-bit BGRA"
     default: return "unknown"
     }
+}
+
+// MARK: - Frame-rate clamping (crash guard)
+
+/// Clamp a desired frame duration to what the active format actually supports.
+///
+/// `AVCaptureDevice.setActiveVideoMinFrameDuration:` throws an uncaught
+/// `NSInvalidArgumentException` — aborting the process — when the duration is
+/// shorter than the format's shortest supported frame duration (i.e. the
+/// requested fps exceeds the format's max). Some supported resolutions cap at
+/// 30 fps while the default 1920×1440 supports 60, so opening at such a
+/// resolution with the unclamped `frameRateTargetFPS` (60) crashed
+/// (`CameraCropConfigDeviceTests.appliesRequestedSupportedResolution`).
+/// Comparing `CMTime`s against the format's own bounds — rather than rounding a
+/// `Double` max-fps back into a timescale — avoids landing one tick past a
+/// non-integer supported edge (e.g. 29.97). `minFrameDuration` is the *shortest*
+/// supported duration (= max fps); `maxFrameDuration` the longest (= min fps).
+func clampFrameDuration(_ desired: CMTime, toSupportedRanges ranges: [AVFrameRateRange]) -> CMTime {
+    guard
+        let shortest = ranges.map(\.minFrameDuration).min(by: { CMTimeCompare($0, $1) < 0 }),
+        let longest = ranges.map(\.maxFrameDuration).max(by: { CMTimeCompare($0, $1) < 0 })
+    else {
+        return desired
+    }
+    if CMTimeCompare(desired, shortest) < 0 { return shortest }  // fps too high → cap to max
+    if CMTimeCompare(desired, longest) > 0 { return longest }  // fps too low → floor to min
+    return desired
 }

@@ -65,6 +65,32 @@ let resumed = ManagedAtomic<Bool>(false)
 let resumeOnce: @Sendable () -> Void = {
 ```
 
+## File: CameraKit/Sources/CameraKit/BlackPointDebug.swift
+```swift
+public struct BlackPointChannelStats: Sendable, Hashable {
+⋮----
+public let offsetLinear: Double
+⋮----
+public let meanGamma: Double
+⋮----
+public let minGamma: Double
+⋮----
+public let maxGamma: Double
+⋮----
+public init(offsetLinear: Double, meanGamma: Double, minGamma: Double, maxGamma: Double) {
+⋮----
+public struct BlackPointDebug: Sendable {
+⋮----
+public let keptCount: Int
+⋮----
+public let totalCount: Int
+public let r: BlackPointChannelStats
+public let g: BlackPointChannelStats
+public let b: BlackPointChannelStats
+⋮----
+public init(
+```
+
 ## File: CameraKit/Sources/CameraKit/CMTime+Nanoseconds.swift
 ```swift
 var finiteNanoseconds: Int64? {
@@ -98,8 +124,54 @@ private static func capLogRatio(_ ratio: Float, cap: Float) -> Float {
 let logR = log2(max(ratio, 1e-6))
 let cappedLog = max(-cap, min(cap, logR))
 ⋮----
-public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
-let k = Constants.blackBalanceOverscan
+static func srgbToLinear(_ c: Double) -> Double {
+⋮----
+public static func blackPointOffsets(
+⋮----
+let d = blackPointDebug(
+⋮----
+public static func blackPointDebug(
+⋮----
+let kSig = Constants.blackPointSigmaK
+let maxSample = Constants.blackPointMaxSampleGamma
+let half = patch / 2
+let cx = width / 2
+let cy = height / 2
+let x0 = max(0, cx - half)
+let x1 = min(width, cx + half)
+let y0 = max(0, cy - half)
+let y1 = min(height, cy + half)
+let pw = max(0, x1 - x0)
+let ph = max(0, y1 - y0)
+let emptyStats = BlackPointChannelStats(
+⋮----
+var sum = SIMD3<Double>(repeating: 0)
+var sumSq = SIMD3<Double>(repeating: 0)
+var gammaSum = SIMD3<Double>(repeating: 0)
+var minG = SIMD3<Double>(repeating: 1)
+var maxG = SIMD3<Double>(repeating: 0)
+var keptCount = 0
+⋮----
+let p = pixels[y * width + x]
+let g = SIMD3<Double>(Double(p.x), Double(p.y), Double(p.z))
+⋮----
+let l = SIMD3<Double>(srgbToLinear(g.x), srgbToLinear(g.y), srgbToLinear(g.z))
+⋮----
+func stats(
+⋮----
+let n = Double(keptCount)
+let m = s / n
+let v = max(0, sq / n - m * m)
+⋮----
+public static func whiteBalanceResidual(
+⋮----
+let lr = max(eps, srgbToLinear(whiteSample.r))
+let lg = max(eps, srgbToLinear(whiteSample.g))
+let lb = max(eps, srgbToLinear(whiteSample.b))
+let meanLin = (lr + lg + lb) / 3.0
+let targetLin = srgbToLinear(Constants.whitePointTargetDisplay)
+let chroma = RgbSample(r: meanLin / lr, g: meanLin / lg, b: meanLin / lb)
+let level = targetLin / meanLin
 ```
 
 ## File: CameraKit/Sources/CameraKit/CalibrationResult.swift
@@ -137,6 +209,14 @@ private func parkBackgroundReconcileIfArmed() async {
 ## File: CameraKit/Sources/CameraKit/CameraEngine+TestSupport.swift
 ```swift
 func _emitErrorForTest(_ err: CameraError) {
+⋮----
+func _setFirstFrameTimeoutForTest(_ seconds: Double?) {
+⋮----
+func _suppressFrameDeliveryForTest(_ on: Bool) {
+⋮----
+func _triggerRecoveryReopenForTest() async throws {
+⋮----
+func _setRecoveryBudgetsForTest(maxQuick: Int, maxFullRestarts: Int) {
 ⋮----
 func _markOpenForTest() {
 ⋮----
@@ -209,10 +289,29 @@ private var currentSettings: CameraSettings?
 private var currentProcessing: ProcessingParameters?
 ⋮----
 private var calibrationTask: Task<CalibrationResult, Error>?
+⋮----
+private var lastBlackPointDebug: BlackPointDebug?
 private nonisolated let frameResultContinuationBox =
 ⋮----
 private let cachedFrameResultStream = Mailbox<AsyncStream<FrameResult>>()
 private var frameCounter: UInt64 = 0
+⋮----
+private var firstFrameArrived = false
+private var firstFrameContinuation: CheckedContinuation<Bool, Never>?
+⋮----
+private var pendingRecoveryReopen = false
+⋮----
+var firstFrameTimeoutOverride: Double?
+⋮----
+private var recoveryReopensWithoutFrame = 0
+private var fullRestartCount = 0
+⋮----
+var lastOpenConfiguration: OpenConfiguration?
+⋮----
+var suppressFrameDeliveryForTest = false
+⋮----
+var recoveryMaxRetriesOverride: Int?
+var maxFullRestartsOverride: Int?
 ⋮----
 private nonisolated let streamConfigContinuationBox =
 ⋮----
@@ -259,7 +358,9 @@ public func currentSettingsSnapshot() -> CameraSettings? { currentSettings }
 ⋮----
 public func currentProcessingParametersSnapshot() -> ProcessingParameters? {
 ⋮----
-public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws -> SessionCapabilities {
+public func open(configuration: OpenConfiguration = OpenConfiguration()) async throws
+⋮----
+let fromRecovery = pendingRecoveryReopen
 ⋮----
 let granted = await AVCaptureDevice.requestAccess(for: .video)
 ⋮----
@@ -288,17 +389,27 @@ let hooks = RecoveryCoordinator.Hooks(
 let deviceIsoRange = await device.isoRange
 var clamped = persisted
 ⋮----
+let effectiveWB = currentSettings?.wbMode ?? .auto
+⋮----
 let supportedSizes = await device.supportedSizes
+let supportedFrameRates = await device.supportedFrameRates
 ⋮----
 let activeCropRegion = Self.activeCropRect(for: pipeline)
 let isoRange = await device.isoRange
-let exposureDurationRangeNs = await device.exposureDurationRangeNs
+⋮----
+let exposureDurationRangeNs = Self.fpsConstrainedExposureRange(
+⋮----
 let zoomMin = await device.minAvailableVideoZoomFactor
 let zoomMax = await device.maxAvailableVideoZoomFactor
 let evMin = await device.minExposureTargetBias
 let evMax = await device.maxExposureTargetBias
 ⋮----
+let timeoutS = firstFrameTimeoutOverride ?? Constants.firstFrameTimeoutSeconds
+let delivered = await awaitFirstFrame(timeout: .seconds(timeoutS))
+⋮----
 public func close() async {
+⋮----
+private func teardown(preserveConsumers: Bool) async {
 ⋮----
 public func stateStream() -> AsyncStream<SessionState> {
 ⋮----
@@ -332,6 +443,19 @@ let diagnostics = FrameDiagnostics.json(
 ⋮----
 let r = FrameResult(
 ⋮----
+private func awaitFirstFrame(timeout: Duration) async -> Bool {
+⋮----
+private func firstFrameTimedOut() {
+⋮----
+func performRecoveryReopen(configuration: OpenConfiguration) async throws {
+let maxQuick = recoveryMaxRetriesOverride ?? Constants.recoveryQuickReopens
+let maxRestarts = maxFullRestartsOverride ?? Constants.maxFullRestarts
+⋮----
+static func fpsConstrainedExposureRange(
+⋮----
+let ceilingNs = Int64(1_000_000_000 / max(1, lockedFps))
+let upper = min(sensorRange.upperBound, ceilingNs)
+⋮----
 public func updateSettings(_ settings: CameraSettings) async throws {
 ⋮----
 private func _updateSettingsBypassingCalibrationGuard(_ settings: CameraSettings) async throws {
@@ -342,11 +466,23 @@ let merged = SettingsCoupling.promoteSingleFieldManual(
 let latched = await device.lastSnapshot
 let resolved = try SettingsCoupling.apply(rules: merged, latched: latched)
 ⋮----
-let expRange = await device.exposureDurationRangeNs
+let sensorExpRange = await device.exposureDurationRangeNs
+⋮----
+let expRange = Self.fpsConstrainedExposureRange(
+⋮----
+let effectiveWB = resolved.wbMode ?? .auto
+⋮----
+let gated = Self.gateWBNormalization(cur, wbMode: effectiveWB)
 ⋮----
 let toSave = resolved
 ⋮----
 private func settingsTouchesWhiteBalance(_ settings: CameraSettings) -> Bool {
+⋮----
+static func gateWBNormalization(
+⋮----
+let locked = (wbMode == .manual || wbMode == .locked)
+⋮----
+var g = p
 ⋮----
 public func setResolution(size: Size) async throws {
 ⋮----
@@ -403,13 +539,14 @@ let y = evenDown((res.height - h) / 2)
 ⋮----
 static func validateRequestedResolution(_ size: Size?, supportedSizes: [Size]) throws {
 ⋮----
-public func sampleCenterPatch() async throws -> RgbSample {
-⋮----
 func sampleCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
-func sampleCenterPatchForBBCalibration() async throws -> RgbSample {
-⋮----
 func _activeFormatSizeForTest() async throws -> Size {
+⋮----
+func _activeFrameRateRangeForTest() async throws -> (minFps: Double, maxFps: Double) {
+⋮----
+let maxFps = minDur > 0 ? 1.0 / minDur : 0
+let minFps = maxDur > 0 ? 1.0 / maxDur : 0
 ⋮----
 func _activeCropRegionForTest() async throws -> Rect {
 ⋮----
@@ -434,13 +571,19 @@ func awaitNaturalAfter(_ pts: CMTime) async {
 let targetNs = Int64(CMTimeGetSeconds(pts) * 1_000_000_000)
 let deadline = ContinuousClock.now + .seconds(1)
 ⋮----
+func awaitNaturalRefresh() async {
+⋮----
+let seed = pipeline.latestNaturalPTSNs.load(ordering: .acquiring)
+⋮----
 func awaitAESettled() async {
 ⋮----
-public func calibrateWhiteBalance() async throws -> CalibrationResult {
+public func calibrateWhite(whitePoint: Bool = true) async throws -> CalibrationResult {
 ⋮----
 let task = Task<CalibrationResult, Error> { [self] in
 ⋮----
 let before = try await sampleCenterPatchOnNatural()
+⋮----
+let beforeMeanGamma = (before.r + before.g + before.b) / 3.0
 ⋮----
 let maxGain = try await maxWhiteBalanceGain()
 let raw = try await freshGrayWorldDeviceWBGains()
@@ -451,17 +594,44 @@ var manual = CameraSettings()
 ⋮----
 let after = try await sampleCenterPatchOnNatural()
 ⋮----
+let residual = CalibrationCompute.whiteBalanceResidual(whiteSample: after)
+var proc = currentProcessing ?? .identity
+⋮----
 var auto = CameraSettings()
 ⋮----
-public func calibrateBlackBalance() async throws -> CalibrationResult {
+public func calibrateBlack() async throws -> BlackPointDebug {
 ⋮----
-let beforeSample = try await sampleCenterPatchForBBCalibration()
+let rb = try await pipeline.readbackNaturalCenterRegion(
 ⋮----
-let offsets = CalibrationCompute.blackBalanceOffsets(sample: beforeSample)
-let prior = currentProcessing ?? .identity
-var next = prior
+let debug = CalibrationCompute.blackPointDebug(
 ⋮----
-let afterSample = try await sampleCenterPatchForBBCalibration()
+let keptFraction =
+⋮----
+var next = currentProcessing ?? .identity
+⋮----
+private var isWhiteBalanceLocked: Bool {
+⋮----
+private var isWhiteBalanceCalibrated: Bool {
+⋮----
+public func enableWhiteBalance() async throws {
+⋮----
+public func disableWhiteBalance() async {
+⋮----
+public func enableWhitePoint() async throws {
+⋮----
+public func disableWhitePoint() async {
+⋮----
+public func clearWhiteBalance() async {
+⋮----
+public func enableBlackPoint() async throws {
+⋮----
+var next = p
+⋮----
+public func disableBlackPoint() async {
+⋮----
+public func clearBlackPoint() async {
+⋮----
+public static var calibrationPatchSizePx: Int { Constants.centerPatchSizePx }
 ⋮----
 public nonisolated func getPersistedProcessingParameters() -> ProcessingParameters? {
 ⋮----
@@ -480,11 +650,14 @@ let url = URL(fileURLWithPath: output.filePath)
 ⋮----
 let detail = PhotosLibraryClient.describe(error)
 ⋮----
-public func captureNaturalPicture(
+private func renderNaturalStill() async throws -> CVPixelBuffer {
 ⋮----
 let photoBuffer = try await session.capturePhoto()
 ⋮----
-let graded = try await pipeline.gradeOneShot(pixelBuffer: photoBuffer)
+public func captureNaturalPictureBuffer() async throws -> PixelHandle {
+let graded = try await renderNaturalStill()
+⋮----
+public func captureNaturalPicture(
 ⋮----
 let snap = await session.device?.lastSnapshot
 ⋮----
@@ -673,8 +846,17 @@ func captureNaturalPicture(
 func startRecording(options: RecordingOptions) async throws -> RecordingStart
 func stopRecording() async throws -> String
 ⋮----
-func calibrateWhiteBalance() async throws -> CalibrationResult
-func calibrateBlackBalance() async throws -> CalibrationResult
+func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult
+func calibrateBlack() async throws -> BlackPointDebug
+⋮----
+func enableWhiteBalance() async throws
+func disableWhiteBalance() async
+func enableWhitePoint() async throws
+func disableWhitePoint() async
+func clearWhiteBalance() async
+func enableBlackPoint() async throws
+func disableBlackPoint() async
+func clearBlackPoint() async
 ⋮----
 nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer?
 ```
@@ -761,42 +943,30 @@ var onSessionEvent: (@Sendable (SessionEvent) -> Void)?
 ⋮----
 init() {
 ⋮----
+private(set) var lockedFps: Int = Constants.frameRateTargetFPS
+⋮----
 func configure(
 ⋮----
 let yuvFormats: [AVCaptureDevice.Format] = avDevice.formats.filter { format in
 ⋮----
-let sortedByPreference: [AVCaptureDevice.Format] = yuvFormats.sorted { lhs, rhs in
-let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
+let targetSize: Size = try {
 ⋮----
-let fps30 = Int32(Constants.frameRateTargetFPS)
-let candidateFormats: [AVCaptureDevice.Format] =
+let exists = yuvFormats.contains { fmt in
+let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
 ⋮----
-let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-let w = Int32(dims.width)
-let h = Int32(dims.height)
+let formatsAtSize = yuvFormats.filter { fmt in
 ⋮----
-let matches = sortedByPreference.filter { format in
-let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+let fpsCapable = formatsAtSize.filter { Self.formatSupportsFps($0, targetFps) }
 ⋮----
-let pick =
-⋮----
-let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
-⋮----
-let fallbackW = Constants.captureFallbackWidthPx
-let fallbackH = Constants.captureFallbackHeightPx
-let nearest = sortedByPreference.min { lhs, rhs in
-⋮----
-let lDist = abs(Int(lDims.width) - fallbackW) + abs(Int(lDims.height) - fallbackH)
-let rDist = abs(Int(rDims.width) - fallbackW) + abs(Int(rDims.height) - fallbackH)
-⋮----
-let frameDuration = CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS))
+let chosenSize = targetSize
 ⋮----
 let deviceInput = try AVCaptureDeviceInput(device: avDevice)
 ⋮----
+let frameDuration = clampFrameDuration(
+⋮----
 let liveDevice = LiveCaptureDevice(avDevice: avDevice)
 ⋮----
-let angle = Constants.captureOrientationAngleDeg
+let angle = orientationAngleDeg
 ⋮----
 func startRunning() {
 ⋮----
@@ -812,19 +982,29 @@ private static func uniqueSupportedSizes(_ fullRangeFormats: [AVCaptureDevice.Fo
 var seen: Set<Size> = []
 var unique: [Size] = []
 ⋮----
+let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
 let w = Int(d.width)
 let h = Int(d.height)
 ⋮----
 let size = Size(width: w, height: h)
 ⋮----
+private static func largestFourThreeSize(_ fullRangeFormats: [AVCaptureDevice.Format]) -> Size {
+let sizes = uniqueSupportedSizes(fullRangeFormats)
+⋮----
+private static func formatSupportsFps(_ format: AVCaptureDevice.Format, _ fps: Int) -> Bool {
+⋮----
+private static func supportedFpsDescription(_ formatsAtSize: [AVCaptureDevice.Format]) -> String {
+var seen: Set<String> = []
+let unique =
+⋮----
 func reconfigureSize(_ size: Size) async throws {
 ⋮----
 let currentInput = self.avSession.inputs
 ⋮----
-let match = dev.formats.first { fmt in
+let formatsAtSize = dev.formats.filter { fmt in
 let subType = CMFormatDescriptionGetMediaSubType(fmt.formatDescription)
 ⋮----
-let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
+let fpsCapable = formatsAtSize.filter { Self.formatSupportsFps($0, self.lockedFps) }
 ⋮----
 private static func interruptionReasonName(_ raw: Int) -> String {
 ⋮----
@@ -861,9 +1041,19 @@ public let y: Int
 ⋮----
 public init(x: Int, y: Int, width: Int, height: Int) {
 ⋮----
+public struct FrameRateRange: Sendable, Hashable {
+public let size: Size
+public let minFps: Int
+public let maxFps: Int
+⋮----
+public init(size: Size, minFps: Int, maxFps: Int) {
+⋮----
 public struct SessionCapabilities: Sendable, Hashable {
 public let supportedSizes: [Size]
-public let previewTextureId: Int
+⋮----
+public let supportedFrameRates: [FrameRateRange]
+⋮----
+public let activeFrameRate: Int
 ⋮----
 public let activeCaptureResolution: Size
 public let activeCropRegion: Rect
@@ -889,9 +1079,13 @@ public var cropRegion: Rect?
 ⋮----
 public var cropEnabled: Bool
 ⋮----
+public var targetFps: Int?
+⋮----
 public var initialSettings: CameraSettings?
 ⋮----
 public var trackerHeight: Int?
+⋮----
+public var captureOrientationAngleDeg: CGFloat
 ⋮----
 public enum CameraMode: String, Sendable, Hashable, Codable {
 ⋮----
@@ -918,13 +1112,28 @@ public var brightness: Double
 ⋮----
 public var contrast: Double
 public var saturation: Double
-⋮----
-public var blackR: Double
-public var blackG: Double
-public var blackB: Double
 public var gamma: Double
 ⋮----
+public var blackPointR: Double
+public var blackPointG: Double
+public var blackPointB: Double
+public var blackPointEnabled: Bool
+⋮----
+public var wbChromaR: Double
+public var wbChromaG: Double
+public var wbChromaB: Double
+public var wbChromaEnabled: Bool
+⋮----
+public var whitePointLevel: Double
+public var whitePointEnabled: Bool
+⋮----
 public static let identity = ProcessingParameters()
+⋮----
+private enum CodingKeys: String, CodingKey {
+⋮----
+public init(from decoder: any Decoder) throws {
+let c = try decoder.container(keyedBy: CodingKeys.self)
+let d = ProcessingParameters.identity
 ```
 
 ## File: CameraKit/Sources/CameraKit/CaptureDelegate.swift
@@ -985,6 +1194,10 @@ func cancelKVO() async
 ⋮----
 func dumpAllFormats() async -> [String]
 ⋮----
+public var supportedFrameRates: [FrameRateRange] {
+⋮----
+public var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
+⋮----
 public struct DeviceStateSnapshot: Sendable, Hashable {
 public let iso: Float
 public let exposureDurationNs: Int64
@@ -1006,6 +1219,8 @@ var uniqueID: String { avDevice.uniqueID }
 var activeFormatSize: Size {
 let dims = CMVideoFormatDescriptionGetDimensions(avDevice.activeFormat.formatDescription)
 ⋮----
+var activeFrameDurationSecondsForTest: (min: Double, max: Double) {
+⋮----
 var supportedSizes: [Size] {
 ⋮----
 var seen: Set<Size> = []
@@ -1019,6 +1234,16 @@ let w = Int(dims.width)
 let h = Int(dims.height)
 ⋮----
 let size = Size(width: w, height: h)
+⋮----
+var supportedFrameRates: [FrameRateRange] {
+⋮----
+var seen: Set<FrameRateRange> = []
+var result: [FrameRateRange] = []
+⋮----
+let entry = FrameRateRange(
+⋮----
+let lArea = $0.size.width * $0.size.height
+let rArea = $1.size.width * $1.size.height
 ⋮----
 func dumpAllFormats() -> [String] {
 ⋮----
@@ -1083,6 +1308,8 @@ func setExposureCompensation(_ steps: Int) throws {
 ⋮----
 func setVideoFrameDurationRange(minFrameDurationFps: Int, maxFrameDurationFps: Int) throws {
 ⋮----
+let ranges = avDevice.activeFormat.videoSupportedFrameRateRanges
+⋮----
 private var kvoObserver: DeviceKVOObserver?
 private var _lastSnapshot: DeviceStateSnapshot?
 private var ingestTask: Task<Void, Never>?
@@ -1128,6 +1355,8 @@ private func fourCC(_ code: FourCharCode) -> String {
 let bytes: [UInt8] = [
 ⋮----
 private func bitDepthRangeTag(_ pixelFormat: FourCharCode) -> String {
+⋮----
+func clampFrameDuration(_ desired: CMTime, toSupportedRanges ranges: [AVFrameRateRange]) -> CMTime {
 ```
 
 ## File: CameraKit/Sources/CameraKit/Clock.swift
@@ -1148,6 +1377,7 @@ public func sleep(milliseconds: Int) async throws {
 ## File: CameraKit/Sources/CameraKit/Constants.swift
 ```swift
 enum Constants {
+⋮----
 static let frameRateTargetFPS: Int = 30
 static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
 static let workingPixelFormat: MTLPixelFormat = .rgba16Float
@@ -1162,6 +1392,8 @@ static let stateStreamBufferSize: Int = 64
 ⋮----
 static let sessionLifecycleTimeoutSeconds: Double = 2.0
 ⋮----
+static let firstFrameTimeoutSeconds: Double = 2.0
+⋮----
 static let frameResultHeartbeatHz: Int = 3
 static let frameResultHeartbeatIntervalFrames: Int = 10
 ⋮----
@@ -1171,7 +1403,15 @@ static let centerPatchSizePx: Int = 96
 ⋮----
 static let centerPatchTrimRatio: Double = 0.075
 ⋮----
-static let blackBalanceOverscan: Double = 1.5
+static let whitePointTargetDisplay: Double = 250.0 / 255.0
+⋮----
+static let blackPointSigmaK: Double = 1.5
+⋮----
+static let blackPointMaxSampleGamma: Double = 0.3
+⋮----
+static let blackPointMinKeptFraction: Double = 0.4
+⋮----
+static let whiteFieldMinSampleGamma: Double = 0.2
 ⋮----
 static let wbGrayWorldLogCap: Float = 0.25
 ⋮----
@@ -1199,6 +1439,12 @@ static let hwErrorThresholdConsecutive: Int = 5
 ⋮----
 static let recoveryMaxRetries: Int = 5
 ⋮----
+static let recoveryQuickReopens: Int = 3
+⋮----
+static let maxFullRestarts: Int = 2
+⋮----
+static let fullRestartSettleSeconds: Double = 1.0
+⋮----
 static let recoveryBackoff1Ms: Int = 500
 static let recoveryBackoff2Ms: Int = 1000
 static let recoveryBackoff3Ms: Int = 2000
@@ -1206,8 +1452,6 @@ static let recoveryBackoff4Ms: Int = 4000
 static let recoveryBackoff5PlusMs: Int = 8000
 ⋮----
 static func recoveryBackoffMs(attempt: Int) -> Int {
-⋮----
-static let frameRateRecordingMinFps: Int = 15
 ⋮----
 static let recordingTargetBitrateBpsDefault: Int = 40_000_000
 ⋮----
@@ -1238,6 +1482,10 @@ public let isFatal: Bool
 public init(code: ErrorCode, message: String, isFatal: Bool) {
 ⋮----
 public enum EngineError: Error, Sendable {
+⋮----
+public var errorDescription: String? { message }
+⋮----
+public var errorDescription: String? {
 ⋮----
 public enum MetalError: Error, Sendable, Equatable {
 ⋮----
@@ -1362,12 +1610,31 @@ struct ColorUniform: Hashable {
 var brightness: Float
 var contrast: Float
 var saturation: Float
-var blackR: Float
-var blackG: Float
-var blackB: Float
 var gamma: Float
 ⋮----
+var aR: Float
+var aG: Float
+var aB: Float
+var bR: Float
+var bG: Float
+var bB: Float
+var transferFn: UInt32
+⋮----
+var normalizeEnabled: UInt32
+⋮----
 init(_ p: ProcessingParameters) {
+⋮----
+let bpR = p.blackPointEnabled ? p.blackPointR : 0.0
+let bpG = p.blackPointEnabled ? p.blackPointG : 0.0
+let bpB = p.blackPointEnabled ? p.blackPointB : 0.0
+let chromaR = p.wbChromaEnabled ? p.wbChromaR : 1.0
+let chromaG = p.wbChromaEnabled ? p.wbChromaG : 1.0
+let chromaB = p.wbChromaEnabled ? p.wbChromaB : 1.0
+⋮----
+let level = (p.whitePointEnabled && p.wbChromaEnabled) ? p.whitePointLevel : 1.0
+let gainR = chromaR * level
+let gainG = chromaG * level
+let gainB = chromaB * level
 ⋮----
 static let identity = ColorUniform(.identity)
 ⋮----
@@ -1376,6 +1643,12 @@ var originX: UInt32
 var originY: UInt32
 var width: UInt32
 var height: UInt32
+⋮----
+var mirrorX: UInt32
+⋮----
+var mirrorY: UInt32
+⋮----
+init(
 ⋮----
 static func full(width: Int, height: Int) -> CropUniform {
 ⋮----
@@ -1391,6 +1664,8 @@ private let trackerPool: CVPixelBufferPool
 private let eightBitNaturalPool: CVPixelBufferPool
 private let eightBitProcessedPool: CVPixelBufferPool
 private let rgba16fToBgra8PSO: MTLComputePipelineState
+⋮----
+private let extractCenterRegionPSO: MTLComputePipelineState
 ⋮----
 private(set) var captureSize: Size
 ⋮----
@@ -1421,8 +1696,6 @@ private let _latestTrackerBuffer = Mailbox<CVPixelBuffer>()
 var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
 var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 ⋮----
-private let _processedFallbackScratch = Mailbox<CVPixelBuffer>()
-⋮----
 let latestNaturalPTSNs: ManagedAtomic<Int64> = ManagedAtomic(0)
 ⋮----
 private let trackerLanczos: MPSImageLanczosScale
@@ -1431,11 +1704,24 @@ private let trackerNeedsResize: Bool
 ⋮----
 private var frameNumber: UInt64 = 0
 ⋮----
+private static let gpuProfilingEnabled = false
+private static let gpuProfileWindow = 120
+private let gpuProfileSumMicros = ManagedAtomic<Int64>(0)
+private let gpuProfileMaxMicros = ManagedAtomic<Int64>(0)
+private let gpuProfileCount = ManagedAtomic<Int64>(0)
+⋮----
 let consumers: ConsumerRegistry
 ⋮----
 private let deviceSnapshot: Mailbox<DeviceStateSnapshot>
 ⋮----
 private let commandQueue: MTLCommandQueue
+⋮----
+private let fusedPSOs: [MTLComputePipelineState]
+⋮----
+private static func fusedPSOIndex(natural: Bool, packed: Bool) -> Int {
+⋮----
+let naturalTapArmed = ManagedAtomic<Bool>(false)
+⋮----
 private let yuvToRgbaPSO: MTLComputePipelineState
 private let colorTransformPSO: MTLComputePipelineState
 private let centerPatchPSO: MTLComputePipelineState
@@ -1476,38 +1762,43 @@ let trackerW = rawW - (rawW % 2)
 ⋮----
 let library: MTLLibrary
 ⋮----
+func makeFusedPSO(writeNatural: Bool, writePacked: Bool) throws -> MTLComputePipelineState {
+let constants = MTLFunctionConstantValues()
+var n = writeNatural
+var p = writePacked
+⋮----
+let fn: MTLFunction
+⋮----
+var psos: [MTLComputePipelineState] = []
+⋮----
 let patchPixelCount = Constants.centerPatchSizePx * Constants.centerPatchSizePx
 let patchByteSize = patchPixelCount * MemoryLayout<Float>.stride
 ⋮----
-func encode(sampleBuffer: CMSampleBuffer) throws {
+private func encodeGradedCore(
+⋮----
+let core = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+var cropLocal = cropSnapshot
+⋮----
+var colorLocal = colorSnapshot
+⋮----
+func renderFrame(sampleBuffer: CMSampleBuffer) throws {
 ⋮----
 let yTexture: MTLTexture
 let cbcrTexture: MTLTexture
 ⋮----
-let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)
-let processedPair: (buffer: CVPixelBuffer, texture: MTLTexture)
+let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
 ⋮----
 let trackerPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
 ⋮----
 let commandBuffer = commandQueue.makeCommandBuffer()!
 ⋮----
-let naturalTexI = naturalPair.texture
-let processedTexI = processedPair.texture
-⋮----
-let pass1 = commandBuffer.makeComputeCommandEncoder()!
-⋮----
-var cropLocal = cropSnapshot
+let naturalTexI = naturalPair?.texture
 ⋮----
 let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
 let threadGroups = MTLSize(
 ⋮----
-let pass2 = commandBuffer.makeComputeCommandEncoder()!
-⋮----
-var colorLocal = colorSnapshot
-⋮----
-var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-⋮----
-let pass7p = commandBuffer.makeComputeCommandEncoder()!
+let processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
 ⋮----
 let blit = commandBuffer.makeBlitCommandEncoder()!
 let sz = MTLSize(
@@ -1525,7 +1816,7 @@ let logFirstAfterGate = logNextCommit
 ⋮----
 let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 let fn = frameNumber
-let processedBuf = processedPair.buffer
+let naturalBufForCompletion = naturalPair?.buffer
 let trackerBuf = trackerPair?.buffer
 let trackerTex = trackerPair?.texture
 let consumers = self.consumers
@@ -1535,48 +1826,63 @@ let encoderBufForCompletion: CVPixelBuffer? = encoderPairForCompletion?.buffer
 let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
 let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 ⋮----
-let processedForSet: CVPixelBuffer = processedEightBitBuf ?? processedBuf
-⋮----
 let tokenAtCommit = self.engineSessionToken.load(ordering: .acquiring)
 ⋮----
 let liveToken = self.engineSessionToken.load(ordering: .acquiring)
 ⋮----
 let code = (cb.error as NSError?)?.code ?? -1
 ⋮----
-let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+let micros = Int64((cb.gpuEndTime - cb.gpuStartTime) * 1_000_000)
 ⋮----
+var curMax = self.gpuProfileMaxMicros.load(ordering: .relaxed)
+⋮----
+let n = self.gpuProfileCount.wrappingIncrementThenLoad(
+⋮----
+let sum = self.gpuProfileSumMicros.exchange(0, ordering: .relaxed)
+let mx = self.gpuProfileMaxMicros.exchange(0, ordering: .relaxed)
+let avgMs = Double(sum) / Double(Self.gpuProfileWindow) / 1000.0
+let maxMs = Double(mx) / 1000.0
+let rec = self.isRecording.load(ordering: .acquiring)
+⋮----
+// Publish per-lane Frames (nonisolated — no actor hop). Each Frame
+// carries a PixelHandle lease that locks the pool buffer until the
+// consumer releases it (the holdable lease, §4.1). Both lanes share
+// `fn` (the cross-lane correlation index) and `tsNs`.
+let tsNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+// frame-metadata-signals: build typed convergence metadata from the
+// latest device KVO snapshot. `nil` before the first snapshot →
+// all-unknown → `settled == false` (fail-safe: never seed pre-snapshot).
 let frameMeta =
+⋮----
+// Tracker only when produced (a subscriber existed at dequeue time).
+⋮----
+// Update lane mailboxes. The processed lane delivers BGRA8: the buffer
+// mailbox (via the core's pack step) and the BGRA8 texture mailbox
+// (sharing the buffer's IOSurface); tracker via the fused Pass-4 pool.
+// The natural 16F texture mailbox is kept as an internal compute
+// intermediate for calibration/diagnostic sampling — never delivered
+// (remove-natural-lane). `captureImage` reads the processed BGRA8 buffer
+// mailbox; `captureNaturalPicture` converts on demand via `renderStill`.
+// Natural tap (opt C): stored + PTS-advanced ONLY when it was written this
+// frame (a calibration is armed). Retain its pool buffer here until GPU
+// completion so the write target isn't recycled mid-render.
 ⋮----
 let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
 var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
 ⋮----
-func gradeOneShot(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
+func renderStill(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
 ⋮----
 let yTex = try texturePool.makeYTexture(from: pixelBuffer)
 let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
-let nat = try texturePool.dequeuePoolTexture(
-⋮----
-let proc = try texturePool.dequeuePoolTexture(
-⋮----
 let out = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+var crop = baseCrop
 ⋮----
 let cb = commandQueue.makeCommandBuffer()!
 let tg = MTLSize(width: 16, height: 16, depth: 1)
 let groups = MTLSize(
 ⋮----
-let p1 = cb.makeComputeCommandEncoder()!
-⋮----
-var cropLocal = crop
-⋮----
-let p2 = cb.makeComputeCommandEncoder()!
-⋮----
-var colorLocal = color
-⋮----
-let p3 = cb.makeComputeCommandEncoder()!
-⋮----
 func drainLastBuffer() {
-⋮----
-func currentProcessedTex() -> MTLTexture {
 ⋮----
 func seedPreviewMailboxes() {
 ⋮----
@@ -1604,15 +1910,23 @@ let r = trimmedMean(buffer: bufR, count: count, trim: trimCount)
 let g = trimmedMean(buffer: bufG, count: count, trim: trimCount)
 let b = trimmedMean(buffer: bufB, count: count, trim: trimCount)
 ⋮----
-func dispatchCenterPatch() async throws -> RgbSample {
-⋮----
 func dispatchCenterPatchOnNatural() async throws -> RgbSample {
 ⋮----
-func dispatchBBCalibrationSample() async throws -> RgbSample {
+func readbackNaturalCenterRegion(
 ⋮----
+private func readbackCenterRegion(
+⋮----
+let s = max(1, min(side, source.width, source.height))
 let desc = MTLTextureDescriptor.texture2DDescriptor(
 ⋮----
-var params = uniforms.withLock { $0.color }
+let bytesPerRow = s * 4 * MemoryLayout<UInt16>.size
+let length = bytesPerRow * s
+⋮----
+let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+let groups = MTLSize(width: (s + 15) / 16, height: (s + 15) / 16, depth: 1)
+⋮----
+let half = buf.contents().bindMemory(to: UInt16.self, capacity: s * s * 4)
+var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: s * s)
 ⋮----
 private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {
 let ptr = buffer.contents().bindMemory(to: Float.self, capacity: count)
@@ -1639,13 +1953,57 @@ var eightBitProcessedPoolForTest: CVPixelBufferPool { eightBitProcessedPool }
 ⋮----
 func setLatestNaturalForTest(texture: MTLTexture) {
 ⋮----
+func setNaturalTapArmedForTest(_ armed: Bool) {
+⋮----
 func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
 ⋮----
 func setColorUniformsForTest(_ params: ProcessingParameters) {
 ⋮----
-func encodePass2Only() async throws {
+func encodeGradeOnly() async throws {
 ⋮----
 var color: ColorUniform = uniforms.withLock { $0.color }
+⋮----
+struct CoreComparisonForTest {
+let separateNatural: CVPixelBuffer
+let fusedNatural: CVPixelBuffer
+let separatePacked: CVPixelBuffer
+let fusedPacked: CVPixelBuffer
+⋮----
+private func encodeSeparateCoreForTest(
+⋮----
+let decode = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+let grade = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+let pack = commandBuffer.makeComputeCommandEncoder()!
+⋮----
+func encodeCoreComparisonForTest(
+⋮----
+let sepNat = try texturePool.dequeuePoolTexture(
+⋮----
+let sepProc = try texturePool.dequeuePoolTexture(
+⋮----
+let sepPacked = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+let fusNat = try texturePool.dequeuePoolTexture(
+⋮----
+let fusPacked = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+func benchmarkCoresForTest(
+⋮----
+let nat = try texturePool.dequeuePoolTexture(
+⋮----
+let proc = try texturePool.dequeuePoolTexture(
+⋮----
+let packed = try texturePool.dequeueEightBitPoolTexture(
+⋮----
+func timeRun(_ variant: BenchmarkVariant) async throws -> Double {
+⋮----
+let separate = try await timeRun(.separate)
+let fusedArmed = try await timeRun(.fusedArmed)
+let fusedSteady = try await timeRun(.fusedSteady)
+⋮----
+private enum BenchmarkVariant { case separate, fusedArmed, fusedSteady }
 ```
 
 ## File: CameraKit/Sources/CameraKit/OutputPathResolution.swift
@@ -1886,8 +2244,6 @@ public func noteHardwareFailure(message: String) async -> Bool {
 public func noteHardwareSuccess() {
 ⋮----
 public func cancelPendingRetry() {
-⋮----
-public func resetAfterSuccess() {
 ⋮----
 public func enterRecovery(error: CameraError) async {
 ⋮----

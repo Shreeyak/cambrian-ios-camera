@@ -84,10 +84,17 @@ final class CameraSession: @unchecked Sendable {
     ///   `EngineError.settingsConflict` if `requestedSize` is not a supported format;
     ///   `EngineError.lockForConfigurationFailed` if the device lock fails;
     ///   `EngineError.noSupportedFormat` if landscape-right rotation is unsupported.
+    /// Frame rate the session is locked to, chosen at `configure` and reused by the
+    /// preview/recording frame-rate setters (which lock min == max at this value in
+    /// every mode). Defaults to the package default until `configure` runs.
+    private(set) var lockedFps: Int = Constants.frameRateTargetFPS
+
     func configure(
         deliveryQueue: DispatchQueue,
         sampleBufferDelegate: AVCaptureVideoDataOutputSampleBufferDelegate,
-        requestedSize: Size? = nil
+        requestedSize: Size? = nil,
+        targetFps: Int = Constants.frameRateTargetFPS,
+        orientationAngleDeg: CGFloat = Constants.captureOrientationAngleDeg
     ) throws -> (device: any CaptureDeviceProviding, captureSize: Size) {
 
         // ── 1. Device discovery (D-08) ──────────────────────────────────────────────
@@ -100,89 +107,64 @@ final class CameraSession: @unchecked Sendable {
             throw EngineError.noBackCamera
         }
 
-        // ── 2. Format selection (G-17, partial override 2026-05-13) ────────────────
-        // Filter: 8-bit biplanar YUV FullRange only. VideoRange is rejected per
-        // user directive — see state.md Decision §63. Contradicts G-17 and
-        // architecture/03-camera-session.md §Enumeration step 1.
+        // ── 2. Format selection — always full-range 420f; resolution and frame rate
+        //      resolved independently (configurable-frame-rate). 420f (FullRange) is a
+        //      hard invariant (state.md Decision §63) — no video-range fallback; HDR is
+        //      disabled below.
         let yuvFormats: [AVCaptureDevice.Format] = avDevice.formats.filter { format in
             CMFormatDescriptionGetMediaSubType(format.formatDescription)
                 == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         }
-
-        // Sort by pixel count descending (largest first).
-        let sortedByPreference: [AVCaptureDevice.Format] = yuvFormats.sorted { lhs, rhs in
-            let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-            let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
-            return Int(lDims.width) * Int(lDims.height) > Int(rDims.width) * Int(rDims.height)
+        guard !yuvFormats.isEmpty else {
+            throw EngineError.noSupportedFormat(
+                reason: "device exposes no full-range 420f capture format")
         }
 
-        // Select the largest 4:3 format that supports 30 fps.
-        let fps30 = Int32(Constants.frameRateTargetFPS)
-        let candidateFormats: [AVCaptureDevice.Format] =
-            sortedByPreference
-            .filter { format in
-                let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                let w = Int32(dims.width)
-                let h = Int32(dims.height)
-                guard w * 3 == h * 4 else { return false }  // 4:3 ratio
-                // Must support 30 fps within at least one frame-rate range.
-                return format.videoSupportedFrameRateRanges.contains { range in
-                    range.minFrameRate <= Double(fps30) && Double(fps30) <= range.maxFrameRate
-                }
+        // Resolve the resolution first, independent of frame rate: the requested size,
+        // or — when nil — the largest 4:3 supported size (computed live, not hardcoded).
+        // A requested size not offered as 420f is rejected naming the supported set.
+        let targetSize: Size = try {
+            guard let requested = requestedSize else {
+                return Self.largestFourThreeSize(yuvFormats)
             }
-            // Sort by pixel count descending so `.first` is the largest.
-            .sorted { lhs, rhs in
-                let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-                let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
-                return Int(lDims.width) * Int(lDims.height) > Int(rDims.width) * Int(rDims.height)
+            let exists = yuvFormats.contains { fmt in
+                let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
+                return Int(d.width) == requested.width && Int(d.height) == requested.height
             }
-
-        let (chosenFormat, chosenSize): (AVCaptureDevice.Format?, Size) = try {
-            // Requested capture resolution: select the FullRange format whose exact
-            // dimensions match (preferring a 30 fps-capable variant). This draws from
-            // the same list `SessionCapabilities.supportedSizes` advertises and
-            // `reconfigureSize(_:)` matches against — so a size that validates can
-            // always be selected (validate-and-apply, not just validate). An
-            // unsupported size is rejected naming the requested size + supported set.
-            if let requested = requestedSize {
-                let matches = sortedByPreference.filter { format in
-                    let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                    return Int(d.width) == requested.width && Int(d.height) == requested.height
-                }
-                let pick =
-                    matches.first { format in
-                        format.videoSupportedFrameRateRanges.contains { range in
-                            range.minFrameRate <= Double(fps30) && Double(fps30) <= range.maxFrameRate
-                        }
-                    } ?? matches.first
-                guard let pick else {
-                    throw EngineError.settingsConflict(
-                        reason:
-                            "requested capture resolution \(requested.width)x\(requested.height) "
-                            + "is not a supported format; supported: "
-                            + Self.uniqueSupportedSizes(yuvFormats)
-                            .map { "\($0.width)x\($0.height)" }
-                            .joined(separator: ", "))
-                }
-                return (pick, requested)
+            guard exists else {
+                throw EngineError.settingsConflict(
+                    reason:
+                        "requested capture resolution \(requested.width)x\(requested.height) "
+                        + "is not a supported format; supported: "
+                        + Self.uniqueSupportedSizes(yuvFormats)
+                        .map { "\($0.width)x\($0.height)" }
+                        .joined(separator: ", "))
             }
-            if let best = candidateFormats.first {
-                let dims = CMVideoFormatDescriptionGetDimensions(best.formatDescription)
-                return (best, Size(width: Int(dims.width), height: Int(dims.height)))
-            }
-            // Fallback: no 4:3 at 30fps found; use the fallback dimensions (G-17).
-            // Pick the format nearest the fallback dimensions if one exists; otherwise nil.
-            let fallbackW = Constants.captureFallbackWidthPx
-            let fallbackH = Constants.captureFallbackHeightPx
-            let nearest = sortedByPreference.min { lhs, rhs in
-                let lDims = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-                let rDims = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
-                let lDist = abs(Int(lDims.width) - fallbackW) + abs(Int(lDims.height) - fallbackH)
-                let rDist = abs(Int(rDims.width) - fallbackW) + abs(Int(rDims.height) - fallbackH)
-                return lDist < rDist
-            }
-            return (nearest, Size(width: fallbackW, height: fallbackH))
+            return requested
         }()
+
+        // Among the 420f formats at that resolution, pick one whose supported frame-rate
+        // range contains `targetFps`, preferring a non-HDR-capable format
+        // (`isVideoHDRSupported == false`) so we run pure SDR when the sensor offers it;
+        // an HDR-capable-only resolution (the largest sizes) is still used, with HDR
+        // disabled below. An unsupported (resolution, fps) pair is rejected naming the
+        // frame rates valid at that resolution.
+        let formatsAtSize = yuvFormats.filter { fmt in
+            let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
+            return Int(d.width) == targetSize.width && Int(d.height) == targetSize.height
+        }
+        let fpsCapable = formatsAtSize.filter { Self.formatSupportsFps($0, targetFps) }
+        guard
+            let chosenFormat = fpsCapable.first(where: { !$0.isVideoHDRSupported })
+                ?? fpsCapable.first
+        else {
+            throw EngineError.settingsConflict(
+                reason:
+                    "requested frame rate \(targetFps) fps is not supported at "
+                    + "\(targetSize.width)x\(targetSize.height); supported: "
+                    + Self.supportedFpsDescription(formatsAtSize))
+        }
+        let chosenSize = targetSize
 
         // ── 3. Lock for configuration and apply format + frame rate ────────────────
         // Explicit unlock (no defer) so the lock scope closes before we "send"
@@ -195,12 +177,24 @@ final class CameraSession: @unchecked Sendable {
             throw EngineError.lockForConfigurationFailed
         }
 
-        if let format = chosenFormat {
-            avDevice.activeFormat = format
+        avDevice.activeFormat = chosenFormat
+        // HDR always off: extended-range tone-mapping fights the linear-light
+        // normalization stage. Disable it explicitly on the selected format
+        // (configurable-frame-rate Rec A) — this is what lets an HDR-capable-only
+        // resolution (the largest sensor sizes) run as plain SDR.
+        avDevice.automaticallyAdjustsVideoHDREnabled = false
+        if avDevice.activeFormat.isVideoHDRSupported {
+            avDevice.isVideoHDREnabled = false
         }
-        let frameDuration = CMTimeMake(value: 1, timescale: Int32(Constants.frameRateTargetFPS))
-        avDevice.activeVideoMinFrameDuration = frameDuration
-        avDevice.activeVideoMaxFrameDuration = frameDuration
+        // NOTE: the frame-rate lock (activeVideoMin/MaxFrameDuration) is applied
+        // in step 4b, AFTER commitConfiguration — not here. Setting it before
+        // `sessionPreset = .inputPriority` (step 4) is silently wiped: per Apple's
+        // docs, "Choosing a new preset for the capture session also resets
+        // [activeVideoMinFrameDuration] to its default value." Doing it here made
+        // the session run at the format default instead of `targetFps` (measured:
+        // requested 15/30/60 all read back as the format default). Only `lockedFps`
+        // (a Swift property, not device state) is recorded here.
+        self.lockedFps = targetFps
 
         // bug6: disable low-light boost. LLB multiplies analog gain in dim
         // scenes, which sacrifices spatial detail for SNR. Stills come out
@@ -253,6 +247,25 @@ final class CameraSession: @unchecked Sendable {
 
         avSession.commitConfiguration()
 
+        // ── 4b. Lock the frame rate at exactly `targetFps` (min == max) ──────────────
+        // Must run AFTER commitConfiguration: setting `sessionPreset` (step 4) resets
+        // activeVideoMin/MaxFrameDuration to the format default (Apple docs), so an
+        // earlier lock is wiped. Setting min == max == 1/targetFps here pins delivery
+        // to exactly `targetFps` in every mode — not a variable range. Clamp with the
+        // format's own CMTime bounds so a non-integer supported edge can't trip
+        // setActiveVideoMinFrameDuration: (the crash guard — see clampFrameDuration).
+        do {
+            try avDevice.lockForConfiguration()
+        } catch {
+            throw EngineError.lockForConfigurationFailed
+        }
+        let frameDuration = clampFrameDuration(
+            CMTimeMake(value: 1, timescale: Int32(targetFps)),
+            toSupportedRanges: avDevice.activeFormat.videoSupportedFrameRateRanges)
+        avDevice.activeVideoMinFrameDuration = frameDuration
+        avDevice.activeVideoMaxFrameDuration = frameDuration
+        avDevice.unlockForConfiguration()
+
         // Register interruption and runtime-error observers now that configuration is committed.
         NotificationCenter.default.addObserver(
             forName: AVCaptureSession.wasInterruptedNotification,
@@ -283,8 +296,12 @@ final class CameraSession: @unchecked Sendable {
         self.device = liveDevice
 
         // ── 6. Orientation: landscape-right via videoRotationAngle (ADR-17) ─────────
+        // Angle defaults to the package convention (0°) but is overridable per
+        // open() via OpenConfiguration.captureOrientationAngleDeg, so a host that
+        // locks to a different landscape edge can rotate the delivered buffers
+        // without changing the package default for other consumers.
         if let connection = videoOutput.connection(with: .video) {
-            let angle = Constants.captureOrientationAngleDeg  // ADR-17
+            let angle = orientationAngleDeg  // ADR-17 (configurable per open)
             guard connection.isVideoRotationAngleSupported(angle) else {
                 throw EngineError.noSupportedFormat(
                     reason: "videoRotationAngle \(angle)° not supported on this device (ADR-17)")
@@ -298,16 +315,13 @@ final class CameraSession: @unchecked Sendable {
             // post-processing — material sharpness gain on stills.
             connection.preferredVideoStabilizationMode = .off
 
-            // Horizontal (left-right) mirror. On an AVCaptureVideoDataOutput
-            // connection isVideoMirrored flips the delivered pixel buffers
-            // themselves (not a display-only transform), so preview, every
-            // lane, and recording all inherit the flip from this single point.
-            // Must clear the auto-adjust flag first, else the assignment is
-            // ignored.
-            if connection.isVideoMirroringSupported {
-                connection.automaticallyAdjustsVideoMirroring = false
-                connection.isVideoMirrored = true
-            }
+            // Horizontal mirror is now owned by the Metal graded core
+            // (`CropUniform.mirrorX` in `yuvGradedFused`), NOT this connection. The
+            // connection flag only mirrored the video-data-output buffers and never
+            // reached the photo path (`capturePhoto` → `renderStill`), so the natural
+            // still came out un-mirrored relative to the preview. Mirroring in Metal
+            // applies the SAME flip to every lane + both still paths — preview ==
+            // recording == captureImage == captureNaturalPicture.
         }
 
         // Match landscape-right rotation on the photo output connection (ADR-17).
@@ -315,9 +329,9 @@ final class CameraSession: @unchecked Sendable {
         // because photo rotation is a best-effort orientation hint, not a hard
         // pipeline requirement.
         if let pc = photoOutput.connection(with: .video),
-            pc.isVideoRotationAngleSupported(Constants.captureOrientationAngleDeg)
+            pc.isVideoRotationAngleSupported(orientationAngleDeg)
         {
-            pc.videoRotationAngle = Constants.captureOrientationAngleDeg  // ADR-17
+            pc.videoRotationAngle = orientationAngleDeg  // ADR-17 (configurable per open)
         }
 
         // NOTE: the photo-output connection is deliberately NOT mirrored.
@@ -326,6 +340,15 @@ final class CameraSession: @unchecked Sendable {
         // setting it had no effect. captureNaturalPicture therefore reflects the
         // un-mirrored ISP geometry — distinct from the mirrored preview /
         // captureImage. (The video-data-output mirror above still applies.)
+        //
+        // FUTURE: the same applies to `videoRotationAngle` set on the photo
+        // connection above — AVCapturePhotoOutput tags orientation metadata but
+        // does NOT physically rotate the raw `photo.pixelBuffer` that
+        // `captureNaturalPicture` → `renderStill` consumes. So with a non-zero
+        // `captureOrientationAngleDeg`, the natural still is delivered in native
+        // ISP orientation (e.g. upside down vs the rotated preview). Fix when
+        // needed by rotating the raw buffer in the natural-still path (Metal pass
+        // or honoring the orientation tag at readback) — or correct in post.
 
         return (device: liveDevice, captureSize: chosenSize)
     }
@@ -401,6 +424,37 @@ final class CameraSession: @unchecked Sendable {
         return unique.sorted { ($0.width * $0.height) > ($1.width * $1.height) }
     }
 
+    /// Largest 4:3 capture size among `fullRangeFormats` (≥640×480), computed live.
+    ///
+    /// The default resolution when `open()` gets no explicit `captureResolution`,
+    /// decoupled from frame rate (configurable-frame-rate). Falls back to the overall
+    /// largest size, then the package fallback, if the device offers no 4:3 format.
+    private static func largestFourThreeSize(_ fullRangeFormats: [AVCaptureDevice.Format]) -> Size {
+        let sizes = uniqueSupportedSizes(fullRangeFormats)
+        return sizes.first { $0.width * 3 == $0.height * 4 } ?? sizes.first
+            ?? Size(width: Constants.captureFallbackWidthPx, height: Constants.captureFallbackHeightPx)
+    }
+
+    /// Whether `format` supports `fps` within one of its frame-rate ranges.
+    private static func formatSupportsFps(_ format: AVCaptureDevice.Format, _ fps: Int) -> Bool {
+        format.videoSupportedFrameRateRanges.contains { range in
+            Int(range.minFrameRate.rounded(.down)) <= fps
+                && fps <= Int(range.maxFrameRate.rounded(.down))
+        }
+    }
+
+    /// Human-readable, de-duplicated list of the frame-rate ranges supported at a
+    /// resolution, for the settings-conflict message (e.g. "1-30, 2-240").
+    private static func supportedFpsDescription(_ formatsAtSize: [AVCaptureDevice.Format]) -> String {
+        var seen: Set<String> = []
+        let unique =
+            formatsAtSize
+            .flatMap { $0.videoSupportedFrameRateRanges }
+            .map { "\(Int($0.minFrameRate.rounded(.down)))-\(Int($0.maxFrameRate.rounded(.down)))" }
+            .filter { seen.insert($0).inserted }
+        return unique.isEmpty ? "none" : unique.joined(separator: ", ")
+    }
+
     func reconfigureSize(_ size: Size) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             sessionQueue.async {
@@ -417,7 +471,10 @@ final class CameraSession: @unchecked Sendable {
                 // Match on (FullRange pixel format, exact dimensions). FullRange-only
                 // mirrors the initial open() filter (state.md Decision §63) so resolution
                 // changes can't accidentally land on a VideoRange format.
-                let match = dev.formats.first { fmt in
+                // Match on (FullRange 420f, exact dimensions), preferring a non-HDR
+                // format that supports the currently-locked frame rate; a size that
+                // can't do the locked fps is a conflict (configurable-frame-rate).
+                let formatsAtSize = dev.formats.filter { fmt in
                     let subType = CMFormatDescriptionGetMediaSubType(fmt.formatDescription)
                     guard subType == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else {
                         return false
@@ -425,15 +482,37 @@ final class CameraSession: @unchecked Sendable {
                     let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
                     return Int(d.width) == size.width && Int(d.height) == size.height
                 }
-                guard let match else {
+                guard !formatsAtSize.isEmpty else {
                     cont.resume(
                         throwing: EngineError.noSupportedFormat(
                             reason: "no format matching \(size.width)x\(size.height)"))
                     return
                 }
+                let fpsCapable = formatsAtSize.filter { Self.formatSupportsFps($0, self.lockedFps) }
+                guard
+                    let match = fpsCapable.first(where: { !$0.isVideoHDRSupported })
+                        ?? fpsCapable.first
+                else {
+                    cont.resume(
+                        throwing: EngineError.settingsConflict(
+                            reason:
+                                "frame rate \(self.lockedFps) fps is not supported at "
+                                + "\(size.width)x\(size.height); supported: "
+                                + Self.supportedFpsDescription(formatsAtSize)))
+                    return
+                }
                 do {
                     try dev.lockForConfiguration()
                     dev.activeFormat = match
+                    dev.automaticallyAdjustsVideoHDREnabled = false
+                    if dev.activeFormat.isVideoHDRSupported {
+                        dev.isVideoHDREnabled = false
+                    }
+                    let frameDuration = clampFrameDuration(
+                        CMTimeMake(value: 1, timescale: Int32(self.lockedFps)),
+                        toSupportedRanges: dev.activeFormat.videoSupportedFrameRateRanges)
+                    dev.activeVideoMinFrameDuration = frameDuration
+                    dev.activeVideoMaxFrameDuration = frameDuration
                     dev.unlockForConfiguration()
                     cont.resume()
                 } catch {
@@ -497,16 +576,18 @@ final class CameraSession: @unchecked Sendable {
 
     // MARK: - Frame rate control (U-16)
 
-    /// Preview mode — lock frame rate to FRAME_RATE_TARGET_FPS on both min and max.
+    /// Lock the frame rate to the session's `lockedFps` (min == max).
     ///
-    /// Caller must dispatch onto `sessionQueue` (ADR-07).
+    /// The rate is locked identically in every mode (configurable-frame-rate); this
+    /// is the idle/preview entry point. Caller must dispatch onto `sessionQueue`
+    /// (ADR-07).
     func setPreviewFrameRateRange() async throws {
         guard let device = device else { return }
         try await device.lockForConfiguration()
         do {
             try await device.setVideoFrameDurationRange(
-                minFrameDurationFps: Constants.frameRateTargetFPS,
-                maxFrameDurationFps: Constants.frameRateTargetFPS
+                minFrameDurationFps: lockedFps,
+                maxFrameDurationFps: lockedFps
             )
             await device.unlockForConfiguration()
         } catch {
@@ -515,18 +596,20 @@ final class CameraSession: @unchecked Sendable {
         }
     }
 
-    /// Recording mode — allow AE to halve frame rate in low light.
+    /// Lock the frame rate to the session's `lockedFps` (min == max) for recording.
     ///
-    /// Min = 1/FRAME_RATE_TARGET_FPS, Max = 1/FRAME_RATE_RECORDING_MIN_FPS.
-    ///
-    /// Caller must dispatch onto `sessionQueue` (ADR-07).
+    /// configurable-frame-rate: the frame rate is locked identically in every mode —
+    /// recording no longer widens the range to a low-light floor (that variable-rate
+    /// behavior was removed; low-light auto-rate is out of scope). Kept as a distinct
+    /// entry point for the record start/stop call sites. Caller must dispatch onto
+    /// `sessionQueue` (ADR-07).
     func setRecordingFrameRateRange() async throws {
         guard let device = device else { return }
         try await device.lockForConfiguration()
         do {
             try await device.setVideoFrameDurationRange(
-                minFrameDurationFps: Constants.frameRateTargetFPS,
-                maxFrameDurationFps: Constants.frameRateRecordingMinFps
+                minFrameDurationFps: lockedFps,
+                maxFrameDurationFps: lockedFps
             )
             await device.unlockForConfiguration()
         } catch {

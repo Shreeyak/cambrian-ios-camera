@@ -19,8 +19,9 @@ and keeps them stable through it.
   - **Black point** — per-channel offset so the dark reference maps to 0 (solid black). Migrates
     the existing post-grade "black balance". The fixed `1.5×mean` overscan is replaced by a
     statistical `mean + k·σ` margin (`k = blackPointSigmaK`, default 1.5 — now a σ-multiplier),
-    computed in linear light over a patch-seeded value-mask (grow the 96² center patch to all frame
-    pixels within `patchMean ± k_select·patchσ`, `k_select = blackPointSelectSigmaK`, default 3.0).
+    computed in linear light over the centered 96² patch, keeping only pixels every channel of which
+    is near-black (`< blackPointMaxSampleGamma`, default 0.3). Calibration fails when fewer than
+    `blackPointMinKeptFraction` (default 0.4) of the patch is dark enough.
   - **White-balance chroma residual** — per-channel cast-neutralization gain on top of the locked
     hardware gains; brightness-preserving; stays under the **white balance** name. Corrects Apple's
     WB where it falls short.
@@ -40,13 +41,15 @@ and keeps them stable through it.
 - **Kernel fusion**: hand-fuse the pointwise passes (YUV→RGB+crop → linearize → normalize →
   re-encode → grade → BGRA8) to cut intermediate-texture bandwidth. Tracker (MPS Lanczos) and
   NV12 encode remain separate passes. **No MPSGraph.**
-- **Black-balance → black-point is non-breaking**: legacy `calibrateBlackBalance` (Swift/Pigeon/
-  Dart) is retained as a deprecated alias forwarding to `calibrateBlackPoint`, with a runtime
-  deprecation notice and a persistence migration shim; the deprecation is documented and called out
-  in the GitHub release notes.
-- **Behavioral change (not API-breaking)**: default output is unchanged only when all toggles are
-  off; with black point migrated from the old post-grade subtraction, calibrated black behaviour
-  shifts to linear space (corrected, not byte-identical). No compat toggle for the old look.
+- **BREAKING — black-balance removed entirely**: the legacy `calibrateBlackBalance` (Swift/Pigeon/
+  Dart), `ProcessingParameters.blackR/G/B`, and the post-grade shader subtraction are deleted. No
+  deprecated alias, no forwarding, no value migration — `calibrateBlackPoint` (linear, pre-grade) is
+  the only black operation. Old persisted blobs still decode their grade values (no reset); legacy
+  black keys are ignored. Accepted breaking change (user decision); called out as breaking in the
+  GitHub release notes.
+- **Endpoints not pinned**: the creative grade operates unchanged and is not endpoint-anchored, so
+  operator brightness/contrast may move a calibrated solid background off 0/target — accepted and
+  documented (user decision; no S-curve operators, no post-grade re-pin).
 
 ## Capabilities
 

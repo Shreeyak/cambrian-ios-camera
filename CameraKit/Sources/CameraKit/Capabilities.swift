@@ -27,13 +27,40 @@ public struct Rect: Sendable, Hashable {
 
 // MARK: - Session capabilities
 
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, `videoSupportedFrameRateRanges` range) the device offers as a
+/// full-range 420f format, so a size can appear more than once — e.g. a full-FOV
+/// `1–60` range and a binned slow-mo `2–240` range at the same dimensions
+/// (configurable-frame-rate). `minFps`/`maxFps` are the inclusive integer bounds a
+/// caller may pass as `OpenConfiguration.targetFps` for that resolution.
+public struct FrameRateRange: Sendable, Hashable {
+    public let size: Size
+    public let minFps: Int
+    public let maxFps: Int
+
+    public init(size: Size, minFps: Int, maxFps: Int) {
+        self.size = size
+        self.minFps = minFps
+        self.maxFps = maxFps
+    }
+}
+
 /// Returned by CameraEngine.open(configuration:) per domain-revised/10-api-contract.md §SessionCapabilities.
 public struct SessionCapabilities: Sendable, Hashable {
     public let supportedSizes: [Size]
-    public let previewTextureId: Int
-    // remove-natural-lane: `naturalTextureId` was removed with the streaming
-    // natural lane. The Flutter-facing Pigeon field is dropped in
-    // `flutter-single-preview`.
+    /// Frame-rate ranges supported per resolution, live from the device's 420f formats.
+    ///
+    /// Includes slow-mo where offered. A caller reads this to pick a valid
+    /// `(captureResolution, targetFps)` before `open()`. See `FrameRateRange`.
+    public let supportedFrameRates: [FrameRateRange]
+    /// The frame rate the session is locked to (the resolved `OpenConfiguration.targetFps`).
+    public let activeFrameRate: Int
+    // flutter-single-preview: `previewTextureId` (and earlier `naturalTextureId`,
+    // in remove-natural-lane) were removed — dead Stage-05 stubs, always 0, with
+    // no value-reader. Preview textures are allocated on demand via
+    // `createPreviewTexture(stream:)`, so `SessionCapabilities` carries no preview
+    // texture id on either the Swift or Pigeon contract.
     public let activeCaptureResolution: Size
     public let activeCropRegion: Rect
     /// Pixel format string of the *lane buffer* returned by
@@ -78,7 +105,8 @@ public struct SessionCapabilities: Sendable, Hashable {
 
     public init(
         supportedSizes: [Size],
-        previewTextureId: Int,
+        supportedFrameRates: [FrameRateRange] = [],
+        activeFrameRate: Int = 30,  // Constants.frameRateTargetFPS (internal); test-constructor default
         activeCaptureResolution: Size,
         activeCropRegion: Rect,
         streamPixelFormat: String,
@@ -90,7 +118,8 @@ public struct SessionCapabilities: Sendable, Hashable {
         trackerResolution: Size
     ) {
         self.supportedSizes = supportedSizes
-        self.previewTextureId = previewTextureId
+        self.supportedFrameRates = supportedFrameRates
+        self.activeFrameRate = activeFrameRate
         self.activeCaptureResolution = activeCaptureResolution
         self.activeCropRegion = activeCropRegion
         self.streamPixelFormat = streamPixelFormat
@@ -119,6 +148,20 @@ public struct OpenConfiguration: Sendable, Hashable {
     /// cropped (no full-frame-then-crop transition). Defaults to `false`
     /// (full-frame output).
     public var cropEnabled: Bool
+
+    /// Target capture frame rate, locked in every mode (preview / still / recording).
+    ///
+    /// `nil` resolves to `Constants.frameRateTargetFPS` (30). Any integer is accepted
+    /// but is validated at `open()` against the selected resolution's live
+    /// `videoSupportedFrameRateRanges` — an unsupported `(captureResolution, targetFps)`
+    /// pair throws `EngineError.settingsConflict` naming the frame rates valid for that
+    /// resolution (the valid set is discoverable via `SessionCapabilities`, including
+    /// slow-mo rates where a binned format supports them). Frame rate and resolution are
+    /// independent: choosing a lower `targetFps` does not enlarge the default resolution.
+    /// Because a frame's exposure cannot exceed its frame duration, `targetFps` also caps
+    /// the max usable manual exposure at `1/targetFps`; open at a lower `targetFps` for
+    /// longer exposures. Open-time only — change it by close + reopen.
+    public var targetFps: Int?
     /// Hardware settings to apply during session setup, before the first frame
     /// is delivered.
     ///
@@ -139,20 +182,36 @@ public struct OpenConfiguration: Sendable, Hashable {
     /// rounded down to an even value.
     public var trackerHeight: Int?
 
+    /// Capture-buffer rotation in degrees, applied to the video/photo connections
+    /// via `videoRotationAngle` (ADR-17).
+    ///
+    /// This rotates the *delivered pixel buffers* themselves, so every lane
+    /// (preview, processed, tracker) and stills inherit it consistently. Valid
+    /// values are `0` / `90` / `180` / `270`; an unsupported angle throws at
+    /// `open()`. Defaults to `Constants.captureOrientationAngleDeg` (`0`, the
+    /// package's landscape-right convention) — leave it unset and existing
+    /// consumers are unaffected. A host that locks its UI to landscape-left, for
+    /// example, passes `180` so the delivered frame reads upright.
+    public var captureOrientationAngleDeg: CGFloat
+
     public init(
         cameraId: String? = nil,
         captureResolution: Size? = nil,
+        targetFps: Int? = nil,
         cropRegion: Rect? = nil,
         cropEnabled: Bool = false,
         initialSettings: CameraSettings? = nil,
-        trackerHeight: Int? = nil
+        trackerHeight: Int? = nil,
+        captureOrientationAngleDeg: CGFloat = 0  // Constants.captureOrientationAngleDeg (internal); 0 = landscape-right
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
+        self.targetFps = targetFps
         self.cropRegion = cropRegion
         self.cropEnabled = cropEnabled
         self.initialSettings = initialSettings
         self.trackerHeight = trackerHeight
+        self.captureOrientationAngleDeg = captureOrientationAngleDeg
     }
 }
 
@@ -231,7 +290,8 @@ public struct CameraSettings: Sendable, Hashable, Codable {
 
 /// GPU color-processing shader parameters.
 ///
-/// All fields required. Full implementation Stage 04.
+/// All fields required. Full implementation Stage 04; linear-light normalization
+/// fields added in linear-normalization-stage.
 public struct ProcessingParameters: Sendable, Hashable, Codable {
     public var brightness: Double
     /// Contrast adjustment in `[-1, 1]`, `0.0` = identity.
@@ -242,34 +302,111 @@ public struct ProcessingParameters: Sendable, Hashable, Codable {
     /// `Shaders/ColorShaders.metal`.
     public var contrast: Double
     public var saturation: Double
-    /// Per-channel black-balance pedestal.
-    ///
-    /// The GPU pipeline subtracts these values from the graded image as the
-    /// **final** color step, after brightness, contrast, saturation, and
-    /// gamma. Range typically `[0, 0.5]`. See `Shaders/ColorShaders.metal`
-    /// for the exact order.
-    public var blackR: Double
-    public var blackG: Double
-    public var blackB: Double
     public var gamma: Double
+
+    // MARK: - linear-normalization-stage (applied in linear light, pre-grade)
+
+    /// Per-channel linear black point that offsets dark values toward 0 (identity `0`).
+    ///
+    /// Folded into the normalization affine `b` term when `blackPointEnabled`.
+    /// Derived statistically (`mean + blackPointSigmaK·σ`) from a dark field.
+    public var blackPointR: Double
+    public var blackPointG: Double
+    public var blackPointB: Double
+    public var blackPointEnabled: Bool
+
+    /// Per-channel white-balance chroma residual gain (identity `1`).
+    ///
+    /// Brightness-preserving cast neutralization applied on top of the locked
+    /// hardware gains; gated to manual WB mode (identity in auto — enforced by
+    /// `CameraEngine`, so the stored value is always "effective"). Folded into
+    /// the affine `a` term when `wbChromaEnabled`.
+    public var wbChromaR: Double
+    public var wbChromaG: Double
+    public var wbChromaB: Double
+    public var wbChromaEnabled: Bool
+
+    /// Scalar white-point level lifting the neutralized white reference to the
+    /// configured target `Constants.whitePointTargetDisplay` (identity `1`).
+    ///
+    /// Separate, optional, off by default (phase-contrast grey must not be
+    /// stretched). Only valid alongside `wbChroma`; folded into the affine `a`.
+    public var whitePointLevel: Double
+    public var whitePointEnabled: Bool
 
     public init(
         brightness: Double = 0.0,
         contrast: Double = 0.0,
         saturation: Double = 0.0,
-        blackR: Double = 0.0,
-        blackG: Double = 0.0,
-        blackB: Double = 0.0,
-        gamma: Double = 1.0
+        gamma: Double = 1.0,
+        blackPointR: Double = 0.0,
+        blackPointG: Double = 0.0,
+        blackPointB: Double = 0.0,
+        blackPointEnabled: Bool = false,
+        wbChromaR: Double = 1.0,
+        wbChromaG: Double = 1.0,
+        wbChromaB: Double = 1.0,
+        wbChromaEnabled: Bool = false,
+        whitePointLevel: Double = 1.0,
+        whitePointEnabled: Bool = false
     ) {
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation
-        self.blackR = blackR
-        self.blackG = blackG
-        self.blackB = blackB
         self.gamma = gamma
+        self.blackPointR = blackPointR
+        self.blackPointG = blackPointG
+        self.blackPointB = blackPointB
+        self.blackPointEnabled = blackPointEnabled
+        self.wbChromaR = wbChromaR
+        self.wbChromaG = wbChromaG
+        self.wbChromaB = wbChromaB
+        self.wbChromaEnabled = wbChromaEnabled
+        self.whitePointLevel = whitePointLevel
+        self.whitePointEnabled = whitePointEnabled
     }
 
     public static let identity = ProcessingParameters()
+
+    // MARK: - Back-compatible decoding (linear-normalization-stage)
+
+    private enum CodingKeys: String, CodingKey {
+        case brightness, contrast, saturation, gamma
+        case blackPointR, blackPointG, blackPointB, blackPointEnabled
+        case wbChromaR, wbChromaG, wbChromaB, wbChromaEnabled
+        case whitePointLevel, whitePointEnabled
+    }
+
+    /// Migration-safe decode: old `…v2` blobs predate the normalization fields,
+    /// and Swift's synthesized `Decodable` throws on missing keys.
+    ///
+    /// Decoding every field via `decodeIfPresent` with the identity default keeps
+    /// persisted brightness/contrast/saturation/gamma *values* (so settings don't
+    /// reset) while normalization fields default to identity/disabled. This does
+    /// NOT preserve the old operation order: the order is linear normalization
+    /// (WB / white point / black point) then the gamma-space grade. Legacy
+    /// `blackR/G/B` keys in old blobs are ignored (the legacy black-balance was
+    /// removed — a breaking change); the linear black point is recalibrated fresh.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ProcessingParameters.identity
+        brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? d.brightness
+        contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? d.contrast
+        saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? d.saturation
+        gamma = try c.decodeIfPresent(Double.self, forKey: .gamma) ?? d.gamma
+        blackPointR = try c.decodeIfPresent(Double.self, forKey: .blackPointR) ?? d.blackPointR
+        blackPointG = try c.decodeIfPresent(Double.self, forKey: .blackPointG) ?? d.blackPointG
+        blackPointB = try c.decodeIfPresent(Double.self, forKey: .blackPointB) ?? d.blackPointB
+        blackPointEnabled =
+            try c.decodeIfPresent(Bool.self, forKey: .blackPointEnabled) ?? d.blackPointEnabled
+        wbChromaR = try c.decodeIfPresent(Double.self, forKey: .wbChromaR) ?? d.wbChromaR
+        wbChromaG = try c.decodeIfPresent(Double.self, forKey: .wbChromaG) ?? d.wbChromaG
+        wbChromaB = try c.decodeIfPresent(Double.self, forKey: .wbChromaB) ?? d.wbChromaB
+        wbChromaEnabled =
+            try c.decodeIfPresent(Bool.self, forKey: .wbChromaEnabled) ?? d.wbChromaEnabled
+        whitePointLevel =
+            try c.decodeIfPresent(Double.self, forKey: .whitePointLevel) ?? d.whitePointLevel
+        whitePointEnabled =
+            try c.decodeIfPresent(Bool.self, forKey: .whitePointEnabled) ?? d.whitePointEnabled
+    }
 }

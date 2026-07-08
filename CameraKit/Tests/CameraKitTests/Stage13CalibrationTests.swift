@@ -8,19 +8,19 @@ import Testing
 @Suite("Stage 13 Calibration")
 struct Stage13CalibrationTests {
 
-    @Test("calibrateWhiteBalance throws .notOpen pre-open")
+    @Test("calibrateWhite throws .notOpen pre-open")
     func calibrateWBThrowsNotOpenBeforeOpen() async {
         let engine = CameraEngine(initialPhase: .active)
         await #expect(throws: EngineError.self) {
-            _ = try await engine.calibrateWhiteBalance()
+            _ = try await engine.calibrateWhite(whitePoint: true)
         }
     }
 
-    @Test("calibrateBlackBalance throws .notOpen pre-open")
-    func calibrateBBThrowsNotOpenBeforeOpen() async {
+    @Test("calibrateBlack throws .notOpen pre-open")
+    func calibrateBPThrowsNotOpenBeforeOpen() async {
         let engine = CameraEngine(initialPhase: .active)
         await #expect(throws: EngineError.self) {
-            _ = try await engine.calibrateBlackBalance()
+            _ = try await engine.calibrateBlack()
         }
     }
 

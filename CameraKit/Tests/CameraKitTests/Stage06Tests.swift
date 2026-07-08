@@ -58,7 +58,6 @@ struct Stage06Tests {
         #expect(pipeline.latestProcessedBuffer != nil, "processed lane seeded on open")
         #expect(pipeline.latestProcessedBgra8Tex != nil)
         #expect(pipeline.latestNaturalTex16F != nil, "calibration RGBA16F texture seeded")
-        #expect(pipeline.latestProcessedTex16F != nil)
 
         // The bridge buffer must be BGRA8 (the unconditional Flutter delivery format).
         let proc8 = try #require(pipeline.latestProcessedBuffer)
@@ -102,7 +101,7 @@ struct Stage06Tests {
     // MARK: - Test — 06:true-crop-output-resolution
 
     /// P2a true crop: a pipeline built with `outputSize`/`cropOrigin` emits
-    /// natural + processed textures sized to the crop region, not the sensor.
+    /// natural (16F) + graded (BGRA8) textures sized to the crop region, not the sensor.
     ///
     /// The synthetic YUV sample buffer is sensor-sized (1024×768); Pass-1 reads
     /// the (256,192)-offset 512×384 sub-region into the output textures.
@@ -118,14 +117,16 @@ struct Stage06Tests {
             gateOpen: true)
 
         // Source is sensor-sized; Pass-1 reads the offset sub-region.
+        // Arm the natural tap (opt C) so renderFrame writes the 16F natural texture.
+        pipeline.setNaturalTapArmedForTest(true)
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
-        try pipeline.encode(sampleBuffer: sb)
+        try pipeline.renderFrame(sampleBuffer: sb)
         // Mailbox stores happen in addCompletedHandler, which fires as part of
         // the transition to .completed — deterministic, no sleep.
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         let nat = try #require(pipeline.latestNaturalTex16F)
-        let proc = try #require(pipeline.latestProcessedTex16F)
+        let proc = try #require(pipeline.latestProcessedBgra8Tex)
         #expect(nat.width == 512)
         #expect(nat.height == 384)
         #expect(proc.width == 512)
@@ -142,8 +143,9 @@ struct Stage06Tests {
             device: device, captureSize: sensor, gateOpen: true)
         #expect(pipeline.outputSize == sensor)
 
+        pipeline.setNaturalTapArmedForTest(true)  // opt C: make renderFrame write natural
         let sb = try makeSyntheticYUVSampleBuffer(width: sensor.width, height: sensor.height)
-        try pipeline.encode(sampleBuffer: sb)
+        try pipeline.renderFrame(sampleBuffer: sb)
         pipeline.lastCommandBuffer?.waitUntilCompleted()
 
         let nat = try #require(pipeline.latestNaturalTex16F)
@@ -223,7 +225,6 @@ struct ConfigurableTrackerSizeTests {
         let expectedResolution = Size(width: expectedW, height: 480)
         let caps = SessionCapabilities(
             supportedSizes: [size],
-            previewTextureId: 0,
             activeCaptureResolution: size,
             activeCropRegion: Rect(x: 0, y: 0, width: size.width, height: size.height),
             streamPixelFormat: Constants.streamPixelFormatString,

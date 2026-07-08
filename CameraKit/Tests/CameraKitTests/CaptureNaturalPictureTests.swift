@@ -5,11 +5,12 @@ import Testing
 import UniformTypeIdentifiers
 
 @testable import CameraKit
+@testable import FrameTransport
 
 /// Unit-level coverage for the `captureNaturalPicture` encode + EXIF path.
 ///
 /// The engine-level wiring (`CameraEngine.captureNaturalPicture`) is a thin
-/// orchestrator over an ISP one-shot + `MetalPipeline.gradeOneShot(...)` and
+/// orchestrator over an ISP one-shot + `MetalPipeline.renderStill(...)` and
 /// `StillCapture.encode(...)` — exercised end-to-end via HITL on the iPad
 /// (`docs/measurements/capture-natural-picture/<date>/`). These tests pin the
 /// pieces the engine relies on: JPEG round-trip through the shared encode
@@ -171,3 +172,37 @@ struct CaptureNaturalPictureTests {
 
 // `makeBgra8Buffer` is defined in Stage07Tests.swift (internal — shared within
 // the test target).
+
+/// still-capture-return-buffer: engine-level device coverage for the in-memory
+/// buffer entry point and the unchanged file entry point (device only —
+/// serialized to avoid camera contention).
+@Suite("CaptureNaturalPictureBufferDeviceTests", .serialized)
+struct CaptureNaturalPictureBufferDeviceTests {
+
+    /// `captureNaturalPictureBuffer()` returns a leased BGRA8 buffer sized to the
+    /// active (uncropped) output, and writes no file.
+    @Test func bufferMethodReturnsBgra8BufferNoFile() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let caps = try await engine.open(configuration: OpenConfiguration())
+        let handle = try await engine.captureNaturalPictureBuffer()
+        // Processed-lane format, sized to the active output (default open = uncropped).
+        #expect(handle.format == .bgra8)
+        #expect(handle.width == caps.activeCaptureResolution.width)
+        #expect(handle.height == caps.activeCaptureResolution.height)
+        // Locked base address is non-null (IOSurface-backed buffer).
+        #expect(handle.bytesPerRow >= handle.width * 4)
+        await engine.close()
+    }
+
+    /// Regression: `captureNaturalPicture(...)` still encodes to a file on disk and
+    /// returns the unchanged `StillCaptureOutput` (shared helper did not alter it).
+    @Test func fileMethodStillWritesFile() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        _ = try await engine.open(configuration: OpenConfiguration())
+        let output = try await engine.captureNaturalPicture()
+        #expect(!output.filePath.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: output.filePath))
+        try? FileManager.default.removeItem(atPath: output.filePath)
+        await engine.close()
+    }
+}

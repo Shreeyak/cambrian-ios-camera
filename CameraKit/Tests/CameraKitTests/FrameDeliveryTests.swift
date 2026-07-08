@@ -122,7 +122,7 @@ struct FrameDeliveryTests {
         #expect(registry.hasSubscriber(.tracker) == false)
 
         let sb = try makeSyntheticYUV(width: size.width, height: size.height)
-        try pipeline.encode(sampleBuffer: sb)
+        try pipeline.renderFrame(sampleBuffer: sb)
 
         // Awaiting the primary frame guarantees the completion handler ran — that
         // is also where a tracker buffer would have been produced/stored.
@@ -160,4 +160,57 @@ private func makeSyntheticYUV(width: Int, height: Int) throws -> CMSampleBuffer 
         formatDescription: formatDescription, sampleTiming: &timing, sampleBufferOut: &sb)
     guard let sampleBuffer = sb else { throw YUVError.failed }
     return sampleBuffer
+}
+
+/// configurable-tracker-size §4.2/§4.3: real-open device coverage that the tracker
+/// lane is delivered at the requested size — downscaled for a small `trackerHeight`,
+/// full-res via the 1:1 blit when `trackerHeight == primaryHeight`. Serialized to
+/// avoid camera contention. The tracker texture is produced only while a `.tracker`
+/// subscriber exists (frame-delivery: tracker-absent-when-unsubscribed), so each
+/// test holds a subscription.
+@Suite("ConfigurableTrackerSizeDeviceTests", .serialized)
+struct ConfigurableTrackerSizeDeviceTests {
+
+    /// Poll the live tracker texture (produced a frame or two after subscribing).
+    private func awaitTrackerTexture(_ engine: CameraEngine, tries: Int = 40) async -> (any MTLTexture)? {
+        for _ in 0..<tries {
+            if let t = engine.currentTrackerTexture() { return t }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return nil
+    }
+
+    /// §4.2 — a `trackerHeight` smaller than primary delivers a downscaled tracker
+    /// matching `SessionCapabilities.trackerResolution`.
+    @Test func smallTrackerHeightDownscales() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let caps = try await engine.open(configuration: OpenConfiguration(trackerHeight: 256))
+        let stream = await engine.consumers.subscribe(stream: .tracker, buffering: .latestWins)
+        _ = stream  // hold the subscription so the pipeline produces the tracker texture
+        #expect(caps.trackerResolution.height == 256)
+        #expect(caps.trackerResolution.height < caps.activeCaptureResolution.height)
+        let tex = await awaitTrackerTexture(engine)
+        #expect(tex != nil)
+        #expect(tex?.width == caps.trackerResolution.width)
+        #expect(tex?.height == caps.trackerResolution.height)
+        await engine.close()
+    }
+
+    /// §4.3 — `trackerHeight == primaryHeight` selects the no-resample 1:1 blit;
+    /// `trackerResolution` equals the primary resolution and the tracker is full-res.
+    @Test func trackerHeightEqualsPrimaryIsFullRes() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        let probe = try await engine.open(configuration: OpenConfiguration())
+        let primary = probe.activeCaptureResolution
+        await engine.close()
+        let caps = try await engine.open(
+            configuration: OpenConfiguration(trackerHeight: primary.height))
+        let stream = await engine.consumers.subscribe(stream: .tracker, buffering: .latestWins)
+        _ = stream
+        #expect(caps.trackerResolution == primary)
+        let tex = await awaitTrackerTexture(engine)
+        #expect(tex?.width == primary.width)
+        #expect(tex?.height == primary.height)
+        await engine.close()
+    }
 }

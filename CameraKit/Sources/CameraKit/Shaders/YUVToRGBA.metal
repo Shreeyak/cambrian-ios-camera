@@ -18,6 +18,8 @@ struct CropUniform {
     uint originY;
     uint width;
     uint height;
+    uint mirrorX;  // 1 = mirror the sampled sub-region left<->right; 0 = no flip (KEEP IN SYNC: ColorShaders.metal + Swift CropUniform)
+    uint mirrorY;  // 1 = flip top<->bottom (natural-still 180deg ISP compensation); 0 = no flip
 };
 
 kernel void yuvToRgba(texture2d<float, access::read>  yTex    [[texture(0)]],
@@ -33,7 +35,12 @@ kernel void yuvToRgba(texture2d<float, access::read>  yTex    [[texture(0)]],
     }
 
     // Map the output pixel to its source pixel in the full capture-resolution frame.
-    uint2 src = uint2(gid.x + crop.originX, gid.y + crop.originY);
+    // Horizontal (mirrorX) + vertical (mirrorY) flips — kept in sync with
+    // ColorShaders.metal's fused kernel so the separate-core test seam stays
+    // equivalent under any flip.
+    uint localX = (crop.mirrorX != 0u) ? (crop.width  - 1u - gid.x) : gid.x;
+    uint localY = (crop.mirrorY != 0u) ? (crop.height - 1u - gid.y) : gid.y;
+    uint2 src = uint2(localX + crop.originX, localY + crop.originY);
 
     // Sample luma — full-range: Y already in [0, 1].
     float Y = yTex.read(src).r;

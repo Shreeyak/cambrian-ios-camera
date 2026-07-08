@@ -475,6 +475,32 @@ underlying issue and ask again — do not `--amend` around it.
 
 ## 8. Load-bearing invariants
 
+- **Debugging: when reasoning keeps losing to observation, stop deriving and
+  measure — through an independent, non-tautological path.** If your reading of
+  the code (or your model of how it "must" behave) repeatedly concludes "this is
+  correct," yet an observation — a user's report, a screenshot, a test, a logged
+  runtime value — keeps contradicting it, the repeated contradiction is *itself*
+  the signal: the fault lives in something the static read cannot see (an
+  undocumented framework/API convention, a runtime value that differs from the
+  source, a coordinate-system / unit / orientation mismatch, a layer you haven't
+  instrumented). Re-deriving the same conclusion a third time will not find it.
+  Two corollaries:
+  - **Reject tautological evidence.** A log/assert/check that re-emits the same
+    formula you're trying to verify proves nothing (e.g. logging `center =
+    width/2` to "confirm" something sits at `width/2`; two values that both
+    reduce to the same expression "matching" each other). Confirm through a
+    *different* path — a separate code path, a real on-device/runtime
+    measurement, or an independent ground-truth marker — not the expression under
+    test.
+  - **Bisect with an independent third reference.** When two things that "should
+    match" don't, and you can't tell which is wrong, introduce a third reference
+    computed by a wholly independent mechanism and compare all three. That
+    collapses an irreconcilable contradiction into one concrete, fixable site.
+  After observation contradicts reasoning twice, switch from arguing to
+  instrumenting — it is almost always faster than the next re-derivation, and it
+  is the only thing that finds bugs that hide *below* the source (framework
+  internals, GPU/driver conventions, the runtime environment).
+
 - **Tests use a host app, not tool-hosted; single-membership Xcode-only.**
   iOS forbids tool-hosted tests on physical-device destinations (`xcodebuild
   test` errors with `Tool-hosted testing is unavailable on device

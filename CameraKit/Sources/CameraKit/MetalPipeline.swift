@@ -14,19 +14,71 @@ struct ColorUniform: Hashable {
     var brightness: Float
     var contrast: Float
     var saturation: Float
-    var blackR: Float
-    var blackG: Float
-    var blackB: Float
     var gamma: Float
+    // linear-normalization-stage: fused per-channel affine (linear light), applied
+    // pre-grade. Field order MUST match struct ColorUniform in ColorShaders.metal
+    // exactly — setBytes copies `MemoryLayout<ColorUniform>.stride` bytes verbatim.
+    var aR: Float
+    var aG: Float
+    var aB: Float
+    var bR: Float
+    var bG: Float
+    var bB: Float
+    var transferFn: UInt32
+    /// Master gate for the linear-light normalization block.
+    ///
+    /// 0 ⇒ skip linearize→affine→re-encode entirely (off-path stays byte-identical
+    /// to the legacy grade — the half-float sRGB round-trip is NOT bit-exact, and
+    /// BT.601 can emit out-of-gamut values a clamp would alter). 1 ⇒ apply. Set iff
+    /// any normalization toggle is on.
+    var normalizeEnabled: UInt32
 
     init(_ p: ProcessingParameters) {
         brightness = Float(p.brightness)
         contrast = Float(p.contrast)
         saturation = Float(p.saturation)
-        blackR = Float(p.blackR)
-        blackG = Float(p.blackG)
-        blackB = Float(p.blackB)
         gamma = Float(p.gamma)
+        // linear-normalization-stage §2.2 — fuse the per-channel normalization into
+        // ONE affine evaluated in LINEAR light (the shader undoes gamma first):
+        //
+        //   normalized = gain · (x − blackPoint)   ⇒   out = a·x + b
+        //     a = gain = wbChroma · whitePointLevel   (per channel; level is scalar)
+        //     b = −a · blackPoint                     (black subtracted FIRST, then gain)
+        //
+        // Each contributing op is gated by its own toggle (identity value when off):
+        // blackPoint → 0, wbChroma → 1, whitePointLevel → 1. All quantities are in
+        // LINEAR light. WB-mode gating (chroma identity in auto WB) is applied
+        // upstream by CameraEngine, so the stored coefficients are already effective.
+        let bpR = p.blackPointEnabled ? p.blackPointR : 0.0
+        let bpG = p.blackPointEnabled ? p.blackPointG : 0.0
+        let bpB = p.blackPointEnabled ? p.blackPointB : 0.0
+        let chromaR = p.wbChromaEnabled ? p.wbChromaR : 1.0
+        let chromaG = p.wbChromaEnabled ? p.wbChromaG : 1.0
+        let chromaB = p.wbChromaEnabled ? p.wbChromaB : 1.0
+        // White point is a level on top of chroma — "level without chroma" is not a
+        // valid state (design D4). Gate it by chroma here too, so even a hand-built
+        // ProcessingParameters with whitePointEnabled but wbChromaEnabled == false
+        // contributes identity instead of stretching an un-neutralized reference.
+        let level = (p.whitePointEnabled && p.wbChromaEnabled) ? p.whitePointLevel : 1.0
+        let gainR = chromaR * level
+        let gainG = chromaG * level
+        let gainB = chromaB * level
+        aR = Float(gainR)
+        aG = Float(gainG)
+        aB = Float(gainB)
+        bR = Float(-gainR * bpR)
+        bG = Float(-gainG * bpG)
+        bB = Float(-gainB * bpB)
+        // sRGB only for now; the per-frame buffer-attachment transfer-function read
+        // (kCVImageBufferTransferFunctionKey) lands with §2.1's Swift side.
+        transferFn = 0
+        // Gate: run the normalization block only when an op is actually active, so
+        // the off-path stays byte-identical to the legacy grade (§2.3). White point
+        // is intentionally NOT a trigger on its own — it's inert without chroma
+        // (gated above), so an orphan whitePointEnabled must not switch on the linear
+        // round-trip and break the byte-identical off-path guarantee.
+        normalizeEnabled =
+            (p.blackPointEnabled || p.wbChromaEnabled) ? 1 : 0
     }
 
     static let identity = ColorUniform(.identity)
@@ -39,6 +91,38 @@ struct CropUniform: Hashable {
     var originY: UInt32
     var width: UInt32
     var height: UInt32
+    /// `1` = mirror the sampled sub-region horizontally (left↔right) inside the
+    /// fused kernel; `0` = no flip.
+    ///
+    /// Single owner of the "what you see is what you get" horizontal mirror:
+    /// applied once in `yuvGradedFused`, so EVERY consumer inherits the exact same
+    /// flip — preview, tracker, NV12 recording, `captureImage`, and the natural
+    /// still via `renderStill`. Replaces the AVFoundation connection's
+    /// `isVideoMirrored`, which only flipped the video-data-output buffers and
+    /// never reached the photo path (`capturePhoto`), so the natural still used to
+    /// come out un-mirrored relative to the preview (see `CameraSession`).
+    var mirrorX: UInt32
+    /// `1` = mirror the sampled sub-region VERTICALLY (top↔bottom); `0` = no flip.
+    ///
+    /// Used only by the natural still path. `AVCapturePhoto.pixelBuffer` (the ISP
+    /// one-shot) arrives 180°-rotated from the AVCaptureVideoDataOutput buffer on
+    /// this device, so `renderStill` compensates with a vertical flip
+    /// (`mirrorX=0, mirrorY=1`) which — composed with that 180° source rotation —
+    /// lands the still in the SAME WYSIWYG orientation as the horizontally-mirrored
+    /// video/preview path (`mirrorX=1, mirrorY=0`).
+    var mirrorY: UInt32
+
+    init(
+        originX: UInt32, originY: UInt32, width: UInt32, height: UInt32,
+        mirrorX: UInt32 = 0, mirrorY: UInt32 = 0
+    ) {
+        self.originX = originX
+        self.originY = originY
+        self.width = width
+        self.height = height
+        self.mirrorX = mirrorX
+        self.mirrorY = mirrorY
+    }
 
     static func full(width: Int, height: Int) -> CropUniform {
         CropUniform(originX: 0, originY: 0, width: UInt32(width), height: UInt32(height))
@@ -91,6 +175,8 @@ final class MetalPipeline: @unchecked Sendable {
     private let eightBitNaturalPool: CVPixelBufferPool
     private let eightBitProcessedPool: CVPixelBufferPool
     private let rgba16fToBgra8PSO: MTLComputePipelineState
+    /// Extracts a small centered region from a lane texture (black-point readback).
+    private let extractCenterRegionPSO: MTLComputePipelineState
 
     private(set) var captureSize: Size
 
@@ -121,14 +207,15 @@ final class MetalPipeline: @unchecked Sendable {
     /// Internal RGBA16F "latest" textures — Metal-compute intermediates, NOT a
     /// delivery surface.
     ///
-    /// `_latestNaturalTex16F` is the Pass-1 output sampled by WB/BB calibration
-    /// (`dispatchCenterPatchOnNatural` / `dispatchBBCalibrationSample`);
-    /// `_latestProcessedTex16F` is the Pass-2 graded output sampled by the
-    /// diagnostic center-patch (`dispatchCenterPatch` / `sampleCenterPatch`).
-    /// They stay 16F because the math wants float headroom — the camera is
-    /// 8-bit-locked, so this precision only buys anything in-shader, never at
-    /// the delivery boundary. The preview/bridge surfaces are the BGRA8
-    /// mailboxes below.
+    /// `_latestNaturalTex16F` is the Pass-1 output sampled by WB / black-point
+    /// calibration (`dispatchCenterPatchOnNatural` / `readbackNaturalCenterRegion`).
+    /// It stays 16F because the calibration math wants float headroom near black —
+    /// the camera is 8-bit-locked, so this precision only buys anything in-shader,
+    /// never at the delivery boundary. The preview/bridge surfaces are the BGRA8
+    /// mailboxes below. `_latestProcessedTex16F` is production-unused after
+    /// optimization B (the graded surface is BGRA8) — it survives only as the
+    /// target the Stage-04 grade golden tests install via `setLatestProcessedForTest`
+    /// and read back through `encodeGradeOnly`.
     ///
     /// Single writer on the AVF delivery queue (`addCompletedHandler`
     /// callback); readers on MainActor / sessionQueue. See `Mailbox<T>` for the
@@ -169,14 +256,6 @@ final class MetalPipeline: @unchecked Sendable {
     var latestProcessedBuffer: CVPixelBuffer? { _latestProcessedBuffer.latest }
     var latestTrackerBuffer: CVPixelBuffer? { _latestTrackerBuffer.latest }
 
-    /// Retains the pre-first-frame fallback scratch buffer for the processed lane.
-    ///
-    /// Keeps the returned blank texture valid through the caller's GPU dispatch
-    /// (CoreVideo retain contract). Separate from `_latestProcessedBuffer`: the
-    /// scratch is RGBA16F, not a BGRA8 delivery surface, and must never reach
-    /// `currentPixelBuffer(stream:)`.
-    private let _processedFallbackScratch = Mailbox<CVPixelBuffer>()
-
     /// PTS (in nanoseconds) of the most recent CMSampleBuffer encoded into `latestNaturalTex16F`.
     ///
     /// Read by `CameraEngine.awaitNaturalAfter` to confirm the natural texture
@@ -203,6 +282,25 @@ final class MetalPipeline: @unchecked Sendable {
     /// Delivery-queue only.
     private var frameNumber: UInt64 = 0
 
+    // MARK: - linear-normalization-stage §7.1 — GPU-time profiler (temporary)
+    //
+    // Establishes the pre-fusion baseline (task 7.1) before any kernel fusion
+    // (7.2). The whole pipeline shares ONE command buffer, so `gpuEndTime −
+    // gpuStartTime` read in the completion handler is the total GPU wall-time for
+    // the entire pointwise chain (decode → grade → pack) PLUS tracker (MPS) and
+    // NV12 — i.e. the headroom-vs-budget number, measured through the GPU's own
+    // timestamps. Deliberately NOT split into per-pass command buffers: that would
+    // inject the very flushes/barriers fusion removes and rig the baseline toward
+    // fusing (CLAUDE.md §8, tautological-evidence trap). Windowed average + max are
+    // logged every `gpuProfileWindow` frames via `CameraKitLog` (.public) for the
+    // `ipad-logs` skill. Flip `gpuProfilingEnabled` to true to capture; left off in
+    // committed code. Remove (or keep flag-off) once §7.2/§7.3 land.
+    private static let gpuProfilingEnabled = false
+    private static let gpuProfileWindow = 120  // ~4 s at 30 fps
+    private let gpuProfileSumMicros = ManagedAtomic<Int64>(0)
+    private let gpuProfileMaxMicros = ManagedAtomic<Int64>(0)
+    private let gpuProfileCount = ManagedAtomic<Int64>(0)
+
     /// Consumer registry handed in from CameraEngine.
     let consumers: ConsumerRegistry
 
@@ -215,6 +313,29 @@ final class MetalPipeline: @unchecked Sendable {
     // MARK: - Shared properties
 
     private let commandQueue: MTLCommandQueue
+    // Fused decode→grade→pack PSOs (kernel-fusion): the production frame core. Four
+    // build-time variants of `yuvGradedFused` over the (kWriteNatural × kWritePacked)
+    // function constants, indexed by `fusedPSOIndex(natural:packed:)`. Steady state
+    // uses natural=false,packed=true (graded surface only); a frame with no graded
+    // consumer drops packed; an armed calibration turns natural on (opt C).
+    private let fusedPSOs: [MTLComputePipelineState]
+
+    /// Variant index into `fusedPSOs`: bit1 = writeNatural, bit0 = writePacked.
+    private static func fusedPSOIndex(natural: Bool, packed: Bool) -> Int {
+        (natural ? 2 : 0) | (packed ? 1 : 0)
+    }
+
+    /// Armed only while a calibration samples the natural tap (opt C).
+    ///
+    /// When false, `renderFrame` skips the natural pool dequeue + write + mailbox/PTS
+    /// store, so the steady-state frame writes just the BGRA8 graded surface. Set from
+    /// the actor (calibrate*); read on the `delivery` queue — hence a `ManagedAtomic`.
+    let naturalTapArmed = ManagedAtomic<Bool>(false)
+    // Pre-fusion single-purpose PSOs. `yuvToRgba` (decode) and `rgba16fToBgra8`
+    // (pack) are NO LONGER on the production path (folded into yuvGradedFused); they
+    // — and `colorTransform` (grade) — are retained ONLY as the reference passes for
+    // the fused-vs-separate equivalence test (`encodeSeparateCoreForTest`) and the
+    // `encodeGradeOnly` grade golden tests. Do not add production callers.
     private let yuvToRgbaPSO: MTLComputePipelineState
     private let colorTransformPSO: MTLComputePipelineState
     private let centerPatchPSO: MTLComputePipelineState
@@ -262,7 +383,7 @@ final class MetalPipeline: @unchecked Sendable {
     ///
     /// Allocated once in init().
     private let encoderPool: CVPixelBufferPool
-    // Compute PSO for the rgba16fToNV12 kernel (Stage 10 / Task 7 shader).
+    // Compute PSO for the gradedToNV12 kernel (Stage 10 / Task 7 shader; sources BGRA8).
     private let nv12EncodePSO: MTLComputePipelineState
     /// Engine sets this to true at startRecording(), false at stopRecording()/pause().
     ///
@@ -373,6 +494,39 @@ final class MetalPipeline: @unchecked Sendable {
             throw MetalError.pipelineStateCompilation(error.localizedDescription)
         }
 
+        // 4b'. Fused decode→grade→pack — the production frame core. One kernel source
+        //      (`yuvGradedFused`) compiled into FOUR PSOs over the (kWriteNatural ×
+        //      kWritePacked) function constants (index 0 = natural, 1 = packed).
+        //      Ordered so `fusedPSOIndex(natural:packed:)` selects them directly.
+        func makeFusedPSO(writeNatural: Bool, writePacked: Bool) throws -> MTLComputePipelineState {
+            let constants = MTLFunctionConstantValues()
+            var n = writeNatural
+            var p = writePacked
+            constants.setConstantValue(&n, type: .bool, index: 0)
+            constants.setConstantValue(&p, type: .bool, index: 1)
+            let fn: MTLFunction
+            do {
+                fn = try library.makeFunction(name: "yuvGradedFused", constantValues: constants)
+            } catch {
+                throw MetalError.pipelineStateCompilation(
+                    "yuvGradedFused specialization failed: \(error.localizedDescription)")
+            }
+            return try device.makeComputePipelineState(function: fn)
+        }
+        do {
+            var psos: [MTLComputePipelineState] = []
+            for natural in [false, true] {
+                for packed in [false, true] {
+                    psos.append(try makeFusedPSO(writeNatural: natural, writePacked: packed))
+                }
+            }
+            fusedPSOs = psos  // index = natural*2 + packed, matching fusedPSOIndex
+        } catch let e as MetalError {
+            throw e
+        } catch {
+            throw MetalError.pipelineStateCompilation(error.localizedDescription)
+        }
+
         // 4c. Center-patch sampler.
         guard let patchFunction = library.makeFunction(name: "centerPatchHistogram") else {
             throw MetalError.pipelineStateCompilation("centerPatchHistogram not found")
@@ -408,7 +562,11 @@ final class MetalPipeline: @unchecked Sendable {
                     originX: UInt32(cropOrigin.x),
                     originY: UInt32(cropOrigin.y),
                     width: UInt32(resolvedOutputSize.width),
-                    height: UInt32(resolvedOutputSize.height)
+                    height: UInt32(resolvedOutputSize.height),
+                    // Own the horizontal mirror in Metal (see `CropUniform.mirrorX`):
+                    // every lane + both still paths inherit this single flip, so
+                    // preview == recording == captureImage == captureNaturalPicture.
+                    mirrorX: 1
                 )
             ))
 
@@ -435,12 +593,16 @@ final class MetalPipeline: @unchecked Sendable {
             throw MetalError.pipelineStateCompilation("rgba16fToBgra8 missing")
         }
         self.rgba16fToBgra8PSO = try device.makeComputePipelineState(function: fnConvert)
+        guard let fnExtract = library.makeFunction(name: "extractCenterRegion") else {
+            throw MetalError.pipelineStateCompilation("extractCenterRegion missing")
+        }
+        self.extractCenterRegionPSO = try device.makeComputePipelineState(function: fnExtract)
 
-        // 9. Stage 10: encoder NV12 pool + rgba16fToNV12 PSO (Pass 5).
+        // 9. Stage 10: encoder NV12 pool + gradedToNV12 PSO (Pass 5).
         //    P2a — Pass-5 encodes processedTexI (outputSize); NV12 pool follows.
         encoderPool = try texturePool.makeEncoderNV12Pool(size: resolvedOutputSize)
-        guard let fnEncode = library.makeFunction(name: "rgba16fToNV12") else {
-            throw MetalError.pipelineStateCompilation("rgba16fToNV12 missing")
+        guard let fnEncode = library.makeFunction(name: "gradedToNV12") else {
+            throw MetalError.pipelineStateCompilation("gradedToNV12 missing")
         }
         nv12EncodePSO = try device.makeComputePipelineState(function: fnEncode)
 
@@ -454,7 +616,64 @@ final class MetalPipeline: @unchecked Sendable {
     ///
     /// Must be called on the `delivery` DispatchQueue (ADR-02).
     /// Frames that cannot be processed are silently dropped.
-    func encode(sampleBuffer: CMSampleBuffer) throws {
+    /// Shared graded core — encodes `decode → grade → pack` into `commandBuffer`
+    /// as ONE fused dispatch (`yuvGradedFused`), producing its outputs from
+    /// registers after a single YUV read.
+    ///
+    /// Two outputs (the 16F `processed` texture was retired — optimization B; every
+    /// graded consumer now reads the BGRA8 `packed` surface):
+    /// - **natural** (RGBA16F): YUV→RGB + crop. The calibration tap only.
+    /// - **packed** (BGRA8): the graded frame (`gradePixel` — the single insertion
+    ///   point for the linear-light normalization, §2). The one graded surface:
+    ///   tracker source, delivery mailbox, and NV12 recorder all read it. Written
+    ///   only when `packed` is non-nil (NoPack PSO variant otherwise) — the streaming
+    ///   path passes nil with no .tracker subscriber / on pool exhaustion; the still
+    ///   path always supplies a target.
+    ///
+    /// Called by both `renderFrame` (streaming) and `renderStill` (one-shot) so
+    /// the grade — and the normalization folded into it — lives in exactly one
+    /// place. Encodes into the caller's command buffer; the caller owns pool
+    /// dequeue, commit, and any post-core passes (tracker / NV12 / completion).
+    private func encodeGradedCore(
+        into commandBuffer: MTLCommandBuffer,
+        y yTexture: MTLTexture,
+        cbcr cbcrTexture: MTLTexture,
+        natural naturalTex: MTLTexture?,
+        packed packedTex: MTLTexture?,
+        color colorSnapshot: ColorUniform,
+        crop cropSnapshot: CropUniform,
+        threadGroups: MTLSize,
+        threadGroupSize: MTLSize
+    ) {
+        // Fused decode → grade (+ normalization) → pack in ONE dispatch. Reads the
+        // YUV planes once and produces — when their targets are supplied — natural
+        // (16F, armed calibration only) and packed (BGRA8, the graded surface), from
+        // registers. This eliminates the two full-frame RGBA16F re-reads the old
+        // three-encoder path paid. Kernel math + precision note in ColorShaders.metal.
+        //
+        // Variant select: one of four `yuvGradedFused` PSOs by which outputs are
+        // present. An unbound output's write is dropped at compile time (function
+        // constant). Steady state = natural nil + packed present.
+        let core = commandBuffer.makeComputeCommandEncoder()!
+        core.setComputePipelineState(
+            fusedPSOs[Self.fusedPSOIndex(natural: naturalTex != nil, packed: packedTex != nil)])
+        core.setTexture(yTexture, index: 0)
+        core.setTexture(cbcrTexture, index: 1)
+        if let naturalTex {
+            core.setTexture(naturalTex, index: 2)
+        }
+        if let packedTex {
+            core.setTexture(packedTex, index: 3)
+        }
+        var cropLocal = cropSnapshot  // setBytes needs a mutable address
+        core.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
+        var colorLocal = colorSnapshot
+        core.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 1)
+        core.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        core.endEncoding()
+    }
+
+    func renderFrame(sampleBuffer: CMSampleBuffer) throws {
         // 1. Unwrap the pixel buffer; drop frame if unavailable.
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
@@ -470,17 +689,16 @@ final class MetalPipeline: @unchecked Sendable {
             return  // drop frame on texture-wrap failure
         }
 
-        // 3. Dequeue per-frame pool buffers.
-        let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)
-        let processedPair: (buffer: CVPixelBuffer, texture: MTLTexture)
-        do {
-            naturalPair = try texturePool.dequeuePoolTexture(
+        // 3. Dequeue per-frame pool buffers. The 16F processed pool was retired from
+        //    production (optimization B) — the graded surface is BGRA8 (`packed`). The
+        //    natural 16F tap is dequeued ONLY while a calibration is armed (opt C);
+        //    steady-state frames never touch the natural pool. A dequeue miss here just
+        //    skips the tap for this frame — calibration awaits a fresh natural anyway.
+        let naturalPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
+            naturalTapArmed.load(ordering: .acquiring)
+            ? try? texturePool.dequeuePoolTexture(
                 pool: naturalPool, width: outputSize.width, height: outputSize.height)
-            processedPair = try texturePool.dequeuePoolTexture(
-                pool: processedPool, width: outputSize.width, height: outputSize.height)
-        } catch {
-            return  // pool exhausted — drop frame
-        }
+            : nil
 
         // Tracker buffer only when someone is subscribed to .tracker (no wasteful alloc).
         // Pool is BGRA8; dequeueEightBitPoolTexture wraps it as .bgra8Unorm — Pass-4's
@@ -506,58 +724,39 @@ final class MetalPipeline: @unchecked Sendable {
         // 5. Command buffer.
         let commandBuffer = commandQueue.makeCommandBuffer()!
 
-        let naturalTexI = naturalPair.texture
-        let processedTexI = processedPair.texture
+        let naturalTexI = naturalPair?.texture
 
-        // 6. Pass 1: YUV → RGBA into naturalTexI, with crop uniform.
-        let pass1 = commandBuffer.makeComputeCommandEncoder()!
-        pass1.setComputePipelineState(yuvToRgbaPSO)
-        pass1.setTexture(yTexture, index: 0)
-        pass1.setTexture(cbcrTexture, index: 1)
-        pass1.setTexture(naturalTexI, index: 2)
-        var cropLocal = cropSnapshot  // setBytes needs a mutable address
-        pass1.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
+        // Threadgroup config for the pointwise core passes (16×16 tiles over outputSize).
+        // Derived from outputSize (not a texture) since natural may be unbound.
         let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
         let threadGroups = MTLSize(
-            width: (naturalTexI.width + 15) / 16,
-            height: (naturalTexI.height + 15) / 16,
+            width: (outputSize.width + 15) / 16,
+            height: (outputSize.height + 15) / 16,
             depth: 1
         )
-        pass1.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-        pass1.endEncoding()
 
-        // 7. Pass 2: color transform naturalTexI → processedTexI with ColorUniform.
-        let pass2 = commandBuffer.makeComputeCommandEncoder()!
-        pass2.setComputePipelineState(colorTransformPSO)
-        pass2.setTexture(naturalTexI, index: 0)
-        pass2.setTexture(processedTexI, index: 1)
-        var colorLocal = colorSnapshot
-        pass2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
-        pass2.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-        pass2.endEncoding()
-
-        // Pass 7p: RGBA16F → BGRA8 conversion for the processed lane-buffer mailbox.
-        // Runs before Pass-4 (tracker) so both tracker paths (Lanczos and blit) can
-        // source from this BGRA8 texture (bgra8→bgra8 — sidesteps any rgba16f→bgra8
-        // MPS format-compat concern and unifies both paths on one source).
-        //
-        // remove-natural-lane: the per-frame natural Pass-7n conversion was cut — the
-        // streaming natural lane is gone. The internal 16F natural texture (Pass-1
+        // Dequeue the BGRA8 "pack" target for the processed lane-buffer mailbox.
+        // On the rare miss (genuine alloc/wrap failure) the processed frame is
+        // dropped — NOT delivered as 16F (see the no-fallback note below). The pack
+        // runs (inside the core) before Pass-4
+        // (tracker) so both tracker paths (Lanczos and blit) can source the BGRA8
+        // result (bgra8→bgra8, sidestepping any rgba16f→bgra8 MPS format-compat
+        // concern). remove-natural-lane: the per-frame natural pack was cut — the
+        // streaming natural lane is gone. The internal 16F natural texture (decode
         // output, `_latestNaturalTex16F`) is preserved for calibration; the natural
-        // *still* (`captureNaturalPicture`) converts on demand via `gradeOneShot`.
-        var processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)?
-        if let pair = try? texturePool.dequeueEightBitPoolTexture(
-            pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height
-        ) {
-            let pass7p = commandBuffer.makeComputeCommandEncoder()!
-            pass7p.setComputePipelineState(rgba16fToBgra8PSO)
-            pass7p.setTexture(processedTexI, index: 0)
-            pass7p.setTexture(pair.texture, index: 1)
-            pass7p.dispatchThreadgroups(
-                threadGroups, threadsPerThreadgroup: threadGroupSize)
-            pass7p.endEncoding()
-            processedEightBitPair = pair
-        }
+        // *still* (`captureNaturalPicture`) converts on demand via `renderStill`.
+        let processedEightBitPair: (buffer: CVPixelBuffer, texture: MTLTexture)? =
+            try? texturePool.dequeueEightBitPoolTexture(
+                pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height)
+
+        // 6–7. Shared graded core: decode → grade (+ normalization) → pack (BGRA8).
+        encodeGradedCore(
+            into: commandBuffer,
+            y: yTexture, cbcr: cbcrTexture,
+            natural: naturalTexI,
+            packed: processedEightBitPair?.texture,
+            color: colorSnapshot, crop: cropSnapshot,
+            threadGroups: threadGroups, threadGroupSize: threadGroupSize)
 
         // 8. Pass 4: tracker resample — when subscribed and BGRA8 processed is available.
         //    Sources the GRADED (Pass-2) image via the BGRA8 processed texture produced
@@ -594,11 +793,14 @@ final class MetalPipeline: @unchecked Sendable {
         // Pool exhaustion drops this frame from the recorder; preview is unaffected
         // (domain 06 Recording-Sink Back-Pressure).
         var encoderPairForCompletion: (buffer: CVPixelBuffer, yTex: MTLTexture, cbcrTex: MTLTexture)?
-        if isRecording.load(ordering: .acquiring) {
+        // NV12 sources the BGRA8 graded surface (`packed`) — optimization B retired the
+        // 16F processed texture. If the pack buffer was dropped this frame (rare
+        // alloc/wrap failure), skip the recorder for this frame (preview unaffected).
+        if isRecording.load(ordering: .acquiring), let gradedTex = processedEightBitPair?.texture {
             if let enc = try? texturePool.dequeueEncoderBuffer(pool: encoderPool) {
                 let pass5 = commandBuffer.makeComputeCommandEncoder()!
                 pass5.setComputePipelineState(nv12EncodePSO)
-                pass5.setTexture(processedTexI, index: 0)
+                pass5.setTexture(gradedTex, index: 0)
                 pass5.setTexture(enc.yTex, index: 1)
                 pass5.setTexture(enc.cbcrTex, index: 2)
                 let cbcrW = enc.cbcrTex.width
@@ -628,7 +830,7 @@ final class MetalPipeline: @unchecked Sendable {
         // is not Sendable; capture derived values (CMTime, metadata snapshot) instead.
         let captureTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let fn = frameNumber
-        let processedBuf = processedPair.buffer
+        let naturalBufForCompletion = naturalPair?.buffer  // opt C: retain the armed tap buffer
         let trackerBuf = trackerPair?.buffer
         let trackerTex = trackerPair?.texture
         let consumers = self.consumers
@@ -641,11 +843,13 @@ final class MetalPipeline: @unchecked Sendable {
         let processedEightBitBuf: CVPixelBuffer? = processedEightBitPair?.buffer
         let processedEightBitTex: MTLTexture? = processedEightBitPair?.texture
 
-        // Per-lane delivery is BGRA8. The `?? <16F>` fallback only fires if a
-        // Pass-7 dequeue was dropped on pool exhaustion (rare). The tracker is
-        // genuinely absent when unsubscribed (trackerBuf == nil) — NO fallback
-        // to the full-res processed buffer (frame-delivery-rework §4.2).
-        let processedForSet: CVPixelBuffer = processedEightBitBuf ?? processedBuf
+        // Per-lane delivery is BGRA8 ONLY. If the BGRA8 pack buffer is missing —
+        // a genuine allocation / texture-cache-wrap failure, NOT normal
+        // back-pressure (these pools have no allocation threshold, so they GROW on
+        // demand rather than block) — DROP this processed frame. The old
+        // `?? processedBuf` fallback delivered the 16F `processedBuf` tagged
+        // `.bgra8`, which a consumer would misread (8 B/px read as 4). The tracker
+        // lane has likewise never had a fallback (frame-delivery-rework §4.2).
 
         // D-10: capture the session token at commit. Handler no-ops if the token has
         // advanced (close() / recovery ran) — prevents stale FrameSet publish and
@@ -671,6 +875,37 @@ final class MetalPipeline: @unchecked Sendable {
             if let encBuf = encoderBufForCompletion, cb.status == .completed {
                 self.onEncodedBufferReady?(encBuf, captureTime)
             }
+            // §7.1 baseline profiler — total GPU wall-time of the shared command
+            // buffer (whole pointwise chain + tracker + NV12). See the property block.
+            if Self.gpuProfilingEnabled, cb.status == .completed {
+                let micros = Int64((cb.gpuEndTime - cb.gpuStartTime) * 1_000_000)
+                if micros > 0 {
+                    self.gpuProfileSumMicros.wrappingIncrement(by: micros, ordering: .relaxed)
+                    var curMax = self.gpuProfileMaxMicros.load(ordering: .relaxed)
+                    while micros > curMax {
+                        let (ok, actual) = self.gpuProfileMaxMicros.compareExchange(
+                            expected: curMax, desired: micros, ordering: .relaxed)
+                        if ok { break }
+                        curMax = actual
+                    }
+                    let n = self.gpuProfileCount.wrappingIncrementThenLoad(
+                        by: 1, ordering: .relaxed)
+                    if n % Int64(Self.gpuProfileWindow) == 0 {
+                        let sum = self.gpuProfileSumMicros.exchange(0, ordering: .relaxed)
+                        let mx = self.gpuProfileMaxMicros.exchange(0, ordering: .relaxed)
+                        let avgMs = Double(sum) / Double(Self.gpuProfileWindow) / 1000.0
+                        let maxMs = Double(mx) / 1000.0
+                        let rec = self.isRecording.load(ordering: .acquiring)
+                        CameraKitLog.notice(
+                            .metal,
+                            "[gpuprofile] avg=\(String(format: "%.2f", avgMs))ms "
+                                + "max=\(String(format: "%.2f", maxMs))ms over "
+                                + "\(Self.gpuProfileWindow) frames "
+                                + "out=\(self.outputSize.width)x\(self.outputSize.height) "
+                                + "recording=\(rec) (budget 33.3ms)")
+                    }
+                }
+            }
             // Publish per-lane Frames (nonisolated — no actor hop). Each Frame
             // carries a PixelHandle lease that locks the pool buffer until the
             // consumer releases it (the holdable lease, §4.1). Both lanes share
@@ -682,7 +917,9 @@ final class MetalPipeline: @unchecked Sendable {
             let frameMeta =
                 self.deviceSnapshot.latest.map(CameraFrameMetadata.init(snapshot:))
                 ?? CameraFrameMetadata()
-            if let primaryPixels = PixelHandle(pixelBuffer: processedForSet, format: .bgra8) {
+            if let processedEightBitBuf,
+                let primaryPixels = PixelHandle(pixelBuffer: processedEightBitBuf, format: .bgra8)
+            {
                 consumers.yield(
                     Frame(
                         lane: .primary, index: fn, timestampNs: tsNs,
@@ -698,32 +935,40 @@ final class MetalPipeline: @unchecked Sendable {
                     stream: .tracker)
             }
             // Update lane mailboxes. The processed lane delivers BGRA8: the buffer
-            // mailbox (via Pass-7p) and the BGRA8 texture mailbox (sharing the
-            // buffer's IOSurface); tracker via the fused Pass-4 pool. The natural
-            // 16F texture mailbox is kept as an internal compute intermediate for
-            // calibration/diagnostic sampling — never delivered (remove-natural-lane).
-            // `captureImage` reads the processed BGRA8 buffer mailbox;
-            // `captureNaturalPicture` converts on demand via `gradeOneShot`.
-            self._latestNaturalTex16F.store(naturalTexI)
-            if logFirstAfterGate {
-                CameraKitLog.notice(
-                    .metal, "[resume] first texture stored (t1c) — preview texture live")
+            // mailbox (via the core's pack step) and the BGRA8 texture mailbox
+            // (sharing the buffer's IOSurface); tracker via the fused Pass-4 pool.
+            // The natural 16F texture mailbox is kept as an internal compute
+            // intermediate for calibration/diagnostic sampling — never delivered
+            // (remove-natural-lane). `captureImage` reads the processed BGRA8 buffer
+            // mailbox; `captureNaturalPicture` converts on demand via `renderStill`.
+            // Natural tap (opt C): stored + PTS-advanced ONLY when it was written this
+            // frame (a calibration is armed). Retain its pool buffer here until GPU
+            // completion so the write target isn't recycled mid-render.
+            if let naturalTexI {
+                self._latestNaturalTex16F.store(naturalTexI)
+                if logFirstAfterGate {
+                    CameraKitLog.notice(
+                        .metal, "[resume] first texture stored (t1c) — preview texture live")
+                }
+                // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` /
+                // `awaitNaturalRefresh` can confirm the tap has advanced past a given
+                // timestamp. CAS loop only advances the published PTS — out-of-order
+                // command-buffer completion (rare across Metal queues) must not regress it.
+                let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
+                var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
+                while captureNs > cur {
+                    let (ok, actual) = self.latestNaturalPTSNs.compareExchange(
+                        expected: cur, desired: captureNs, ordering: .releasing)
+                    if ok { break }
+                    cur = actual
+                }
+                withExtendedLifetime(naturalBufForCompletion) {}
             }
-            // Publish the buffer PTS as nanoseconds so `awaitNaturalAfter` can
-            // confirm naturalTex has been refreshed past a given timestamp. CAS
-            // loop ensures we only advance the published PTS — out-of-order
-            // command-buffer completion (rare but possible across Metal queues)
-            // must not regress the timeline.
-            let captureNs = Int64(CMTimeGetSeconds(captureTime) * 1_000_000_000)
-            var cur = self.latestNaturalPTSNs.load(ordering: .relaxed)
-            while captureNs > cur {
-                let (ok, actual) = self.latestNaturalPTSNs.compareExchange(
-                    expected: cur, desired: captureNs, ordering: .releasing)
-                if ok { break }
-                cur = actual
-            }
-            self._latestProcessedBuffer.store(processedEightBitBuf ?? processedBuf)
-            self._latestProcessedTex16F.store(processedTexI)
+            // BGRA8 mailbox (read by `captureImage`): store only the real BGRA8
+            // buffer; on the rare miss keep the previous good frame, never a 16F one.
+            // (optimization B: the 16F processed texture is no longer produced in
+            // production — `_latestProcessedTex16F` is written only by test seams now.)
+            if let processedEightBitBuf { self._latestProcessedBuffer.store(processedEightBitBuf) }
             if let pTex = processedEightBitTex { self._latestProcessedBgra8Tex.store(pTex) }
             if let tBuf = trackerBuf, let tTex = trackerTex {
                 self._latestTrackerBuffer.store(tBuf)
@@ -749,9 +994,10 @@ final class MetalPipeline: @unchecked Sendable {
     /// graded preview. Input dims MUST equal `captureSize`; throws
     /// `MetalError.unsupportedFormat` otherwise (1:1 crop mapping).
     /// Dequeues from the same `naturalPool`/`processedPool`/`eightBitNaturalPool` as
-    /// the live `encode(sampleBuffer:)` path, so under an active capture session it
-    /// can throw on transient pool exhaustion.
-    func gradeOneShot(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
+    /// the live `renderFrame(sampleBuffer:)` path, so under an active capture session
+    /// it can throw on transient pool exhaustion. Shares the `encodeGradedCore`
+    /// decode → grade → pack with `renderFrame` (§3.0).
+    func renderStill(pixelBuffer: CVPixelBuffer) async throws -> CVPixelBuffer {
         guard CVPixelBufferGetWidth(pixelBuffer) == captureSize.width,
             CVPixelBufferGetHeight(pixelBuffer) == captureSize.height
         else {
@@ -759,14 +1005,18 @@ final class MetalPipeline: @unchecked Sendable {
         }
         let yTex = try texturePool.makeYTexture(from: pixelBuffer)
         let cbcrTex = try texturePool.makeCbCrTexture(from: pixelBuffer)
-        let nat = try texturePool.dequeuePoolTexture(
-            pool: naturalPool, width: outputSize.width, height: outputSize.height)
-        let proc = try texturePool.dequeuePoolTexture(
-            pool: processedPool, width: outputSize.width, height: outputSize.height)
         let out = try texturePool.dequeueEightBitPoolTexture(
             pool: eightBitNaturalPool, width: outputSize.width, height: outputSize.height)
 
-        let (color, crop) = uniforms.withLock { ($0.color, $0.crop) }
+        let (color, baseCrop) = uniforms.withLock { ($0.color, $0.crop) }
+        // The natural still comes from the ISP one-shot (`AVCapturePhoto.pixelBuffer`),
+        // which arrives 180°-rotated from the video-data-output buffer on this device
+        // and ignores the connection transforms. Compensate with a VERTICAL flip (not
+        // the video path's horizontal mirror): composed with the 180° source rotation
+        // this lands the still in the SAME WYSIWYG frame as the preview. See CropUniform.
+        var crop = baseCrop
+        crop.mirrorX = 0
+        crop.mirrorY = 1
         let cb = commandQueue.makeCommandBuffer()!
         let tg = MTLSize(width: 16, height: 16, depth: 1)
         let groups = MTLSize(
@@ -774,31 +1024,15 @@ final class MetalPipeline: @unchecked Sendable {
             height: (outputSize.height + 15) / 16,
             depth: 1)
 
-        let p1 = cb.makeComputeCommandEncoder()!  // Pass-1: YUV→RGB + crop
-        p1.setComputePipelineState(yuvToRgbaPSO)
-        p1.setTexture(yTex, index: 0)
-        p1.setTexture(cbcrTex, index: 1)
-        p1.setTexture(nat.texture, index: 2)
-        var cropLocal = crop
-        p1.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
-        p1.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        p1.endEncoding()
-
-        let p2 = cb.makeComputeCommandEncoder()!  // Pass-2: grade
-        p2.setComputePipelineState(colorTransformPSO)
-        p2.setTexture(nat.texture, index: 0)
-        p2.setTexture(proc.texture, index: 1)
-        var colorLocal = color
-        p2.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
-        p2.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        p2.endEncoding()
-
-        let p3 = cb.makeComputeCommandEncoder()!  // convert RGBA16F→BGRA8
-        p3.setComputePipelineState(rgba16fToBgra8PSO)
-        p3.setTexture(proc.texture, index: 0)
-        p3.setTexture(out.texture, index: 1)
-        p3.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        p3.endEncoding()
+        // Shared graded core: decode → grade (+ normalization) → pack. The still needs
+        // only the graded BGRA8 output (`out`); the natural tap is unused here (nil).
+        encodeGradedCore(
+            into: cb,
+            y: yTex, cbcr: cbcrTex,
+            natural: nil,
+            packed: out.texture,
+            color: color, crop: crop,
+            threadGroups: groups, threadGroupSize: tg)
 
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             cb.addCompletedHandler { cb in
@@ -819,29 +1053,6 @@ final class MetalPipeline: @unchecked Sendable {
     /// Safe to call from any thread (Metal contract for waitUntilScheduled).
     func drainLastBuffer() {
         lastCommandBuffer?.waitUntilScheduled()
-    }
-
-    /// Returns the latest processed texture for the right-half MTKView.
-    ///
-    /// Reads the internal `latestProcessedTex16F` `Mailbox<T>` (G-13
-    /// single-writer model) — the RGBA16F Pass-2 graded output, sampled by
-    /// `dispatchCenterPatch` / `sampleCenterPatch` (NOT the BGRA8 preview
-    /// surface). Falls back to dequeuing a blank pool buffer on the first call
-    /// before any frame arrives.
-    func currentProcessedTex() -> MTLTexture {
-        if let t = latestProcessedTex16F { return t }
-        if let pair = try? texturePool.dequeuePoolTexture(
-            pool: processedPool, width: outputSize.width, height: outputSize.height
-        ) {
-            // Pre-first-frame fallback: retain the RGBA16F scratch buffer in a
-            // dedicated slot (NOT `_latestProcessedBuffer`, which is the BGRA8
-            // delivery surface) so the returned blank texture stays valid for
-            // the caller's GPU dispatch.
-            _processedFallbackScratch.store(pair.buffer)
-            _latestProcessedTex16F.store(pair.texture)
-            return pair.texture
-        }
-        fatalError("MetalPipeline.currentProcessedTex: no preview texture available")
     }
 
     /// Pre-seed the processed preview mailboxes (and the internal 16F natural
@@ -869,11 +1080,7 @@ final class MetalPipeline: @unchecked Sendable {
         {
             _latestNaturalTex16F.store(nat.texture)
         }
-        if let proc = try? texturePool.dequeuePoolTexture(
-            pool: processedPool, width: outputSize.width, height: outputSize.height)
-        {
-            _latestProcessedTex16F.store(proc.texture)
-        }
+        // (optimization B: no 16F processed seed — the graded surface is BGRA8 below.)
         if let proc8 = try? texturePool.dequeueEightBitPoolTexture(
             pool: eightBitProcessedPool, width: outputSize.width, height: outputSize.height)
         {
@@ -963,15 +1170,6 @@ final class MetalPipeline: @unchecked Sendable {
         return RgbSample(r: Double(r), g: Double(g), b: Double(b))
     }
 
-    /// Public entry point — samples the latest **processed** texture (post Pass-2 grade).
-    ///
-    /// Used for diagnostic / metric paths. Calibration paths should prefer
-    /// `dispatchCenterPatchOnNatural()` so the sample isn't biased by the
-    /// previously-applied calibration state.
-    func dispatchCenterPatch() async throws -> RgbSample {
-        try await dispatchCenterPatch(on: currentProcessedTex())
-    }
-
     /// WB calibration entry point — samples the latest **natural** texture (Pass-1 output).
     ///
     /// `naturalTex` carries the deterministic BT.601 full-range YCbCr→RGB
@@ -995,85 +1193,93 @@ final class MetalPipeline: @unchecked Sendable {
         return try await dispatchCenterPatch(on: naturalTex)
     }
 
-    /// BB calibration entry point — samples a one-shot scratch render of
-    /// **current BCSG with BB zeroed**.
+    /// Reads back a centered square region of the **natural** (pre-grade) lane as
+    /// gamma-encoded RGB, for one-shot black-point calibration stats.
     ///
-    /// Why this lane: BB is applied at the end of the GPU color pipeline (post
-    /// brightness/contrast/saturation/gamma) per `Shaders/ColorShaders.metal`.
-    /// For BB to correctly subtract a dark patch in the *graded* image, the
-    /// sample must be read from the same color space — i.e. with BCSG
-    /// applied — but without the previously-written BB pedestal feeding back
-    /// into the math.
-    ///
-    /// Implementation: snapshot the current `ColorUniform`, zero its BB
-    /// triple, dispatch a one-shot Pass-2 encode from `naturalTex` into a
-    /// scratch texture, then run the center-patch sampler on the scratch.
-    /// Visually invisible to the user — the live `processedTex` mailbox is
-    /// not touched.
-    func dispatchBBCalibrationSample() async throws -> RgbSample {
-        // Single-writer invariant (delivery queue) + Metal command-buffer
-        // retention through encode make this nonisolated(unsafe) read race-free.
-        guard let naturalTex = latestNaturalTex16F else {
-            throw MetalError.noFrameAvailable
-        }
+    /// Only the `side × side` window centered on the frame is read back — not the
+    /// full multi-megapixel frame — so calibration stays cheap (it samples a
+    /// small patch). Returned values are gamma-encoded; the stats helper
+    /// linearizes them. `side` is clamped to the lane's dimensions.
+    func readbackNaturalCenterRegion(
+        side: Int
+    ) async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+        guard let natTex = latestNaturalTex16F else { throw MetalError.noFrameAvailable }
+        return try await readbackCenterRegion(from: natTex, side: side)
+    }
 
-        // Allocate scratch texture (released at function exit).
-        // P2a — match the natural texture being graded, i.e. `outputSize`.
+    /// Extracts the centered `side × side` window of `source` on the GPU, then
+    /// reads back only that small region.
+    ///
+    /// `extractCenterRegion` copies the window (a kernel read at an offset — safe
+    /// on the IOSurface-backed lane, unlike a non-zero-origin blit) into a small
+    /// private texture; that texture is blitted (origin 0) into shared memory and
+    /// unpacked RGBA16F → `[SIMD3<Float>]` (alpha dropped). Avoiding the
+    /// full-frame readback keeps calibration off the multi-megapixel CPU path.
+    /// `side` is clamped to the source dimensions. Single-writer invariant
+    /// (delivery queue) + command-buffer ordering make the read race-free.
+    private func readbackCenterRegion(
+        from source: MTLTexture, side: Int
+    ) async throws -> (pixels: [SIMD3<Float>], width: Int, height: Int) {
+        let s = max(1, min(side, source.width, source.height))
         let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba16Float,
-            width: outputSize.width,
-            height: outputSize.height,
-            mipmapped: false
-        )
-        desc.usage = [.shaderWrite, .shaderRead]
+            pixelFormat: .rgba16Float, width: s, height: s, mipmapped: false)
+        desc.usage = [.shaderRead, .shaderWrite]
         desc.storageMode = .private
-        guard let scratchTex = commandQueue.device.makeTexture(descriptor: desc) else {
+        guard let region = commandQueue.device.makeTexture(descriptor: desc) else {
             throw MetalError.textureAllocationFailed
         }
-
-        // Snapshot current BCSG uniforms; zero BB.
-        //
-        // Correctness: `uniforms.withLock { $0.color }` returns a *value copy*
-        // of the ColorUniform struct. Mutating `params.blackR/G/B` writes to
-        // the local copy only — the live Mutex is unmodified, so the regular
-        // encode loop continues to use the user's actual BB. The shader below
-        // reads from `&params` via setBytes (not from the Mutex), so it sees
-        // the zeroed BB. Integration test in Stage11Tests proves this.
-        var params = uniforms.withLock { $0.color }
-        params.blackR = 0
-        params.blackG = 0
-        params.blackB = 0
-
-        guard let cb = commandQueue.makeCommandBuffer(),
-            let encoder = cb.makeComputeCommandEncoder()
-        else {
-            throw MetalError.commandBufferFailed(code: -11)
+        let bytesPerRow = s * 4 * MemoryLayout<UInt16>.size  // RGBA16F = 8 B/px
+        let length = bytesPerRow * s
+        guard
+            let buf = commandQueue.device.makeBuffer(length: length, options: .storageModeShared)
+        else { throw MetalError.textureAllocationFailed }
+        guard let cb = commandQueue.makeCommandBuffer() else {
+            throw MetalError.commandBufferFailed(code: -5)
         }
-        encoder.setComputePipelineState(colorTransformPSO)
-        encoder.setTexture(naturalTex, index: 0)
-        encoder.setTexture(scratchTex, index: 1)
-        encoder.setBytes(&params, length: MemoryLayout<ColorUniform>.stride, index: 0)
-        let tg = MTLSize(width: 16, height: 16, depth: 1)
-        let groups = MTLSize(
-            width: (scratchTex.width + 15) / 16,
-            height: (scratchTex.height + 15) / 16,
-            depth: 1
-        )
-        encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: tg)
-        encoder.endEncoding()
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            cb.addCompletedHandler { c in
-                if c.status == .error {
-                    cont.resume(throwing: MetalError.commandBufferFailed(code: -12))
-                } else {
-                    cont.resume()
-                }
+        // GPU step 1: copy the centered window from the full lane into `region`.
+        guard let extract = cb.makeComputeCommandEncoder() else {
+            throw MetalError.commandBufferFailed(code: -5)
+        }
+        extract.setComputePipelineState(extractCenterRegionPSO)
+        extract.setTexture(source, index: 0)
+        extract.setTexture(region, index: 1)
+        let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(width: (s + 15) / 16, height: (s + 15) / 16, depth: 1)
+        extract.dispatchThreadgroups(groups, threadsPerThreadgroup: tgSize)
+        extract.endEncoding()
+
+        // GPU step 2: copy the small region (origin 0 — safe) into shared memory.
+        guard let blit = cb.makeBlitCommandEncoder() else {
+            throw MetalError.commandBufferFailed(code: -4)
+        }
+        blit.copy(
+            from: region, sourceSlice: 0, sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: s, height: s, depth: 1),
+            to: buf, destinationOffset: 0,
+            destinationBytesPerRow: bytesPerRow, destinationBytesPerImage: length)
+        blit.endEncoding()
+
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            cb.addCompletedHandler { cb in
+                cb.status == .error
+                    ? c.resume(
+                        throwing: MetalError.commandBufferFailed(
+                            code: (cb.error as NSError?)?.code ?? -1))
+                    : c.resume()
             }
             cb.commit()
         }
-
-        return try await dispatchCenterPatch(on: scratchTex)
+        let half = buf.contents().bindMemory(to: UInt16.self, capacity: s * s * 4)
+        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(repeating: 0), count: s * s)
+        for i in 0..<(s * s) {
+            pixels[i] = SIMD3<Float>(
+                Float(Float16(bitPattern: half[i * 4 + 0])),
+                Float(Float16(bitPattern: half[i * 4 + 1])),
+                Float(Float16(bitPattern: half[i * 4 + 2])))
+        }
+        return (pixels, s, s)
     }
 
     private func trimmedMean(buffer: MTLBuffer, count: Int, trim: Int) -> Float {
@@ -1179,6 +1385,12 @@ extension MetalPipeline {
         _latestNaturalTex16F.store(texture)
     }
 
+    /// Arms/disarms the natural tap (opt C) so a test can make `renderFrame` write the
+    /// natural 16F texture, mirroring an armed calibration.
+    func setNaturalTapArmedForTest(_ armed: Bool) {
+        naturalTapArmed.store(armed, ordering: .releasing)
+    }
+
     func setLatestProcessedForTest(buffer: CVPixelBuffer, texture: MTLTexture) {
         _latestProcessedBuffer.store(buffer)
         _latestProcessedTex16F.store(texture)
@@ -1196,10 +1408,10 @@ extension MetalPipeline {
         }
     }
 
-    // Test-only: dispatches Pass 2 (color transform) over the latest natural texture,
-    // awaits scheduled, and returns. Use after installing natural + processed
-    // textures via `setLatestNaturalForTest` / `setLatestProcessedForTest`.
-    func encodePass2Only() async throws {
+    // Test-only: dispatches the grade (color transform) over the latest natural
+    // texture, awaits scheduled, and returns. Use after installing natural +
+    // processed textures via `setLatestNaturalForTest` / `setLatestProcessedForTest`.
+    func encodeGradeOnly() async throws {
         guard let natTex = latestNaturalTex16F, let procTex = latestProcessedTex16F else {
             throw MetalError.noFrameAvailable
         }
@@ -1233,5 +1445,169 @@ extension MetalPipeline {
             commandBuffer.commit()
         }
     }
+
+    // Bundle of the natural (16F) + packed (BGRA8 graded) outputs from BOTH the
+    // pre-fusion three-encoder core and the fused core, for equivalence testing.
+    struct CoreComparisonForTest {
+        let separateNatural: CVPixelBuffer
+        let fusedNatural: CVPixelBuffer
+        let separatePacked: CVPixelBuffer
+        let fusedPacked: CVPixelBuffer
+    }
+
+    /// Test-only: the PRE-FUSION three-encoder core (decode → grade → pack).
+    ///
+    /// Byte-for-byte the old `encodeGradedCore` body. Retained ONLY as the reference
+    /// path for `encodeCoreComparisonForTest`; the fused kernel must reproduce its
+    /// natural/processed outputs (within 1e-3 — see the fused-kernel precision note).
+    private func encodeSeparateCoreForTest(
+        into commandBuffer: MTLCommandBuffer,
+        y yTexture: MTLTexture, cbcr cbcrTexture: MTLTexture,
+        natural naturalTex: MTLTexture, processed processedTex: MTLTexture,
+        packed packedTex: MTLTexture?,
+        color colorSnapshot: ColorUniform, crop cropSnapshot: CropUniform,
+        threadGroups: MTLSize, threadGroupSize: MTLSize
+    ) {
+        let decode = commandBuffer.makeComputeCommandEncoder()!
+        decode.setComputePipelineState(yuvToRgbaPSO)
+        decode.setTexture(yTexture, index: 0)
+        decode.setTexture(cbcrTexture, index: 1)
+        decode.setTexture(naturalTex, index: 2)
+        var cropLocal = cropSnapshot
+        decode.setBytes(&cropLocal, length: MemoryLayout<CropUniform>.stride, index: 0)
+        decode.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        decode.endEncoding()
+
+        let grade = commandBuffer.makeComputeCommandEncoder()!
+        grade.setComputePipelineState(colorTransformPSO)
+        grade.setTexture(naturalTex, index: 0)
+        grade.setTexture(processedTex, index: 1)
+        var colorLocal = colorSnapshot
+        grade.setBytes(&colorLocal, length: MemoryLayout<ColorUniform>.stride, index: 0)
+        grade.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        grade.endEncoding()
+
+        guard let packedTex else { return }
+        let pack = commandBuffer.makeComputeCommandEncoder()!
+        pack.setComputePipelineState(rgba16fToBgra8PSO)
+        pack.setTexture(processedTex, index: 0)
+        pack.setTexture(packedTex, index: 1)
+        pack.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+        pack.endEncoding()
+    }
+
+    /// Test-only: runs the OLD separate core and the NEW fused core for equivalence.
+    ///
+    /// Both run on the SAME y/cbcr input + color/crop, in one command buffer, and
+    /// return their natural (16F) and packed (BGRA8, the graded surface) outputs so
+    /// the test can assert equivalence. The separate path also writes a 16F processed
+    /// intermediate (its `rgba16fToBgra8` pack reads it), but the fused path no longer
+    /// produces one (optimization B) — so the graded comparison is packed-vs-packed.
+    func encodeCoreComparisonForTest(
+        y: MTLTexture, cbcr: MTLTexture, size: Size, color: ColorUniform, crop: CropUniform
+    ) async throws -> CoreComparisonForTest {
+        let sepNat = try texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: size.width, height: size.height)
+        let sepProc = try texturePool.dequeuePoolTexture(
+            pool: processedPool, width: size.width, height: size.height)
+        let sepPacked = try texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: size.width, height: size.height)
+        let fusNat = try texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: size.width, height: size.height)
+        let fusPacked = try texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: size.width, height: size.height)
+
+        let cb = commandQueue.makeCommandBuffer()!
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (size.width + 15) / 16, height: (size.height + 15) / 16, depth: 1)
+
+        encodeSeparateCoreForTest(
+            into: cb, y: y, cbcr: cbcr,
+            natural: sepNat.texture, processed: sepProc.texture, packed: sepPacked.texture,
+            color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+        encodeGradedCore(
+            into: cb, y: y, cbcr: cbcr,
+            natural: fusNat.texture, packed: fusPacked.texture,
+            color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            cb.addCompletedHandler { cb in
+                cb.status == .error
+                    ? c.resume(throwing: MetalError.commandBufferFailed(code: -9))
+                    : c.resume()
+            }
+            cb.commit()
+        }
+        return CoreComparisonForTest(
+            separateNatural: sepNat.buffer, fusedNatural: fusNat.buffer,
+            separatePacked: sepPacked.buffer, fusedPacked: fusPacked.buffer)
+    }
+
+    /// Test-only A/B microbenchmark: mean GPU wall-time per frame of the separate
+    /// core vs the fused core, measured back-to-back in ONE session (same thermal
+    /// state, same input) so the delta is the fusion saving, not run-to-run drift.
+    ///
+    /// Each path encodes `iterations` cores into one command buffer (each writes the
+    /// same textures, so Metal serializes them exactly like consecutive real frames),
+    /// then divides the command buffer's `gpuEndTime − gpuStartTime` by `iterations`.
+    /// A warm-up run precedes measurement to prime PSOs/caches. Returns microseconds
+    /// per frame for each path.
+    func benchmarkCoresForTest(
+        y: MTLTexture, cbcr: MTLTexture, size: Size, color: ColorUniform, crop: CropUniform,
+        iterations: Int
+    ) async throws -> (separate: Double, fusedArmed: Double, fusedSteady: Double) {
+        let nat = try texturePool.dequeuePoolTexture(
+            pool: naturalPool, width: size.width, height: size.height)
+        let proc = try texturePool.dequeuePoolTexture(
+            pool: processedPool, width: size.width, height: size.height)
+        let packed = try texturePool.dequeueEightBitPoolTexture(
+            pool: eightBitProcessedPool, width: size.width, height: size.height)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        let groups = MTLSize(
+            width: (size.width + 15) / 16, height: (size.height + 15) / 16, depth: 1)
+
+        // Variant selector: measures GPU wall-time (config-independent — the Metal
+        // kernels are identical in Debug/Release) for each core shape.
+        func timeRun(_ variant: BenchmarkVariant) async throws -> Double {
+            let cb = commandQueue.makeCommandBuffer()!
+            for _ in 0..<iterations {
+                switch variant {
+                case .separate:  // pre-fusion 3-pass: natural(16F)+processed(16F)+packed
+                    encodeSeparateCoreForTest(
+                        into: cb, y: y, cbcr: cbcr,
+                        natural: nat.texture, processed: proc.texture, packed: packed.texture,
+                        color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+                case .fusedArmed:  // fused, calibration armed: natural(16F)+packed
+                    encodeGradedCore(
+                        into: cb, y: y, cbcr: cbcr,
+                        natural: nat.texture, packed: packed.texture,
+                        color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+                case .fusedSteady:  // fused, steady state (opt B+C): packed only
+                    encodeGradedCore(
+                        into: cb, y: y, cbcr: cbcr,
+                        natural: nil, packed: packed.texture,
+                        color: color, crop: crop, threadGroups: groups, threadGroupSize: tg)
+                }
+            }
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                cb.addCompletedHandler { cb in
+                    cb.status == .error
+                        ? c.resume(throwing: MetalError.commandBufferFailed(code: -10))
+                        : c.resume()
+                }
+                cb.commit()
+            }
+            return (cb.gpuEndTime - cb.gpuStartTime) * 1_000_000 / Double(iterations)
+        }
+
+        _ = try await timeRun(.fusedSteady)  // warm-up (prime PSOs/caches/clocks)
+        let separate = try await timeRun(.separate)
+        let fusedArmed = try await timeRun(.fusedArmed)
+        let fusedSteady = try await timeRun(.fusedSteady)
+        return (separate, fusedArmed, fusedSteady)
+    }
+
+    private enum BenchmarkVariant { case separate, fusedArmed, fusedSteady }
 }
 #endif

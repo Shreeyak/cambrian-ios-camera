@@ -21,7 +21,10 @@ actor MockCameraEngine: CameraEngineProtocol {
     static func placeholderCaps() -> SessionCapabilities {
         SessionCapabilities(
             supportedSizes: [Size(width: 1920, height: 1080)],
-            previewTextureId: 1,
+            supportedFrameRates: [
+                FrameRateRange(size: Size(width: 1920, height: 1080), minFps: 1, maxFps: 60)
+            ],
+            activeFrameRate: 30,
             activeCaptureResolution: Size(width: 1920, height: 1080),
             activeCropRegion: Rect(x: 0, y: 0, width: 1920, height: 1080),
             streamPixelFormat: "BGRA8",
@@ -69,14 +72,22 @@ actor MockCameraEngine: CameraEngineProtocol {
     }
     func startRecording(options: RecordingOptions) async throws -> RecordingStart { startResult }
     func stopRecording() async throws -> String { stopResult }
-    func calibrateWhiteBalance() async throws -> CalibrationResult {
+    func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult {
         let s = RgbSample(r: 0.5, g: 0.5, b: 0.5)
         return CalibrationResult(before: s, after: s, converged: true, iterations: 1)
     }
-    func calibrateBlackBalance() async throws -> CalibrationResult {
-        let s = RgbSample(r: 0.0, g: 0.0, b: 0.0)
-        return CalibrationResult(before: s, after: s, converged: true, iterations: 1)
+    func calibrateBlack() async throws -> BlackPointDebug {
+        let s = BlackPointChannelStats(offsetLinear: 0, meanGamma: 0, minGamma: 0, maxGamma: 0)
+        return BlackPointDebug(keptCount: 1, totalCount: 1, r: s, g: s, b: s)
     }
+    func enableWhiteBalance() async throws {}
+    func disableWhiteBalance() async {}
+    func enableWhitePoint() async throws {}
+    func disableWhitePoint() async {}
+    func clearWhiteBalance() async {}
+    func enableBlackPoint() async throws {}
+    func disableBlackPoint() async {}
+    func clearBlackPoint() async {}
     nonisolated func currentPixelBuffer(stream: StreamId) -> CVPixelBuffer? { nil }
     nonisolated var consumers: ConsumerRegistry { ConsumerRegistry() }
 }

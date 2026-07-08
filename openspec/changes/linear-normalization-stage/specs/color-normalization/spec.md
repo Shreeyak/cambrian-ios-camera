@@ -45,11 +45,13 @@ pointwise GPU kernel chain without introducing an additional full-frame intermed
 The system SHALL support a per-channel black point that maps a calibrated dark reference to 0
 (solid black), applied in linear light before the creative grade. It SHALL be independently
 enable/disable-able. The black-point offset SHALL be derived statistically as `mean + k·σ` per
-channel (computed in linear light), where `k` is a build-time constant (`blackPointSigmaK`,
-default 1.5). The dark-field sample SHALL be collected by seeding from the center patch and growing
-the sample to every frame pixel whose value falls within `patchMean ± k_select · patchσ` (per
-channel), where `k_select` is a build-time constant (`blackPointSelectSigmaK`, default 3.0); `mean`
-and `σ` are then computed over that masked background set.
+channel (computed in linear light over the kept sample), where `k` is a build-time constant
+(`blackPointSigmaK`, default 1.5). The dark-field sample SHALL be taken over the centered square
+patch (`centerPatchSizePx`), keeping only pixels every channel of which is below a near-black
+threshold (`blackPointMaxSampleGamma`, default 0.3 in gamma/display space); brighter or off-color
+pixels are excluded per pixel. Calibration SHALL fail — surfacing an error and leaving any existing
+black point unchanged — when fewer than `blackPointMinKeptFraction` (default 0.4) of the patch
+passes the near-black gate.
 
 #### Scenario: Dark background renders solid black
 
@@ -61,10 +63,15 @@ and `σ` are then computed over that masked background set.
 - **WHEN** the black point is calibrated with the default `k = 1.5`
 - **THEN** signal meaningfully above the noise floor is retained (the gentle margin does not crush dim features to black)
 
-#### Scenario: Value-mask excludes non-background pixels
+#### Scenario: Non-black pixels are excluded per pixel
 
-- **WHEN** the dark-field frame contains a brighter object outside the `patchMean ± k_select·patchσ` band
-- **THEN** those pixels are excluded from the mean/σ statistic and do not bias the black-point offset
+- **WHEN** a pixel in the patch is at or above the near-black threshold in any channel
+- **THEN** it is excluded from the mean/σ statistic and does not bias the black-point offset
+
+#### Scenario: Insufficient dark field fails calibration
+
+- **WHEN** fewer than `blackPointMinKeptFraction` of the patch passes the near-black gate (the field is not dark enough)
+- **THEN** calibration fails with an error whose reason is surfaced to the caller, and any existing black point is left unchanged
 
 #### Scenario: Black point is applied pre-grade in linear light
 
@@ -111,49 +118,90 @@ chroma is also active (level without chroma is not a valid state).
 
 ### Requirement: Single white-field calibration
 
-A single white-field calibration gesture (`calibrateWhiteBalance()`) SHALL, from one white-field
-sample, derive and store all of: the hardware white-balance gains, the per-channel chroma residual,
-and the per-channel white-point level. The calibration entry point SHALL NOT take a white-point
-argument; the white-point selection is made at apply time so the operator can switch between
-brightfield and phase contrast without recalibrating.
+A single white-field calibration procedure (`calibrateWhite(whitePoint:)`) SHALL, from one
+white-field sample, derive and store all of: the hardware white-balance gains, the per-channel
+chroma residual, and the per-channel white-point level, and enable the chroma residual. The
+`whitePoint` argument (default `true`) SHALL select the initial look — `true` enables the white-point
+level (brightfield), `false` leaves it disabled (phase contrast) — and the operator MAY switch
+between the two afterward without recalibrating (see *Apply-time white-point selection*). The
+procedure SHALL fail — surfacing an error and leaving prior state unchanged — when the sampled patch
+is not bright enough to be a white reference (below `whiteFieldMinSampleGamma`).
 
 #### Scenario: One sample, three coefficient sets
 
 - **WHEN** the operator calibrates against a white field
-- **THEN** hardware gains, chroma residual, and white-point level are all derived and stored from that one sample
+- **THEN** hardware gains, chroma residual, and white-point level are all derived and stored from that one sample, and the chroma residual is enabled
+
+#### Scenario: Initial look selected by the calibrate argument
+
+- **WHEN** the operator calibrates with `whitePoint: true` (default)
+- **THEN** the white-point level is enabled (brightfield); with `whitePoint: false` only the chroma residual is enabled (phase contrast)
 
 #### Scenario: Mode switch without recalibration
 
 - **WHEN** the operator has calibrated and switches between brightfield and phase contrast
-- **THEN** no new white-field capture is required; only the apply-time white-point selection changes
+- **THEN** no new white-field capture is required; only the white-point toggle changes
 
-### Requirement: Apply-time white-point selection
+#### Scenario: Non-white field fails calibration
 
-White balance SHALL be applied through a single operation that takes an optional white-point flag
-(`applyWhiteBalance(whitePoint: Bool = false)`). With the flag off, only the chroma residual
-applies; with the flag on, chroma residual and white-point level both apply. The API SHALL make the
-invalid "level without chroma" state unrepresentable.
+- **WHEN** the sampled patch is too dark to be a white reference (below `whiteFieldMinSampleGamma`)
+- **THEN** calibration fails with an error whose reason is surfaced to the caller, and prior white-balance state is left unchanged
 
-#### Scenario: Phase contrast applies chroma only
+### Requirement: Independent normalization toggles with calibration guards
 
-- **WHEN** `applyWhiteBalance()` is called without the white-point flag
+Beyond the full `calibrate*` procedures, each normalization setting SHALL be independently
+enable/disable-able on its stored coefficients without resampling: white-balance chroma
+(`enableWhiteBalance()` / `disableWhiteBalance()`), white point (`enableWhitePoint()` /
+`disableWhitePoint()`), and black point (`enableBlackPoint()` / `disableBlackPoint()`); and each
+field's calibration SHALL be discardable (`clearWhiteBalance()`, `clearBlackPoint()`). The API SHALL
+make the invalid "level without chroma" state unrepresentable: white point SHALL only be enable-able
+while chroma is active, and disabling chroma SHALL also disable white point. `enable*` SHALL **throw**
+when the setting has not been calibrated (or, for white balance, while hardware WB is in auto), rather
+than silently doing nothing.
+
+#### Scenario: Phase contrast — chroma only
+
+- **WHEN** the operator disables the white point (or calibrated with `whitePoint: false`)
 - **THEN** the chroma residual applies and the white-point level does not
 
-#### Scenario: Brightfield applies chroma and level
+#### Scenario: Brightfield — chroma and level
 
-- **WHEN** `applyWhiteBalance(whitePoint: true)` is called
+- **WHEN** the operator enables the white point after calibration
 - **THEN** both the chroma residual and the white-point level apply
 
-### Requirement: Endpoint preservation across the creative grade
+#### Scenario: Enabling before calibration throws
 
-The creative grade SHALL preserve and clamp the 0 and 1 endpoints, so that a background normalized
-to solid black (0) or solid white (1) MUST NOT be moved off the endpoint by subsequent operator
-adjustments to brightness, contrast, saturation, and gamma.
+- **WHEN** `enableWhitePoint()` / `enableWhiteBalance()` / `enableBlackPoint()` is called before the corresponding field has been calibrated
+- **THEN** it throws a calibration-required error (operator-facing) instead of silently no-op'ing
 
-#### Scenario: Solid background survives operator adjustment
+#### Scenario: White point cannot apply without chroma
 
-- **WHEN** the background is normalized to solid white (or solid black) and the operator changes brightness/contrast
-- **THEN** the background remains solid white (or solid black) and only mid-tones are reshaped
+- **WHEN** white-balance chroma is disabled
+- **THEN** the white-point level is also disabled, and it cannot be enabled until chroma is active again
+
+#### Scenario: Toggling does not resample
+
+- **WHEN** the operator enables/disables any setting after calibration
+- **THEN** the stored coefficients are reused (no new patch sample / readback)
+
+### Requirement: Creative grade unchanged; endpoints not pinned
+
+The creative grade (brightness/contrast/saturation/gamma) SHALL operate **unchanged** in gamma
+space after normalization. The grade is **not** endpoint-anchored: operator adjustments MAY move a
+background that was normalized to solid black (0) or solid white (target) off those endpoints, and
+this deviation is **accepted and documented** (the existing 0.5-pivot contrast and linear brightness
+operators drift endpoints inward; no S-curve operators or post-grade re-pin are added). Consumers
+needing a stable solid background SHALL keep the grade at (or near) identity.
+
+#### Scenario: Grade may move the calibrated background
+
+- **WHEN** the background is normalized to solid white (or black) and the operator changes brightness/contrast
+- **THEN** the background may shift off the endpoint (the grade is not endpoint-anchored) — this is accepted, not a defect
+
+#### Scenario: Identity grade leaves the normalized background solid
+
+- **WHEN** normalization produces a solid background and the grade is at identity
+- **THEN** the normalized output is delivered unmodified and the background remains solid
 
 ### Requirement: Normalization applies to all delivered outputs
 
@@ -180,26 +228,29 @@ into auto mode on load.
 - **THEN** the saved black-point / chroma / white-point coefficients and toggles are restored
 - **AND** white-balance does not silently start in a stale manual lock
 
-### Requirement: Backward-compatible black-balance deprecation
+### Requirement: Legacy black-balance removed (breaking)
 
-The black-balance → black-point migration SHALL NOT break the existing public API. The legacy
-`calibrateBlackBalance` surface (Swift, Pigeon, and Dart) SHALL be retained as a deprecated alias
-that forwards to the new `calibrateBlackPoint` path. Invoking the legacy path SHALL emit a runtime
-deprecation notice (`Logger` `.notice`, `privacy: .public`). Persisted legacy black-balance values
-SHALL be migrated into the new black-point coefficients on load via a migration shim. The
-deprecation SHALL be documented in the consumer docs and called out in the GitHub release notes.
+The legacy post-grade black-balance SHALL be **removed entirely** — its public API
+(`calibrateBlackBalance` across Swift/Pigeon/Dart), its `ProcessingParameters.blackR/G/B` fields and
+`ColorUniform` mirror, and its post-grade shader subtraction (`ColorShaders.metal` step 5). This is
+an **accepted breaking API change**; no deprecated alias or forwarding is provided. The new linear
+black point (`calibrateBlackPoint`) is the only black operation. Old persisted settings SHALL still
+decode their grade values (brightness/contrast/saturation/gamma) without reset; the legacy black
+keys SHALL be ignored (not applied, not migrated). The removal SHALL be documented in consumer docs
+and called out as **breaking** in the GitHub release notes.
 
-#### Scenario: Legacy API still works
+#### Scenario: Legacy API is gone
 
-- **WHEN** a downstream consumer calls the legacy `calibrateBlackBalance`
-- **THEN** it forwards to `calibrateBlackPoint`, performs the linear black-point calibration, and emits a deprecation notice
+- **WHEN** a downstream consumer references `calibrateBlackBalance`
+- **THEN** it no longer exists (Swift compile error / Flutter `PlatformException`) — consumers must migrate to `calibrateBlackPoint`
 
-#### Scenario: Persisted legacy values migrate
+#### Scenario: Old settings decode grade values without legacy black
 
-- **WHEN** the app loads settings persisted under the old black-balance keys
-- **THEN** the migration shim maps them into the new black-point coefficients without a reset
+- **WHEN** the app loads settings persisted under the old schema
+- **THEN** grade values are preserved (no crash, no reset) and the legacy black keys are ignored
+- **AND** the black point starts disabled, awaiting fresh calibration
 
-#### Scenario: Deprecation is recorded for release
+#### Scenario: Breaking removal recorded for release
 
 - **WHEN** the change is released
-- **THEN** the GitHub release notes and consumer docs note that black balance is deprecated in favor of black point
+- **THEN** the GitHub release notes call out the removal of black balance as a breaking change

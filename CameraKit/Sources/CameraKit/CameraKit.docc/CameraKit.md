@@ -19,6 +19,7 @@ New integrators should read the guides in order, starting with
 
 - <doc:01-overview>
 - <doc:02-getting-started>
+- <doc:11-capture-format>
 - <doc:03-lifecycle>
 - <doc:04-preview>
 - <doc:05-capturing-stills-and-video>

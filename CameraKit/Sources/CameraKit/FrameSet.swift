@@ -147,7 +147,7 @@ public struct FrameResult: Sendable, Hashable {
     }
 }
 
-/// Per-channel trimmed-mean sample from sampleCenterPatch().
+/// Per-channel trimmed-mean sample from the calibration center-patch sampler.
 ///
 /// Full implementation Stage 04.
 public struct RgbSample: Sendable, Hashable {

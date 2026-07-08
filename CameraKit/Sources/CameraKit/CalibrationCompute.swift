@@ -94,27 +94,165 @@ public enum CalibrationCompute {
         return exp2(cappedLog)
     }
 
-    /// Black-balance pedestal: per-channel dark-patch sample passes through as offsets.
+    // MARK: - linear-normalization-stage: statistical black point
+
+    /// sRGB EOTF (gamma → linear) — the TRUE piecewise curve (IEC 61966-2-1).
     ///
-    /// **Important:** the BB pedestal is subtracted at the *end* of the GPU color
-    /// pipeline (after brightness/contrast/saturation/gamma) per `ColorShaders.metal`
-    /// step 5. The sample fed in here MUST come from a render where **BCSG is
-    /// applied and BB is zeroed** — typically `CameraEngine.sampleCenterPatchForBBCalibration`,
-    /// which runs a one-shot Pass-2 encode into a scratch texture with BB
-    /// temporarily zeroed. This satisfies two requirements simultaneously:
-    /// the sample is in the same color space the pedestal will operate on
-    /// (BCSG applied), and it isn't biased by the prior pedestal (BB zeroed).
-    /// Caller writes these into `ProcessingParameters.blackR/G/B`.
+    /// This MUST match `ColorShaders.metal`'s `srgbToLinear` exactly: the black
+    /// point is *derived* here in linear light and *applied* there in linear
+    /// light, so a curve mismatch would make calibrated black land at the wrong
+    /// value and not come out solid. The piecewise (not `pow(2.2)`) form matters
+    /// because the black point lives in the near-black region where they diverge.
+    /// Pinned to the shader by the `normalizationSrgbRoundTripIsIdentity` device
+    /// test (which round-trips through the shader helpers).
+    static func srgbToLinear(_ c: Double) -> Double {
+        c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+
+    /// Per-channel **linear** black-point offsets from a dark-field readback.
     ///
-    /// `Constants.blackBalanceOverscan` (1.5×) over-subtracts the trimmed-mean
-    /// sample. The sample is the *average* of the patch, but per-pixel noise
-    /// means many pixels sit above the mean — subtracting only the mean leaves
-    /// the brighter end of the dark-patch distribution above zero. Multiplying
-    /// by 1.5 drives roughly the upper σ of pixel noise to the clamp floor,
-    /// making the calibrated dark patch render as actual black on iPad HITL.
-    public static func blackBalanceOffsets(sample: RgbSample) -> (r: Double, g: Double, b: Double) {
-        let k = Constants.blackBalanceOverscan
-        return (sample.r * k, sample.g * k, sample.b * k)
+    /// Thin wrapper over `blackPointDebug` (which carries the full diagnostics);
+    /// returns just the applied offsets. See `blackPointDebug` for the algorithm.
+    public static func blackPointOffsets(
+        pixels: [SIMD3<Float>], width: Int, height: Int, patch: Int
+    ) -> (r: Double, g: Double, b: Double) {
+        let d = blackPointDebug(
+            pixels: pixels, width: width, height: height, patch: patch)
+        return (d.r.offsetLinear, d.g.offsetLinear, d.b.offsetLinear)
+    }
+
+    /// Per-channel black-point diagnostics from a dark-field readback: the linear
+    /// offset and per-channel statistics.
+    ///
+    /// Patch-only + near-black per-pixel gate (design D8, revised 2026-06-23), all
+    /// offset statistics in LINEAR light:
+    ///   1. Look only at the centered `patch × patch` window (the full-frame
+    ///      value-mask was dropped — it pulled in per-channel-divergent pixels that
+    ///      over-inflated the offsets and tinted the image).
+    ///   2. Keep a pixel only if EVERY channel is near-black ((gamma) value
+    ///      `< blackPointMaxSampleGamma`); a pixel bright in any channel is dropped
+    ///      wholesale, so all channels are estimated from the same dark-pixel set
+    ///      (consistent per-channel offsets, no tinting). `keptCount` reports how
+    ///      many survived — `0` means the surface was too bright to black-point.
+    ///   3. `offset = mean + blackPointSigmaK·σ` over the kept pixels (per channel);
+    ///      no kept pixels ⇒ offset `0`.
+    ///
+    /// - Parameters:
+    ///   - pixels: row-major gamma-encoded RGB, one entry per pixel.
+    ///   - width, height: frame dimensions (`pixels.count == width * height`).
+    ///   - patch: center-patch side length in pixels (the only region sampled).
+    public static func blackPointDebug(
+        pixels: [SIMD3<Float>], width: Int, height: Int, patch: Int
+    ) -> BlackPointDebug {
+        let kSig = Constants.blackPointSigmaK
+        let maxSample = Constants.blackPointMaxSampleGamma
+        let half = patch / 2
+        let cx = width / 2
+        let cy = height / 2
+        let x0 = max(0, cx - half)
+        let x1 = min(width, cx + half)
+        let y0 = max(0, cy - half)
+        let y1 = min(height, cy + half)
+        let pw = max(0, x1 - x0)
+        let ph = max(0, y1 - y0)
+        let emptyStats = BlackPointChannelStats(
+            offsetLinear: 0, meanGamma: 0, minGamma: 0, maxGamma: 0)
+        guard width > 0, height > 0, pixels.count == width * height, pw > 0, ph > 0
+        else {
+            return BlackPointDebug(
+                keptCount: 0, totalCount: 0, r: emptyStats, g: emptyStats, b: emptyStats)
+        }
+
+        var sum = SIMD3<Double>(repeating: 0)
+        var sumSq = SIMD3<Double>(repeating: 0)
+        var gammaSum = SIMD3<Double>(repeating: 0)
+        var minG = SIMD3<Double>(repeating: 1)
+        var maxG = SIMD3<Double>(repeating: 0)
+        var keptCount = 0
+        for y in y0..<y1 {
+            for x in x0..<x1 {
+                let p = pixels[y * width + x]
+                let g = SIMD3<Double>(Double(p.x), Double(p.y), Double(p.z))
+                minG = SIMD3(min(minG.x, g.x), min(minG.y, g.y), min(minG.z, g.z))
+                maxG = SIMD3(max(maxG.x, g.x), max(maxG.y, g.y), max(maxG.z, g.z))
+                // Per-pixel near-black gate: keep only if every channel is dark.
+                if g.x < maxSample && g.y < maxSample && g.z < maxSample {
+                    let l = SIMD3<Double>(srgbToLinear(g.x), srgbToLinear(g.y), srgbToLinear(g.z))
+                    sum += l
+                    sumSq += l * l
+                    gammaSum += g
+                    keptCount += 1
+                }
+            }
+        }
+
+        // Per channel: mean + k·σ over kept pixels (population var = E[x²]−E[x]²,
+        // clamped ≥ 0). No kept pixels ⇒ offset 0.
+        func stats(
+            _ s: Double, _ sq: Double, _ gSum: Double, _ minc: Double, _ maxc: Double
+        ) -> BlackPointChannelStats {
+            guard keptCount > 0 else {
+                return BlackPointChannelStats(
+                    offsetLinear: 0, meanGamma: 0, minGamma: minc, maxGamma: maxc)
+            }
+            let n = Double(keptCount)
+            let m = s / n
+            let v = max(0, sq / n - m * m)
+            return BlackPointChannelStats(
+                offsetLinear: m + kSig * v.squareRoot(),
+                meanGamma: gSum / n, minGamma: minc, maxGamma: maxc)
+        }
+        return BlackPointDebug(
+            keptCount: keptCount, totalCount: pw * ph,
+            r: stats(sum.x, sumSq.x, gammaSum.x, minG.x, maxG.x),
+            g: stats(sum.y, sumSq.y, gammaSum.y, minG.y, maxG.y),
+            b: stats(sum.z, sumSq.z, gammaSum.z, minG.z, maxG.z))
+    }
+
+    // MARK: - linear-normalization-stage: white-balance residual + white point
+
+    /// Decomposes one white-field sample into a per-channel **chroma residual**
+    /// gain and a scalar **white-point level**, both in linear light (§5.1).
+    ///
+    /// The sample is the centered patch read from the natural (pre-grade) lane
+    /// *after* the hardware white-balance gains have been locked, so it carries
+    /// the residual color cast the hardware gains could not remove. The
+    /// decomposition (design D4):
+    ///   1. Linearize each gamma-encoded channel (`srgbToLinear`, the same curve
+    ///      the shader applies — pinned by `normalizationSrgbRoundTripIsIdentity`).
+    ///   2. `meanLin = (lr + lg + lb) / 3` — computed **once** and fed to both
+    ///      terms. The composite gain is `chroma·level = meanLin/lC · target/meanLin
+    ///      = target/lC`; the mean cancels, so brightfield always lands every
+    ///      channel on `target`. Splitting the mean between the two terms (e.g.
+    ///      geometric for one) would break that cancellation — don't.
+    ///   3. **Chroma residual** `chromaC = meanLin / lC`: equalizes the channels to
+    ///      their shared linear mean. Brightness-preserving — it conserves the
+    ///      linear-RGB sum (`Σ chromaC·lC = 3·meanLin = Σ lC`), so a grey reference
+    ///      stays at its level instead of being pushed toward white. Safe for phase
+    ///      contrast.
+    ///   4. **Level** `targetLin / meanLin`, with `targetLin =
+    ///      srgbToLinear(Constants.whitePointTargetDisplay)`: lifts the neutralized
+    ///      reference to the configured white target. Optional, applied only in
+    ///      brightfield (see `enableWhitePoint() / disableWhitePoint()`).
+    ///
+    /// Near-zero channels are eps-clamped so a (degenerate) black sample can't
+    /// divide by zero; on a real white field every channel is bright.
+    ///
+    /// - Parameter whiteSample: per-channel **gamma-encoded** RGB of the locked
+    ///   white-field patch (`sampleCenterPatchOnNatural()`'s `after`).
+    /// - Returns: the per-channel chroma gains and the scalar white-point level.
+    public static func whiteBalanceResidual(
+        whiteSample: RgbSample
+    ) -> (chroma: RgbSample, level: Double) {
+        let eps = 1e-4
+        let lr = max(eps, srgbToLinear(whiteSample.r))
+        let lg = max(eps, srgbToLinear(whiteSample.g))
+        let lb = max(eps, srgbToLinear(whiteSample.b))
+        let meanLin = (lr + lg + lb) / 3.0
+        let targetLin = srgbToLinear(Constants.whitePointTargetDisplay)
+        let chroma = RgbSample(r: meanLin / lr, g: meanLin / lg, b: meanLin / lb)
+        let level = targetLin / meanLin
+        return (chroma: chroma, level: level)
     }
 
 }

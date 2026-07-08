@@ -15,6 +15,8 @@ in the table below to find its file.
 | Symbol | File |
 | --- | --- |
 | `AppLifecyclePhase` | [lifecycle.md](lifecycle.md) |
+| `BlackPointChannelStats` | [calibration.md](calibration.md) |
+| `BlackPointDebug` | [calibration.md](calibration.md) |
 | `CalibrationResult` | [calibration.md](calibration.md) |
 | `CameraEngine` | [camera-engine.md](camera-engine.md) |
 | `CameraEngineProtocol` | [camera-engine.md](camera-engine.md) |
@@ -32,6 +34,7 @@ in the table below to find its file.
 | `ExposureState` | [frames.md](frames.md) |
 | `FocusState` | [frames.md](frames.md) |
 | `FrameDeliveryStats` | [frames.md](frames.md) |
+| `FrameRateRange` | [configuration.md](configuration.md) |
 | `FrameResult` | [frames.md](frames.md) |
 | `MetalError` | [errors.md](errors.md) |
 | `OpenConfiguration` | [configuration.md](configuration.md) |
@@ -60,10 +63,10 @@ in the table below to find its file.
 
 - [Camera Engine](camera-engine.md): `CameraEngine`, `CameraEngineProtocol`
 - [Lifecycle](lifecycle.md): `AppLifecyclePhase`
-- [Configuration](configuration.md): `OpenConfiguration`, `SessionCapabilities`, `StreamConfiguration`, `Size`, `Rect`
+- [Configuration](configuration.md): `OpenConfiguration`, `SessionCapabilities`, `FrameRateRange`, `StreamConfiguration`, `Size`, `Rect`
 - [Camera Settings](camera-settings.md): `CameraSettings`, `CameraMode`, `WhiteBalanceMode`, `WhiteBalancePreset`, `CameraPosition`
 - [Image Processing](image-processing.md): `ProcessingParameters`
-- [Calibration](calibration.md): `CalibrationResult`, `RgbSample`, `WhiteBalanceGains`
+- [Calibration](calibration.md): `CalibrationResult`, `RgbSample`, `WhiteBalanceGains`, `BlackPointDebug`, `BlackPointChannelStats`
 - [Recording](recording.md): `RecordingOptions`, `RecordingStart`, `RecordingState`, `PhotosDestination`
 - [Stills](stills.md): `StillCaptureOutput`
 - [Session State](session-state.md): `SessionState`, `StreamId`

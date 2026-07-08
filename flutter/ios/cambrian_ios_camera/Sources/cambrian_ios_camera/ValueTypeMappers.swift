@@ -113,9 +113,6 @@ extension ProcessingParameters {
         p.brightness = brightness
         p.contrast = contrast
         p.saturation = saturation
-        p.blackR = blackR
-        p.blackG = blackG
-        p.blackB = blackB
         p.gamma = gamma
         return p
     }
@@ -127,9 +124,6 @@ extension CameraKit.ProcessingParameters {
             brightness: brightness,
             contrast: contrast,
             saturation: saturation,
-            blackR: blackR,
-            blackG: blackG,
-            blackB: blackB,
             gamma: gamma
         )
     }
@@ -142,9 +136,18 @@ extension OpenConfiguration {
         var c = CameraKit.OpenConfiguration()
         c.cameraId = cameraId
         c.captureResolution = captureResolution?.toCameraKit()
+        c.targetFps = targetFps.map { Int($0) }
         c.cropRegion = cropRegion?.toCameraKit()
         c.initialSettings = initialSettings?.toCameraKit()
         return c
+    }
+}
+
+// ─── FrameRateRange ─────────────────────────────────────────────────────────
+
+extension CameraKit.FrameRateRange {
+    func toPigeon() -> PFrameRateRange {
+        PFrameRateRange(size: size.toPigeon(), minFps: Int64(minFps), maxFps: Int64(maxFps))
     }
 }
 
@@ -154,8 +157,8 @@ extension CameraKit.SessionCapabilities {
     func toPigeon() -> SessionCapabilities {
         SessionCapabilities(
             supportedSizes: supportedSizes.map { $0.toPigeon() as PSize? },
-            previewTextureId: Int64(previewTextureId),
-            naturalTextureId: Int64(naturalTextureId),
+            supportedFrameRates: supportedFrameRates.map { $0.toPigeon() as PFrameRateRange? },
+            activeFrameRate: Int64(activeFrameRate),
             activeCaptureResolution: activeCaptureResolution.toPigeon(),
             activeCropRegion: activeCropRegion.toPigeon(),
             streamPixelFormat: streamPixelFormat,
@@ -404,18 +407,62 @@ extension Error {
                 pigeonCode = .invalidState
                 message = "Calibration is already in flight."
                 isFatal = false
+            case .blackPointCalibrationFailed(let reason):
+                pigeonCode = .calibrationFailed
+                message = reason
+                isFatal = false
+            case .whiteBalanceCalibrationFailed(let reason):
+                pigeonCode = .calibrationFailed
+                message = reason
+                isFatal = false
+            case .whiteBalanceNotCalibrated:
+                pigeonCode = .invalidState
+                message = "White balance has not been calibrated."
+                isFatal = false
+            case .blackPointNotCalibrated:
+                pigeonCode = .invalidState
+                message = "Black point has not been calibrated."
+                isFatal = false
             case .fatal(let cam):
                 // Re-enter the CameraError branch — preserves its code/message/isFatal.
                 return cam.asPigeonError()
             case .metal, .interop, .recording, .capture:
                 pigeonCode = .unknownError
-                message = String(describing: engErr)
+                // Task #1: use the wrapped error's LocalizedError description instead
+                // of dumping the enum case (delegated via EngineError.errorDescription).
+                message = engErr.errorDescription ?? String(describing: engErr)
                 isFatal = false
             }
             return PigeonError(
                 code: "\(pigeonCode)",
                 message: message,
                 details: ["isFatal": isFatal]
+            )
+        }
+
+        // MetalError thrown bare from the calibration / readback paths.
+        if let metalErr = self as? MetalError {
+            let message: String
+            switch metalErr {
+            case .noFrameAvailable:
+                message =
+                    "No camera frame is available yet — wait for the preview to start, then retry."
+            default:
+                message = "Metal pipeline error: \(metalErr)"
+            }
+            return PigeonError(
+                code: "\(CameraErrorCode.invalidState)",
+                message: message,
+                details: ["isFatal": false]
+            )
+        }
+
+        // Cooperative cancellation (e.g. a calibrate aborted by a lifecycle change).
+        if self is CancellationError {
+            return PigeonError(
+                code: "\(CameraErrorCode.invalidState)",
+                message: "The operation was cancelled.",
+                details: ["isFatal": false]
             )
         }
 

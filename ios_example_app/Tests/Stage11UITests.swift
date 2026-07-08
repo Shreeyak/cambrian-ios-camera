@@ -165,7 +165,7 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
     let canonicalSample: RgbSample
     var recordedDeltas: [CameraSettings] = []
     var calibrateWBCount: Int = 0
-    var calibrateBBCount: Int = 0
+    var calibrateBPCount: Int = 0
     private var processingSnapshot: ProcessingParameters?
 
     init(
@@ -182,32 +182,99 @@ actor CalibrationEngineStub: CalibrationEngineProtocol {
 
     // MARK: - CalibrationEngineProtocol
 
-    func calibrateWhiteBalance() async throws -> CalibrationResult {
+    func calibrateWhite(whitePoint: Bool) async throws -> CalibrationResult {
         calibrateWBCount += 1
-        // Record the .manual delta as the engine would after a real apply.
+        // Record the .manual delta as the engine would after a real apply, and
+        // mimic enabling chroma (+ white point per the arg) on the snapshot.
         var delta = CameraSettings()
         delta.wbMode = .manual
         delta.wbGainR = 1.0
         delta.wbGainG = 1.0
         delta.wbGainB = 1.0
         recordedDeltas.append(delta)
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaEnabled = true
+        snap.whitePointEnabled = whitePoint
+        processingSnapshot = snap
         return CalibrationResult(
             before: canonicalSample, after: canonicalSample,
             converged: true, iterations: 1)
     }
 
-    func calibrateBlackBalance() async throws -> CalibrationResult {
-        calibrateBBCount += 1
-        // Mimic the engine writing the pedestal via setProcessingParams.
-        let offsets = CalibrationCompute.blackBalanceOffsets(sample: canonicalSample)
+    func calibrateBlack() async throws -> BlackPointDebug {
+        calibrateBPCount += 1
+        // Mimic the engine: write a linear black point + enable it.
+        let r = CalibrationCompute.srgbToLinear(canonicalSample.r)
+        let g = CalibrationCompute.srgbToLinear(canonicalSample.g)
+        let b = CalibrationCompute.srgbToLinear(canonicalSample.b)
         var snap = processingSnapshot ?? .identity
-        snap.blackR = offsets.r
-        snap.blackG = offsets.g
-        snap.blackB = offsets.b
+        snap.blackPointR = r
+        snap.blackPointG = g
+        snap.blackPointB = b
+        snap.blackPointEnabled = true
         processingSnapshot = snap
-        return CalibrationResult(
-            before: canonicalSample, after: canonicalSample,
-            converged: true, iterations: 1)
+        func st(_ off: Double, _ mg: Double) -> BlackPointChannelStats {
+            BlackPointChannelStats(offsetLinear: off, meanGamma: mg, minGamma: mg, maxGamma: mg)
+        }
+        return BlackPointDebug(
+            keptCount: 1, totalCount: 1,
+            r: st(r, canonicalSample.r), g: st(g, canonicalSample.g), b: st(b, canonicalSample.b))
+    }
+
+    func clearBlackPoint() async {
+        var snap = processingSnapshot ?? .identity
+        snap.blackPointR = 0
+        snap.blackPointG = 0
+        snap.blackPointB = 0
+        snap.blackPointEnabled = false
+        processingSnapshot = snap
+    }
+
+    func enableWhiteBalance() async throws {
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaEnabled = true
+        processingSnapshot = snap
+    }
+
+    func disableWhiteBalance() async {
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaEnabled = false
+        snap.whitePointEnabled = false  // level without chroma is invalid
+        processingSnapshot = snap
+    }
+
+    func clearWhiteBalance() async {
+        var snap = processingSnapshot ?? .identity
+        snap.wbChromaR = 1.0
+        snap.wbChromaG = 1.0
+        snap.wbChromaB = 1.0
+        snap.wbChromaEnabled = false
+        snap.whitePointEnabled = false
+        processingSnapshot = snap
+    }
+
+    func enableWhitePoint() async throws {
+        var snap = processingSnapshot ?? .identity
+        snap.whitePointEnabled = true
+        processingSnapshot = snap
+    }
+
+    func disableWhitePoint() async {
+        var snap = processingSnapshot ?? .identity
+        snap.whitePointEnabled = false
+        processingSnapshot = snap
+    }
+
+    func enableBlackPoint() async throws {
+        var snap = processingSnapshot ?? .identity
+        snap.blackPointEnabled = true
+        processingSnapshot = snap
+    }
+
+    func disableBlackPoint() async {
+        var snap = processingSnapshot ?? .identity
+        snap.blackPointEnabled = false
+        processingSnapshot = snap
     }
 
     func updateSettings(_ settings: CameraSettings) async throws {
@@ -235,10 +302,10 @@ struct Stage11CalibrationVMTests {
         return deltas
     }
 
-    @Test("calibrateWB invokes engine.calibrateWhiteBalance and records a .manual delta")
+    @Test("calibrateWB invokes engine.calibrateWhite and records a .manual delta")
     @MainActor
     func wbCalibrateInvokesEngineAndWritesManualDelta() async {
-        // Phase-2 §2b: VM is a thin caller. The stub's calibrateWhiteBalance()
+        // Phase-2 §2b: VM is a thin caller. The stub's calibrateWhite()
         // appends a `.manual` delta as a real engine apply would. The VM
         // doesn't drive the algorithm itself any more.
         let stub = CalibrationEngineStub(sample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
@@ -249,7 +316,7 @@ struct Stage11CalibrationVMTests {
         let deltas = await awaitDeltas(stub, count: 1)
         let calibrateCount = await stub.calibrateWBCount
 
-        #expect(calibrateCount == 1, "engine.calibrateWhiteBalance should be called once; got \(calibrateCount)")
+        #expect(calibrateCount == 1, "engine.calibrateWhite should be called once; got \(calibrateCount)")
         #expect(deltas.count == 1, "expected one .manual delta from the engine apply")
         #expect(deltas.last?.wbMode == .manual)
     }
@@ -300,64 +367,6 @@ struct Stage11CalibrationVMTests {
         #expect(deltas.last?.wbGainR == nil)
     }
 
-    @Test("calibrateBB invokes engine.calibrateBlackBalance and refreshes the VM mirror")
-    @MainActor
-    func bbCalibrateUpdatesProcessingParams() async {
-        // Phase-2 §2b: engine owns the algorithm. The stub mirrors the
-        // engine's apply (CalibrationCompute.blackBalanceOffsets → snapshot);
-        // the VM resyncs `processingVM.currentProcessing` via
-        // `currentProcessingParametersSnapshot()`.
-        let sample = RgbSample(r: 0.02, g: 0.03, b: 0.05)
-        let stub = CalibrationEngineStub(sample: sample)
-        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
-        let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
-        let k = Constants.blackBalanceOverscan
-
-        vm.calibrateBB()
-
-        let deadline = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline,
-            processingVM.currentProcessing.blackR == 0
-        {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-
-        let calibrateCount = await stub.calibrateBBCount
-        #expect(calibrateCount == 1, "engine.calibrateBlackBalance should be called once")
-        #expect(abs(processingVM.currentProcessing.blackR - 0.02 * k) < 1e-9)
-        #expect(abs(processingVM.currentProcessing.blackG - 0.03 * k) < 1e-9)
-        #expect(abs(processingVM.currentProcessing.blackB - 0.05 * k) < 1e-9)
-    }
-
-    @Test("resetBlackBalance zeroes the pedestal")
-    @MainActor
-    func resetBlackBalanceZeroesPedestal() async {
-        let stub = CalibrationEngineStub(sample: RgbSample(r: 0.02, g: 0.03, b: 0.05))
-        let processingVM = ProcessingViewModel(engine: CameraEngine(initialPhase: .active))
-        let vm = CalibrationViewModel(engine: stub, processingVM: processingVM)
-
-        // Set a non-zero pedestal first.
-        vm.calibrateBB()
-        let deadline1 = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline1,
-            processingVM.currentProcessing.blackR == 0
-        {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(processingVM.currentProcessing.blackR > 0)
-
-        // Reset.
-        vm.resetBlackBalance()
-        let deadline2 = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline2,
-            processingVM.currentProcessing.blackR != 0
-        {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(processingVM.currentProcessing.blackR == 0)
-        #expect(processingVM.currentProcessing.blackG == 0)
-        #expect(processingVM.currentProcessing.blackB == 0)
-    }
 }
 
 // MARK: - Stage 11 — Error presenter view model

@@ -130,6 +130,7 @@ enum CameraErrorCode: Int {
   case invalidState = 17
   case hardwareError = 18
   case notOpen = 19
+  case calibrationFailed = 20
 }
 
 /// Generated class from Pigeon that represents data sent in messages.
@@ -192,6 +193,12 @@ struct PRect {
 struct OpenConfiguration {
   var cameraId: String? = nil
   var captureResolution: PSize? = nil
+  /// Target capture frame rate, locked in every mode. `null` → the default (30).
+  ///
+  /// Validated at open against the selected resolution's supported ranges
+  /// (see [SessionCapabilities.supportedFrameRates]); an unsupported
+  /// `(captureResolution, targetFps)` pair fails the open with a configuration error.
+  var targetFps: Int64? = nil
   var cropRegion: PRect? = nil
   var initialSettings: CameraSettings? = nil
 
@@ -200,12 +207,14 @@ struct OpenConfiguration {
   static func fromList(_ pigeonVar_list: [Any?]) -> OpenConfiguration? {
     let cameraId: String? = nilOrValue(pigeonVar_list[0])
     let captureResolution: PSize? = nilOrValue(pigeonVar_list[1])
-    let cropRegion: PRect? = nilOrValue(pigeonVar_list[2])
-    let initialSettings: CameraSettings? = nilOrValue(pigeonVar_list[3])
+    let targetFps: Int64? = nilOrValue(pigeonVar_list[2])
+    let cropRegion: PRect? = nilOrValue(pigeonVar_list[3])
+    let initialSettings: CameraSettings? = nilOrValue(pigeonVar_list[4])
 
     return OpenConfiguration(
       cameraId: cameraId,
       captureResolution: captureResolution,
+      targetFps: targetFps,
       cropRegion: cropRegion,
       initialSettings: initialSettings
     )
@@ -214,8 +223,43 @@ struct OpenConfiguration {
     return [
       cameraId,
       captureResolution,
+      targetFps,
       cropRegion,
       initialSettings,
+    ]
+  }
+}
+
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, supported range); a size can appear more than once (e.g. a
+/// full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+/// `FrameRateRange`.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct PFrameRateRange {
+  var size: PSize
+  var minFps: Int64
+  var maxFps: Int64
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PFrameRateRange? {
+    let size = pigeonVar_list[0] as! PSize
+    let minFps = pigeonVar_list[1] as! Int64
+    let maxFps = pigeonVar_list[2] as! Int64
+
+    return PFrameRateRange(
+      size: size,
+      minFps: minFps,
+      maxFps: maxFps
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      size,
+      minFps,
+      maxFps,
     ]
   }
 }
@@ -223,8 +267,11 @@ struct OpenConfiguration {
 /// Generated class from Pigeon that represents data sent in messages.
 struct SessionCapabilities {
   var supportedSizes: [PSize?]
-  var previewTextureId: Int64
-  var naturalTextureId: Int64
+  /// Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+  /// A caller reads this to pick a valid `(captureResolution, targetFps)`.
+  var supportedFrameRates: [PFrameRateRange?]
+  /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
+  var activeFrameRate: Int64
   var activeCaptureResolution: PSize
   var activeCropRegion: PRect
   var streamPixelFormat: String
@@ -243,8 +290,8 @@ struct SessionCapabilities {
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> SessionCapabilities? {
     let supportedSizes = pigeonVar_list[0] as! [PSize?]
-    let previewTextureId = pigeonVar_list[1] as! Int64
-    let naturalTextureId = pigeonVar_list[2] as! Int64
+    let supportedFrameRates = pigeonVar_list[1] as! [PFrameRateRange?]
+    let activeFrameRate = pigeonVar_list[2] as! Int64
     let activeCaptureResolution = pigeonVar_list[3] as! PSize
     let activeCropRegion = pigeonVar_list[4] as! PRect
     let streamPixelFormat = pigeonVar_list[5] as! String
@@ -261,8 +308,8 @@ struct SessionCapabilities {
 
     return SessionCapabilities(
       supportedSizes: supportedSizes,
-      previewTextureId: previewTextureId,
-      naturalTextureId: naturalTextureId,
+      supportedFrameRates: supportedFrameRates,
+      activeFrameRate: activeFrameRate,
       activeCaptureResolution: activeCaptureResolution,
       activeCropRegion: activeCropRegion,
       streamPixelFormat: streamPixelFormat,
@@ -281,8 +328,8 @@ struct SessionCapabilities {
   func toList() -> [Any?] {
     return [
       supportedSizes,
-      previewTextureId,
-      naturalTextureId,
+      supportedFrameRates,
+      activeFrameRate,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,
@@ -369,9 +416,6 @@ struct ProcessingParameters {
   var brightness: Double
   var contrast: Double
   var saturation: Double
-  var blackR: Double
-  var blackG: Double
-  var blackB: Double
   var gamma: Double
 
 
@@ -380,18 +424,12 @@ struct ProcessingParameters {
     let brightness = pigeonVar_list[0] as! Double
     let contrast = pigeonVar_list[1] as! Double
     let saturation = pigeonVar_list[2] as! Double
-    let blackR = pigeonVar_list[3] as! Double
-    let blackG = pigeonVar_list[4] as! Double
-    let blackB = pigeonVar_list[5] as! Double
-    let gamma = pigeonVar_list[6] as! Double
+    let gamma = pigeonVar_list[3] as! Double
 
     return ProcessingParameters(
       brightness: brightness,
       contrast: contrast,
       saturation: saturation,
-      blackR: blackR,
-      blackG: blackG,
-      blackB: blackB,
       gamma: gamma
     )
   }
@@ -400,9 +438,6 @@ struct ProcessingParameters {
       brightness,
       contrast,
       saturation,
-      blackR,
-      blackG,
-      blackB,
       gamma,
     ]
   }
@@ -475,6 +510,10 @@ struct FrameResult {
 /// Generated class from Pigeon that represents data sent in messages.
 struct RecordingOptions {
   var bitrateBps: Int64? = nil
+  /// Advisory writer frame rate. The *capture* rate is locked to
+  /// [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+  /// value here that differs from the session's target does not change the delivered
+  /// frame rate; leave it null to track the session frame rate.
   var fps: Int64? = nil
   var outputPath: String? = nil
   var photosDestination: PhotosDestination
@@ -698,26 +737,28 @@ private class CambrianIosCameraApiPigeonCodecReader: FlutterStandardReader {
     case 139:
       return OpenConfiguration.fromList(self.readValue() as! [Any?])
     case 140:
-      return SessionCapabilities.fromList(self.readValue() as! [Any?])
+      return PFrameRateRange.fromList(self.readValue() as! [Any?])
     case 141:
-      return CameraSettings.fromList(self.readValue() as! [Any?])
+      return SessionCapabilities.fromList(self.readValue() as! [Any?])
     case 142:
-      return ProcessingParameters.fromList(self.readValue() as! [Any?])
+      return CameraSettings.fromList(self.readValue() as! [Any?])
     case 143:
-      return StreamConfiguration.fromList(self.readValue() as! [Any?])
+      return ProcessingParameters.fromList(self.readValue() as! [Any?])
     case 144:
-      return FrameResult.fromList(self.readValue() as! [Any?])
+      return StreamConfiguration.fromList(self.readValue() as! [Any?])
     case 145:
-      return RecordingOptions.fromList(self.readValue() as! [Any?])
+      return FrameResult.fromList(self.readValue() as! [Any?])
     case 146:
-      return RecordingStart.fromList(self.readValue() as! [Any?])
+      return RecordingOptions.fromList(self.readValue() as! [Any?])
     case 147:
-      return RecordingStateValue.fromList(self.readValue() as! [Any?])
+      return RecordingStart.fromList(self.readValue() as! [Any?])
     case 148:
-      return RgbSample.fromList(self.readValue() as! [Any?])
+      return RecordingStateValue.fromList(self.readValue() as! [Any?])
     case 149:
-      return CalibrationResult.fromList(self.readValue() as! [Any?])
+      return RgbSample.fromList(self.readValue() as! [Any?])
     case 150:
+      return CalibrationResult.fromList(self.readValue() as! [Any?])
+    case 151:
       return CameraError.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -760,38 +801,41 @@ private class CambrianIosCameraApiPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? OpenConfiguration {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? SessionCapabilities {
+    } else if let value = value as? PFrameRateRange {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? CameraSettings {
+    } else if let value = value as? SessionCapabilities {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? ProcessingParameters {
+    } else if let value = value as? CameraSettings {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? StreamConfiguration {
+    } else if let value = value as? ProcessingParameters {
       super.writeByte(143)
       super.writeValue(value.toList())
-    } else if let value = value as? FrameResult {
+    } else if let value = value as? StreamConfiguration {
       super.writeByte(144)
       super.writeValue(value.toList())
-    } else if let value = value as? RecordingOptions {
+    } else if let value = value as? FrameResult {
       super.writeByte(145)
       super.writeValue(value.toList())
-    } else if let value = value as? RecordingStart {
+    } else if let value = value as? RecordingOptions {
       super.writeByte(146)
       super.writeValue(value.toList())
-    } else if let value = value as? RecordingStateValue {
+    } else if let value = value as? RecordingStart {
       super.writeByte(147)
       super.writeValue(value.toList())
-    } else if let value = value as? RgbSample {
+    } else if let value = value as? RecordingStateValue {
       super.writeByte(148)
       super.writeValue(value.toList())
-    } else if let value = value as? CalibrationResult {
+    } else if let value = value as? RgbSample {
       super.writeByte(149)
       super.writeValue(value.toList())
-    } else if let value = value as? CameraError {
+    } else if let value = value as? CalibrationResult {
       super.writeByte(150)
+      super.writeValue(value.toList())
+    } else if let value = value as? CameraError {
+      super.writeByte(151)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -831,8 +875,19 @@ protocol CameraEngineHostApi {
   func captureNaturalPicture(outputPath: String?, photosDestination: PhotosDestination, completion: @escaping (Result<String, Error>) -> Void)
   func startRecording(options: RecordingOptions, completion: @escaping (Result<RecordingStart, Error>) -> Void)
   func stopRecording(completion: @escaping (Result<String, Error>) -> Void)
-  func calibrateWhiteBalance(completion: @escaping (Result<CalibrationResult, Error>) -> Void)
-  func calibrateBlackBalance(completion: @escaping (Result<CalibrationResult, Error>) -> Void)
+  func calibrateWhiteBalance(whitePoint: Bool, completion: @escaping (Result<CalibrationResult, Error>) -> Void)
+  /// Calibrate the linear black point from a dark field. Returns nothing on
+  /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+  /// dark enough. Replaces the removed calibrateBlackBalance.
+  func calibrateBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func enableWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
+  func disableWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
+  func enableWhitePoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func disableWhitePoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func clearWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
+  func enableBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func disableBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func clearBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
   func createPreviewTexture(stream: StreamId, completion: @escaping (Result<Int64, Error>) -> Void)
   func destroyPreviewTexture(textureId: Int64, completion: @escaping (Result<Void, Error>) -> Void)
 }
@@ -1058,8 +1113,10 @@ class CameraEngineHostApiSetup {
     }
     let calibrateWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      calibrateWhiteBalanceChannel.setMessageHandler { _, reply in
-        api.calibrateWhiteBalance { result in
+      calibrateWhiteBalanceChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let whitePointArg = args[0] as! Bool
+        api.calibrateWhiteBalance(whitePoint: whitePointArg) { result in
           switch result {
           case .success(let res):
             reply(wrapResult(res))
@@ -1071,20 +1128,143 @@ class CameraEngineHostApiSetup {
     } else {
       calibrateWhiteBalanceChannel.setMessageHandler(nil)
     }
-    let calibrateBlackBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    /// Calibrate the linear black point from a dark field. Returns nothing on
+    /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+    /// dark enough. Replaces the removed calibrateBlackBalance.
+    let calibrateBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      calibrateBlackBalanceChannel.setMessageHandler { _, reply in
-        api.calibrateBlackBalance { result in
+      calibrateBlackPointChannel.setMessageHandler { _, reply in
+        api.calibrateBlackPoint { result in
           switch result {
-          case .success(let res):
-            reply(wrapResult(res))
+          case .success:
+            reply(wrapResult(nil))
           case .failure(let error):
             reply(wrapError(error))
           }
         }
       }
     } else {
-      calibrateBlackBalanceChannel.setMessageHandler(nil)
+      calibrateBlackPointChannel.setMessageHandler(nil)
+    }
+    let enableWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      enableWhiteBalanceChannel.setMessageHandler { _, reply in
+        api.enableWhiteBalance { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      enableWhiteBalanceChannel.setMessageHandler(nil)
+    }
+    let disableWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disableWhiteBalanceChannel.setMessageHandler { _, reply in
+        api.disableWhiteBalance { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      disableWhiteBalanceChannel.setMessageHandler(nil)
+    }
+    let enableWhitePointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhitePoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      enableWhitePointChannel.setMessageHandler { _, reply in
+        api.enableWhitePoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      enableWhitePointChannel.setMessageHandler(nil)
+    }
+    let disableWhitePointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhitePoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disableWhitePointChannel.setMessageHandler { _, reply in
+        api.disableWhitePoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      disableWhitePointChannel.setMessageHandler(nil)
+    }
+    let clearWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      clearWhiteBalanceChannel.setMessageHandler { _, reply in
+        api.clearWhiteBalance { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      clearWhiteBalanceChannel.setMessageHandler(nil)
+    }
+    let enableBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      enableBlackPointChannel.setMessageHandler { _, reply in
+        api.enableBlackPoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      enableBlackPointChannel.setMessageHandler(nil)
+    }
+    let disableBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disableBlackPointChannel.setMessageHandler { _, reply in
+        api.disableBlackPoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      disableBlackPointChannel.setMessageHandler(nil)
+    }
+    let clearBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      clearBlackPointChannel.setMessageHandler { _, reply in
+        api.clearBlackPoint { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      clearBlackPointChannel.setMessageHandler(nil)
     }
     let createPreviewTextureChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.createPreviewTexture\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

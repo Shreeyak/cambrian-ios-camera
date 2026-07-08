@@ -153,7 +153,8 @@ enum class CameraErrorCode(val raw: Int) {
   AE_CONVERGENCE_TIMEOUT(16),
   INVALID_STATE(17),
   HARDWARE_ERROR(18),
-  NOT_OPEN(19);
+  NOT_OPEN(19),
+  CALIBRATION_FAILED(20);
 
   companion object {
     fun ofRaw(raw: Int): CameraErrorCode? {
@@ -214,6 +215,14 @@ data class PRect (
 data class OpenConfiguration (
   val cameraId: String? = null,
   val captureResolution: PSize? = null,
+  /**
+   * Target capture frame rate, locked in every mode. `null` → the default (30).
+   *
+   * Validated at open against the selected resolution's supported ranges
+   * (see [SessionCapabilities.supportedFrameRates]); an unsupported
+   * `(captureResolution, targetFps)` pair fails the open with a configuration error.
+   */
+  val targetFps: Long? = null,
   val cropRegion: PRect? = null,
   val initialSettings: CameraSettings? = null
 )
@@ -222,17 +231,51 @@ data class OpenConfiguration (
     fun fromList(pigeonVar_list: List<Any?>): OpenConfiguration {
       val cameraId = pigeonVar_list[0] as String?
       val captureResolution = pigeonVar_list[1] as PSize?
-      val cropRegion = pigeonVar_list[2] as PRect?
-      val initialSettings = pigeonVar_list[3] as CameraSettings?
-      return OpenConfiguration(cameraId, captureResolution, cropRegion, initialSettings)
+      val targetFps = pigeonVar_list[2] as Long?
+      val cropRegion = pigeonVar_list[3] as PRect?
+      val initialSettings = pigeonVar_list[4] as CameraSettings?
+      return OpenConfiguration(cameraId, captureResolution, targetFps, cropRegion, initialSettings)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       cameraId,
       captureResolution,
+      targetFps,
       cropRegion,
       initialSettings,
+    )
+  }
+}
+
+/**
+ * A capture resolution paired with a frame-rate range it supports.
+ *
+ * One entry per (size, supported range); a size can appear more than once (e.g. a
+ * full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+ * `FrameRateRange`.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class PFrameRateRange (
+  val size: PSize,
+  val minFps: Long,
+  val maxFps: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PFrameRateRange {
+      val size = pigeonVar_list[0] as PSize
+      val minFps = pigeonVar_list[1] as Long
+      val maxFps = pigeonVar_list[2] as Long
+      return PFrameRateRange(size, minFps, maxFps)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      size,
+      minFps,
+      maxFps,
     )
   }
 }
@@ -240,8 +283,13 @@ data class OpenConfiguration (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class SessionCapabilities (
   val supportedSizes: List<PSize?>,
-  val previewTextureId: Long,
-  val naturalTextureId: Long,
+  /**
+   * Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+   * A caller reads this to pick a valid `(captureResolution, targetFps)`.
+   */
+  val supportedFrameRates: List<PFrameRateRange?>,
+  /** The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]). */
+  val activeFrameRate: Long,
   val activeCaptureResolution: PSize,
   val activeCropRegion: PRect,
   val streamPixelFormat: String,
@@ -260,8 +308,8 @@ data class SessionCapabilities (
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): SessionCapabilities {
       val supportedSizes = pigeonVar_list[0] as List<PSize?>
-      val previewTextureId = pigeonVar_list[1] as Long
-      val naturalTextureId = pigeonVar_list[2] as Long
+      val supportedFrameRates = pigeonVar_list[1] as List<PFrameRateRange?>
+      val activeFrameRate = pigeonVar_list[2] as Long
       val activeCaptureResolution = pigeonVar_list[3] as PSize
       val activeCropRegion = pigeonVar_list[4] as PRect
       val streamPixelFormat = pigeonVar_list[5] as String
@@ -275,14 +323,14 @@ data class SessionCapabilities (
       val zoomMax = pigeonVar_list[13] as Double
       val evMin = pigeonVar_list[14] as Double
       val evMax = pigeonVar_list[15] as Double
-      return SessionCapabilities(supportedSizes, previewTextureId, naturalTextureId, activeCaptureResolution, activeCropRegion, streamPixelFormat, isoMin, isoMax, exposureDurationMinNs, exposureDurationMaxNs, focusMin, focusMax, zoomMin, zoomMax, evMin, evMax)
+      return SessionCapabilities(supportedSizes, supportedFrameRates, activeFrameRate, activeCaptureResolution, activeCropRegion, streamPixelFormat, isoMin, isoMax, exposureDurationMinNs, exposureDurationMaxNs, focusMin, focusMax, zoomMin, zoomMax, evMin, evMax)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       supportedSizes,
-      previewTextureId,
-      naturalTextureId,
+      supportedFrameRates,
+      activeFrameRate,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,
@@ -356,9 +404,6 @@ data class ProcessingParameters (
   val brightness: Double,
   val contrast: Double,
   val saturation: Double,
-  val blackR: Double,
-  val blackG: Double,
-  val blackB: Double,
   val gamma: Double
 )
  {
@@ -367,11 +412,8 @@ data class ProcessingParameters (
       val brightness = pigeonVar_list[0] as Double
       val contrast = pigeonVar_list[1] as Double
       val saturation = pigeonVar_list[2] as Double
-      val blackR = pigeonVar_list[3] as Double
-      val blackG = pigeonVar_list[4] as Double
-      val blackB = pigeonVar_list[5] as Double
-      val gamma = pigeonVar_list[6] as Double
-      return ProcessingParameters(brightness, contrast, saturation, blackR, blackG, blackB, gamma)
+      val gamma = pigeonVar_list[3] as Double
+      return ProcessingParameters(brightness, contrast, saturation, gamma)
     }
   }
   fun toList(): List<Any?> {
@@ -379,9 +421,6 @@ data class ProcessingParameters (
       brightness,
       contrast,
       saturation,
-      blackR,
-      blackG,
-      blackB,
       gamma,
     )
   }
@@ -444,6 +483,12 @@ data class FrameResult (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class RecordingOptions (
   val bitrateBps: Long? = null,
+  /**
+   * Advisory writer frame rate. The *capture* rate is locked to
+   * [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+   * value here that differs from the session's target does not change the delivered
+   * frame rate; leave it null to track the session frame rate.
+   */
   val fps: Long? = null,
   val outputPath: String? = null,
   val photosDestination: PhotosDestination
@@ -644,55 +689,60 @@ private open class cambrian_ios_camera_apiPigeonCodec : StandardMessageCodec() {
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          SessionCapabilities.fromList(it)
+          PFrameRateRange.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CameraSettings.fromList(it)
+          SessionCapabilities.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ProcessingParameters.fromList(it)
+          CameraSettings.fromList(it)
         }
       }
       143.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          StreamConfiguration.fromList(it)
+          ProcessingParameters.fromList(it)
         }
       }
       144.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          FrameResult.fromList(it)
+          StreamConfiguration.fromList(it)
         }
       }
       145.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RecordingOptions.fromList(it)
+          FrameResult.fromList(it)
         }
       }
       146.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RecordingStart.fromList(it)
+          RecordingOptions.fromList(it)
         }
       }
       147.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RecordingStateValue.fromList(it)
+          RecordingStart.fromList(it)
         }
       }
       148.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RgbSample.fromList(it)
+          RecordingStateValue.fromList(it)
         }
       }
       149.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CalibrationResult.fromList(it)
+          RgbSample.fromList(it)
         }
       }
       150.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          CalibrationResult.fromList(it)
+        }
+      }
+      151.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           CameraError.fromList(it)
         }
@@ -746,48 +796,52 @@ private open class cambrian_ios_camera_apiPigeonCodec : StandardMessageCodec() {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is SessionCapabilities -> {
+      is PFrameRateRange -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is CameraSettings -> {
+      is SessionCapabilities -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is ProcessingParameters -> {
+      is CameraSettings -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is StreamConfiguration -> {
+      is ProcessingParameters -> {
         stream.write(143)
         writeValue(stream, value.toList())
       }
-      is FrameResult -> {
+      is StreamConfiguration -> {
         stream.write(144)
         writeValue(stream, value.toList())
       }
-      is RecordingOptions -> {
+      is FrameResult -> {
         stream.write(145)
         writeValue(stream, value.toList())
       }
-      is RecordingStart -> {
+      is RecordingOptions -> {
         stream.write(146)
         writeValue(stream, value.toList())
       }
-      is RecordingStateValue -> {
+      is RecordingStart -> {
         stream.write(147)
         writeValue(stream, value.toList())
       }
-      is RgbSample -> {
+      is RecordingStateValue -> {
         stream.write(148)
         writeValue(stream, value.toList())
       }
-      is CalibrationResult -> {
+      is RgbSample -> {
         stream.write(149)
         writeValue(stream, value.toList())
       }
-      is CameraError -> {
+      is CalibrationResult -> {
         stream.write(150)
+        writeValue(stream, value.toList())
+      }
+      is CameraError -> {
+        stream.write(151)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -813,8 +867,21 @@ interface CameraEngineHostApi {
   fun captureNaturalPicture(outputPath: String?, photosDestination: PhotosDestination, callback: (Result<String>) -> Unit)
   fun startRecording(options: RecordingOptions, callback: (Result<RecordingStart>) -> Unit)
   fun stopRecording(callback: (Result<String>) -> Unit)
-  fun calibrateWhiteBalance(callback: (Result<CalibrationResult>) -> Unit)
-  fun calibrateBlackBalance(callback: (Result<CalibrationResult>) -> Unit)
+  fun calibrateWhiteBalance(whitePoint: Boolean, callback: (Result<CalibrationResult>) -> Unit)
+  /**
+   * Calibrate the linear black point from a dark field. Returns nothing on
+   * success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+   * dark enough. Replaces the removed calibrateBlackBalance.
+   */
+  fun calibrateBlackPoint(callback: (Result<Unit>) -> Unit)
+  fun enableWhiteBalance(callback: (Result<Unit>) -> Unit)
+  fun disableWhiteBalance(callback: (Result<Unit>) -> Unit)
+  fun enableWhitePoint(callback: (Result<Unit>) -> Unit)
+  fun disableWhitePoint(callback: (Result<Unit>) -> Unit)
+  fun clearWhiteBalance(callback: (Result<Unit>) -> Unit)
+  fun enableBlackPoint(callback: (Result<Unit>) -> Unit)
+  fun disableBlackPoint(callback: (Result<Unit>) -> Unit)
+  fun clearBlackPoint(callback: (Result<Unit>) -> Unit)
   fun createPreviewTexture(stream: StreamId, callback: (Result<Long>) -> Unit)
   fun destroyPreviewTexture(textureId: Long, callback: (Result<Unit>) -> Unit)
 
@@ -1077,8 +1144,10 @@ interface CameraEngineHostApi {
       run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhiteBalance$separatedMessageChannelSuffix", codec)
         if (api != null) {
-          channel.setMessageHandler { _, reply ->
-            api.calibrateWhiteBalance{ result: Result<CalibrationResult> ->
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val whitePointArg = args[0] as Boolean
+            api.calibrateWhiteBalance(whitePointArg) { result: Result<CalibrationResult> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -1093,16 +1162,151 @@ interface CameraEngineHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackBalance$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            api.calibrateBlackBalance{ result: Result<CalibrationResult> ->
+            api.calibrateBlackPoint{ result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
               } else {
-                val data = result.getOrNull()
-                reply.reply(wrapResult(data))
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhiteBalance$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.enableWhiteBalance{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhiteBalance$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.disableWhiteBalance{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhitePoint$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.enableWhitePoint{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhitePoint$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.disableWhitePoint{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearWhiteBalance$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.clearWhiteBalance{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableBlackPoint$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.enableBlackPoint{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableBlackPoint$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.disableBlackPoint{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearBlackPoint$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.clearBlackPoint{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
               }
             }
           }

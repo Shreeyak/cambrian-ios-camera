@@ -34,9 +34,10 @@ enum FrameDiagnostics {
             fields.append(("contrast", num(p.contrast)))
             fields.append(("saturation", num(p.saturation)))
             fields.append(("gamma", num(p.gamma)))
-            fields.append(("blackR", num(p.blackR)))
-            fields.append(("blackG", num(p.blackG)))
-            fields.append(("blackB", num(p.blackB)))
+            fields.append(("blackPointEnabled", p.blackPointEnabled ? "true" : "false"))
+            fields.append(("blackPointR", num(p.blackPointR)))
+            fields.append(("blackPointG", num(p.blackPointG)))
+            fields.append(("blackPointB", num(p.blackPointB)))
         }
         if let c = crop {
             fields.append(("cropX", String(c.x)))

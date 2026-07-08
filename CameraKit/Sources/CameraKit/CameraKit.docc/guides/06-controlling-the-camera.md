@@ -14,6 +14,11 @@ Every setting is bounded by the ``SessionCapabilities`` returned from
 ``SessionCapabilities/supportedSizes``. Read capabilities first and clamp values
 to these ranges.
 
+``SessionCapabilities/exposureDurationRangeNs`` is bounded by the active frame
+rate — the manual-exposure ceiling is `min(sensorMax, 1/targetFps)`, and a longer
+exposure throws rather than clamping. Resolution and frame rate themselves are
+chosen at open; see <doc:11-capture-format>.
+
 ## Applying settings
 
 Camera settings are applied as a whole with
@@ -58,8 +63,13 @@ Select the capture resolution by passing a ``Size`` from
 ``CameraEngine/setResolution(size:)``. The size is validated against the device's
 supported formats: an unsupported size throws ``EngineError`` (`settingsConflict`)
 naming the request and the supported set, and a supported size is applied (it is
-not silently snapped). `nil` (the default) selects the device default format. The
-active value is reported as ``SessionCapabilities/activeCaptureResolution``.
+not silently snapped). `nil` (the default) selects the computed largest 4:3
+resolution (<doc:11-capture-format>). The active value is reported as
+``SessionCapabilities/activeCaptureResolution``.
+
+> Note: ``CameraEngine/setResolution(size:)`` changes resolution live while
+> keeping the locked frame rate; the frame rate itself is fixed for the session
+> and can only change by reopening (<doc:11-capture-format>).
 
 ## Region-of-interest crop
 

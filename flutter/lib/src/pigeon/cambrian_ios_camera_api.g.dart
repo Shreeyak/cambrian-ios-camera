@@ -81,6 +81,7 @@ enum CameraErrorCode {
   invalidState,
   hardwareError,
   notOpen,
+  calibrationFailed,
 }
 
 class PSize {
@@ -149,6 +150,7 @@ class OpenConfiguration {
   OpenConfiguration({
     this.cameraId,
     this.captureResolution,
+    this.targetFps,
     this.cropRegion,
     this.initialSettings,
   });
@@ -156,6 +158,13 @@ class OpenConfiguration {
   String? cameraId;
 
   PSize? captureResolution;
+
+  /// Target capture frame rate, locked in every mode. `null` → the default (30).
+  ///
+  /// Validated at open against the selected resolution's supported ranges
+  /// (see [SessionCapabilities.supportedFrameRates]); an unsupported
+  /// `(captureResolution, targetFps)` pair fails the open with a configuration error.
+  int? targetFps;
 
   PRect? cropRegion;
 
@@ -165,6 +174,7 @@ class OpenConfiguration {
     return <Object?>[
       cameraId,
       captureResolution,
+      targetFps,
       cropRegion,
       initialSettings,
     ];
@@ -175,8 +185,45 @@ class OpenConfiguration {
     return OpenConfiguration(
       cameraId: result[0] as String?,
       captureResolution: result[1] as PSize?,
-      cropRegion: result[2] as PRect?,
-      initialSettings: result[3] as CameraSettings?,
+      targetFps: result[2] as int?,
+      cropRegion: result[3] as PRect?,
+      initialSettings: result[4] as CameraSettings?,
+    );
+  }
+}
+
+/// A capture resolution paired with a frame-rate range it supports.
+///
+/// One entry per (size, supported range); a size can appear more than once (e.g. a
+/// full-FOV 1–60 range and a binned 2–240 slow-mo range). Mirror of CameraKit
+/// `FrameRateRange`.
+class PFrameRateRange {
+  PFrameRateRange({
+    required this.size,
+    required this.minFps,
+    required this.maxFps,
+  });
+
+  PSize size;
+
+  int minFps;
+
+  int maxFps;
+
+  Object encode() {
+    return <Object?>[
+      size,
+      minFps,
+      maxFps,
+    ];
+  }
+
+  static PFrameRateRange decode(Object result) {
+    result as List<Object?>;
+    return PFrameRateRange(
+      size: result[0]! as PSize,
+      minFps: result[1]! as int,
+      maxFps: result[2]! as int,
     );
   }
 }
@@ -184,8 +231,8 @@ class OpenConfiguration {
 class SessionCapabilities {
   SessionCapabilities({
     required this.supportedSizes,
-    required this.previewTextureId,
-    required this.naturalTextureId,
+    required this.supportedFrameRates,
+    required this.activeFrameRate,
     required this.activeCaptureResolution,
     required this.activeCropRegion,
     required this.streamPixelFormat,
@@ -203,9 +250,12 @@ class SessionCapabilities {
 
   List<PSize?> supportedSizes;
 
-  int previewTextureId;
+  /// Frame-rate ranges supported per resolution (live device data, incl. slow-mo).
+  /// A caller reads this to pick a valid `(captureResolution, targetFps)`.
+  List<PFrameRateRange?> supportedFrameRates;
 
-  int naturalTextureId;
+  /// The frame rate the session is locked to (the resolved [OpenConfiguration.targetFps]).
+  int activeFrameRate;
 
   PSize activeCaptureResolution;
 
@@ -236,8 +286,8 @@ class SessionCapabilities {
   Object encode() {
     return <Object?>[
       supportedSizes,
-      previewTextureId,
-      naturalTextureId,
+      supportedFrameRates,
+      activeFrameRate,
       activeCaptureResolution,
       activeCropRegion,
       streamPixelFormat,
@@ -258,8 +308,8 @@ class SessionCapabilities {
     result as List<Object?>;
     return SessionCapabilities(
       supportedSizes: (result[0] as List<Object?>?)!.cast<PSize?>(),
-      previewTextureId: result[1]! as int,
-      naturalTextureId: result[2]! as int,
+      supportedFrameRates: (result[1] as List<Object?>?)!.cast<PFrameRateRange?>(),
+      activeFrameRate: result[2]! as int,
       activeCaptureResolution: result[3]! as PSize,
       activeCropRegion: result[4]! as PRect,
       streamPixelFormat: result[5]! as String,
@@ -358,9 +408,6 @@ class ProcessingParameters {
     required this.brightness,
     required this.contrast,
     required this.saturation,
-    required this.blackR,
-    required this.blackG,
-    required this.blackB,
     required this.gamma,
   });
 
@@ -370,12 +417,6 @@ class ProcessingParameters {
 
   double saturation;
 
-  double blackR;
-
-  double blackG;
-
-  double blackB;
-
   double gamma;
 
   Object encode() {
@@ -383,9 +424,6 @@ class ProcessingParameters {
       brightness,
       contrast,
       saturation,
-      blackR,
-      blackG,
-      blackB,
       gamma,
     ];
   }
@@ -396,10 +434,7 @@ class ProcessingParameters {
       brightness: result[0]! as double,
       contrast: result[1]! as double,
       saturation: result[2]! as double,
-      blackR: result[3]! as double,
-      blackG: result[4]! as double,
-      blackB: result[5]! as double,
-      gamma: result[6]! as double,
+      gamma: result[3]! as double,
     );
   }
 }
@@ -486,6 +521,10 @@ class RecordingOptions {
 
   int? bitrateBps;
 
+  /// Advisory writer frame rate. The *capture* rate is locked to
+  /// [OpenConfiguration.targetFps] in every mode (configurable-frame-rate), so a
+  /// value here that differs from the session's target does not change the delivered
+  /// frame rate; leave it null to track the session frame rate.
   int? fps;
 
   String? outputPath;
@@ -703,38 +742,41 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is OpenConfiguration) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    }    else if (value is SessionCapabilities) {
+    }    else if (value is PFrameRateRange) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    }    else if (value is CameraSettings) {
+    }    else if (value is SessionCapabilities) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    }    else if (value is ProcessingParameters) {
+    }    else if (value is CameraSettings) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    }    else if (value is StreamConfiguration) {
+    }    else if (value is ProcessingParameters) {
       buffer.putUint8(143);
       writeValue(buffer, value.encode());
-    }    else if (value is FrameResult) {
+    }    else if (value is StreamConfiguration) {
       buffer.putUint8(144);
       writeValue(buffer, value.encode());
-    }    else if (value is RecordingOptions) {
+    }    else if (value is FrameResult) {
       buffer.putUint8(145);
       writeValue(buffer, value.encode());
-    }    else if (value is RecordingStart) {
+    }    else if (value is RecordingOptions) {
       buffer.putUint8(146);
       writeValue(buffer, value.encode());
-    }    else if (value is RecordingStateValue) {
+    }    else if (value is RecordingStart) {
       buffer.putUint8(147);
       writeValue(buffer, value.encode());
-    }    else if (value is RgbSample) {
+    }    else if (value is RecordingStateValue) {
       buffer.putUint8(148);
       writeValue(buffer, value.encode());
-    }    else if (value is CalibrationResult) {
+    }    else if (value is RgbSample) {
       buffer.putUint8(149);
       writeValue(buffer, value.encode());
-    }    else if (value is CameraError) {
+    }    else if (value is CalibrationResult) {
       buffer.putUint8(150);
+      writeValue(buffer, value.encode());
+    }    else if (value is CameraError) {
+      buffer.putUint8(151);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -775,26 +817,28 @@ class _PigeonCodec extends StandardMessageCodec {
       case 139: 
         return OpenConfiguration.decode(readValue(buffer)!);
       case 140: 
-        return SessionCapabilities.decode(readValue(buffer)!);
+        return PFrameRateRange.decode(readValue(buffer)!);
       case 141: 
-        return CameraSettings.decode(readValue(buffer)!);
+        return SessionCapabilities.decode(readValue(buffer)!);
       case 142: 
-        return ProcessingParameters.decode(readValue(buffer)!);
+        return CameraSettings.decode(readValue(buffer)!);
       case 143: 
-        return StreamConfiguration.decode(readValue(buffer)!);
+        return ProcessingParameters.decode(readValue(buffer)!);
       case 144: 
-        return FrameResult.decode(readValue(buffer)!);
+        return StreamConfiguration.decode(readValue(buffer)!);
       case 145: 
-        return RecordingOptions.decode(readValue(buffer)!);
+        return FrameResult.decode(readValue(buffer)!);
       case 146: 
-        return RecordingStart.decode(readValue(buffer)!);
+        return RecordingOptions.decode(readValue(buffer)!);
       case 147: 
-        return RecordingStateValue.decode(readValue(buffer)!);
+        return RecordingStart.decode(readValue(buffer)!);
       case 148: 
-        return RgbSample.decode(readValue(buffer)!);
+        return RecordingStateValue.decode(readValue(buffer)!);
       case 149: 
-        return CalibrationResult.decode(readValue(buffer)!);
+        return RgbSample.decode(readValue(buffer)!);
       case 150: 
+        return CalibrationResult.decode(readValue(buffer)!);
+      case 151: 
         return CameraError.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -1133,7 +1177,7 @@ class CameraEngineHostApi {
     }
   }
 
-  Future<CalibrationResult> calibrateWhiteBalance() async {
+  Future<CalibrationResult> calibrateWhiteBalance(bool whitePoint) async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhiteBalance$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
@@ -1141,7 +1185,7 @@ class CameraEngineHostApi {
       binaryMessenger: pigeonVar_binaryMessenger,
     );
     final List<Object?>? pigeonVar_replyList =
-        await pigeonVar_channel.send(null) as List<Object?>?;
+        await pigeonVar_channel.send(<Object?>[whitePoint]) as List<Object?>?;
     if (pigeonVar_replyList == null) {
       throw _createConnectionError(pigeonVar_channelName);
     } else if (pigeonVar_replyList.length > 1) {
@@ -1160,8 +1204,11 @@ class CameraEngineHostApi {
     }
   }
 
-  Future<CalibrationResult> calibrateBlackBalance() async {
-    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackBalance$pigeonVar_messageChannelSuffix';
+  /// Calibrate the linear black point from a dark field. Returns nothing on
+  /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
+  /// dark enough. Replaces the removed calibrateBlackBalance.
+  Future<void> calibrateBlackPoint() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -1177,13 +1224,184 @@ class CameraEngineHostApi {
         message: pigeonVar_replyList[1] as String?,
         details: pigeonVar_replyList[2],
       );
-    } else if (pigeonVar_replyList[0] == null) {
+    } else {
+      return;
+    }
+  }
+
+  Future<void> enableWhiteBalance() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhiteBalance$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
       throw PlatformException(
-        code: 'null-error',
-        message: 'Host platform returned null value for non-null return value.',
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
       );
     } else {
-      return (pigeonVar_replyList[0] as CalibrationResult?)!;
+      return;
+    }
+  }
+
+  Future<void> disableWhiteBalance() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhiteBalance$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<void> enableWhitePoint() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhitePoint$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<void> disableWhitePoint() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableWhitePoint$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<void> clearWhiteBalance() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearWhiteBalance$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<void> enableBlackPoint() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableBlackPoint$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<void> disableBlackPoint() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.disableBlackPoint$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<void> clearBlackPoint() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.clearBlackPoint$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
     }
   }
 

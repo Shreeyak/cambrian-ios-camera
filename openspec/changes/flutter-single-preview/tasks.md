@@ -8,53 +8,63 @@ device-only; Dart on host; Swift RunnerTests via `xcodebuild test` (wireless OK)
 
 ## 1. Remove texture-id fields from the contract
 
-- [ ] 1.1 CameraKit `Capabilities.swift`: remove `previewTextureId` field + init
+- [x] 1.1 CameraKit `Capabilities.swift`: remove `previewTextureId` field + init
   param + assignment; update the struct's doc comment. (`naturalTextureId` already
   removed in `remove-natural-lane`.)
-- [ ] 1.2 CameraKit `CameraEngine.open()`: remove the `previewTextureId: 0,` stub
-  line (`~:488`) from the `SessionCapabilities(...)` construction.
-- [ ] 1.3 Pigeon DSL (`flutter/pigeons/cambrian_ios_camera_api.dart`): remove
+- [x] 1.2 CameraKit `CameraEngine.open()`: remove the `previewTextureId: 0,` stub
+  line (`~:607`) from the `SessionCapabilities(...)` construction.
+- [x] 1.3 Pigeon DSL (`flutter/pigeons/cambrian_ios_camera_api.dart`): remove
   `previewTextureId` and `naturalTextureId` from `SessionCapabilities` (ctor params
-  + fields); update the struct comment. Regenerate:
-  `cd flutter && dart run pigeon --input pigeons/cambrian_ios_camera_api.dart`
-  (updates the Dart/Swift/Kotlin `.g` mirrors — all committed).
-- [ ] 1.4 `ValueTypeMappers.swift`: drop `previewTextureId:`/`naturalTextureId:`
-  from `SessionCapabilities.toPigeon()` (`:157-158`).
-- [ ] 1.5 Native example `ViewModel.swift:347`: drop
+  + fields); update the struct comment. Regenerated via
+  `dart run pigeon --input pigeons/cambrian_ios_camera_api.dart`
+  (Dart/Swift/Kotlin `.g` mirrors all updated — `previewTextureId` gone from all three).
+- [x] 1.4 `ValueTypeMappers.swift`: drop `previewTextureId:`/`naturalTextureId:`
+  from `SessionCapabilities.toPigeon()` (`:162`).
+- [x] 1.5 Native example `ViewModel.swift:419`: drop
   `previewTextureId: caps.previewTextureId,` from the `SessionCapabilities`
   reconstruction.
 
 ## 2. Single preview surface
 
-- [ ] 2.1 Confirm the example app renders one preview via
+- [x] 2.1 Confirmed the example app renders one preview via
   `createPreviewTexture(stream: .primary)` (already so in
-  `flutter/example/lib/widgets/preview_widget.dart`); fix the stale "processed-lane"
-  doc comment (`:5`) → "primary lane".
+  `flutter/example/lib/widgets/preview_widget.dart`); fixed the stale "processed-lane"
+  doc comment (`:5`) → "primary-lane".
 
 ## 3. Repair tests / mocks / fixtures (close accept-broken debt)
 
-- [ ] 3.1 Dart `flutter/test/camera_engine_texture_test.dart`: `.processed` →
-  `.primary`; remove the `.natural` second-texture case (or repoint it to
-  `.tracker` if the two-distinct-textures assertion is still wanted).
-- [ ] 3.2 Dart `flutter/test/camera_engine_open_close_test.dart`: remove
-  `previewTextureId: 1,` and `naturalTextureId: 2,` from the capabilities fixture.
-- [ ] 3.3 Dart `flutter/example/integration_test/plugin_test.dart:45`: `.processed`
-  → `.primary`.
-- [ ] 3.4 Swift `flutter/example/ios/RunnerTests/TextureMapTests.swift`:
-  `.processed` → `.primary` (4 sites: `:16,36,57,75`).
-- [ ] 3.5 Swift `flutter/example/ios/RunnerTests/MockCameraEngine.swift`: remove
-  `previewTextureId: 1,` and `naturalTextureId: 2,` from the mock capabilities.
-- [ ] 3.6 Sweep CameraKit tests that construct `SessionCapabilities` with
-  `previewTextureId:` (e.g. `RgbaConversionTests` stream-pixel-format test) and drop
-  the field; the Swift compiler flags any miss.
+- [x] 3.1 Dart `flutter/test/camera_engine_texture_test.dart`: `.processed` →
+  `.primary` / `.natural` case — already clean (repointed earlier in `222b001`; grep
+  finds no `.processed`/`.natural`).
+- [x] 3.2 Dart `flutter/test/camera_engine_open_close_test.dart`: removed
+  `previewTextureId: 1,` from the capabilities fixture (`naturalTextureId` already gone).
+- [x] 3.3 Dart `flutter/example/integration_test/plugin_test.dart:45`: `.processed`
+  → `.primary` — already clean (no `.processed`/`.natural` refs remain).
+- [x] 3.4 Swift `flutter/example/ios/RunnerTests/TextureMapTests.swift`:
+  `.processed` → `.primary` — already clean (repointed in `222b001`).
+- [x] 3.5 Swift `flutter/example/ios/RunnerTests/MockCameraEngine.swift`: removed
+  `previewTextureId: 1,` from the mock capabilities.
+- [x] 3.6 Swept CameraKit tests constructing `SessionCapabilities` with
+  `previewTextureId:` — dropped the field from `RgbaConversionTests`, `Stage06Tests`,
+  and `RemoveNaturalLaneTests` (whose reflection assertion is flipped to expect
+  `previewTextureId` **absent**). The Swift compiler confirmed no miss (device build
+  SUCCEEDED).
 
 ## 4. Verify
 
-- [ ] 4.1 `cd flutter && flutter analyze && flutter test` (host) — green.
-- [ ] 4.2 CameraKit build + tests green on iPad (RemoveNaturalLaneTests,
-  RgbaConversion, etc.); `swift-format lint --strict` clean on `CameraKit/Sources`.
-- [ ] 4.3 Swift adapter RunnerTests via `xcodebuild test` (wireless OK).
-- [ ] 4.4 `integration_test`: connect USB, re-prime `flutter build ios --config-only`,
-  then `flutter/example/scripts/test-integration.sh`; retry once on a transient
-  VM-service "Connection refused".
-- [ ] 4.5 `openspec validate flutter-single-preview --strict`.
+- [x] 4.1 `cd flutter && flutter analyze && flutter test` (host) — green
+  (analyze: 0 issues; test: 58/58 passed, incl. the edited `open_close`/`texture` fixtures).
+- [x] 4.2 CameraKit build + device tests green on iPad. `build_device` SUCCEEDED
+  (the removal compiles across `Capabilities`/`CameraEngine`/`ViewModel`);
+  `RemoveNaturalLaneTests` **2/2 passed on device** — the reflection assertion now
+  confirms `previewTextureId` is absent at runtime, and recompiling the target
+  proved the `RgbaConversion`/`Stage06` fixture edits compile. `swift-format lint
+  --strict` runs at pre-commit.
+- [x] 4.3 Swift adapter RunnerTests green on device — **11/11 passed** (NotOpenGuard 3,
+  SceneLifecycle 4, TextureMap 4), via XcodeBuildMCP `test_device` on the `Runner`
+  workspace. Confirms `ValueTypeMappers`/`MockCameraEngine` compile + the preview
+  texture-map behavior is intact after the field removal. (One-time device hygiene:
+  cleared a stale `cambrianIosCameraExample` install that had blocked the fresh install.)
+- [~] 4.4 `integration_test` — **deferred** (needs USB + re-prime
+  `flutter build ios --config-only`); folds into the device HITL pass.
+- [x] 4.5 `openspec validate flutter-single-preview --strict` — valid.

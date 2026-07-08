@@ -2,6 +2,11 @@ import CoreVideo
 import Metal
 
 enum Constants {
+    /// Default capture frame rate when `OpenConfiguration.targetFps` is `nil`.
+    ///
+    /// The frame rate is now caller-configurable (`configurable-frame-rate`); this
+    /// is only the default. It is locked in every mode (preview / still /
+    /// recording) and bounds the max usable exposure at `1/frameRateTargetFPS`.
     static let frameRateTargetFPS: Int = 30
     static let capturePixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
     static let workingPixelFormat: MTLPixelFormat = .rgba16Float
@@ -15,13 +20,20 @@ enum Constants {
     static let stateStreamBufferSize: Int = 64
     /// ADR-30: Deadline for startRunning() / stopRunning() awaited from @MainActor.
     static let sessionLifecycleTimeoutSeconds: Double = 2.0
+    /// Deadline for the first delivered frame after a user-driven `open()`.
+    ///
+    /// No frame within this window fails `open()` with `sessionLifecycleTimeout`
+    /// instead of returning a dead session. Normal first-frame latency is
+    /// ~100–200 ms, so 2 s is generous headroom.
+    static let firstFrameTimeoutSeconds: Double = 2.0
     // Frame-result heartbeat (07-settings.md §Frame-result heartbeat).
     static let frameResultHeartbeatHz: Int = 3
     static let frameResultHeartbeatIntervalFrames: Int = 10  // 30 fps ÷ 3 Hz
     // Session-only teardown budget for setResolution (03-camera-session.md).
     static let resolutionResizeTimeoutSeconds: Double = 5.0
     // Stage 04 — color pipeline + sample-center-patch (architecture/constants.md).
-    /// Square center-patch size in pixels for `sampleCenterPatch()` (constants.md line 35).
+    /// Square center-patch size in pixels for the calibration center-patch sampler
+    /// (`dispatchCenterPatchOnNatural`) (constants.md line 35).
     static let centerPatchSizePx: Int = 96
     /// Per-side trim ratio for the patch sampler's trimmed mean.
     ///
@@ -29,9 +41,52 @@ enum Constants {
     /// hot pixels and specular highlights without sacrificing too much sample
     /// area on a 96² patch (~691 of 9216 px per side at 7.5 %).
     static let centerPatchTrimRatio: Double = 0.075
-    /// Multiplier applied to BB pedestal sample so the per-pixel noise above
-    /// the trimmed mean is also driven to the clamp floor on iPad HITL.
-    static let blackBalanceOverscan: Double = 1.5
+    // MARK: - linear-normalization-stage — color-normalization constants
+
+    /// White-point calibration target in **display (gamma) space**: 250/255.
+    ///
+    /// The neutralized white reference is lifted to this level (≈ 250 in uint8),
+    /// not a forced 1.0 — keeps the reference balanced without mandatory highlight
+    /// clipping. Converted to linear before forming the white-point scale. Raise
+    /// toward 1.0 for a pure-white DL feed. Build-time only (color-normalization
+    /// design D6).
+    static let whitePointTargetDisplay: Double = 250.0 / 255.0  // ≈ 0.9804
+
+    /// Black-point noise margin as a **σ-multiplier**: `offset = mean + k·σ`.
+    ///
+    /// Statistical noise margin (design D7). `k = 1.5` drives ~93% of the
+    /// (linear-light) noise band to the clamp floor,
+    /// a deliberately gentle crush that preserves dim signal (fluorescence).
+    static let blackPointSigmaK: Double = 1.5
+
+    /// Black-point near-black sample threshold in **gamma/display** space (0…1).
+    ///
+    /// Only patch pixels whose (gamma) channel value is below this are counted as
+    /// "black" for the black-point statistic — a stray bright or colored pixel in
+    /// the 96² patch can't inflate the black level (which over-crushed and tinted
+    /// the image). `0.3` ≈ 76/255: comfortably above a real dark field yet well
+    /// below any mid-tone. Build-time tunable (design D8, revised 2026-06-23).
+    static let blackPointMaxSampleGamma: Double = 0.3
+
+    /// Minimum fraction of the sampled patch that must pass the near-black gate
+    /// for a black-point calibration to be accepted (0…1).
+    ///
+    /// Guards against a sliver of dark pixels on an otherwise bright/non-uniform
+    /// surface driving the black point: unless at least this fraction of the patch
+    /// is genuinely near-black, calibration fails rather than applying an offset
+    /// derived from a non-representative minority. `0.4` ≈ require the patch to be
+    /// mostly (not merely partly) dark. Build-time tunable.
+    static let blackPointMinKeptFraction: Double = 0.4
+
+    /// Minimum patch brightness (mean of the trimmed per-channel sample, in
+    /// gamma/display space, 0…1) for `calibrateWhite()` to accept a white field.
+    ///
+    /// The symmetric guard to `blackPointMinKeptFraction`: calibrating white
+    /// against a dark/garbage field would compute huge, meaningless chroma gains.
+    /// `0.2` ≈ 51/255 cleanly separates a real white field (bright) from a dark
+    /// field (near-black) while staying lenient enough not to reject a dimly-lit
+    /// but valid white reference. Build-time tunable.
+    static let whiteFieldMinSampleGamma: Double = 0.2
     /// Per-step log2-space cap retained on `CalibrationCompute.grayWorldGains`
     /// for unit-test stability. `calibrateWB` itself no longer iterates —
     /// the helper is kept as a pure utility but isn't in the live path.
@@ -82,7 +137,21 @@ enum Constants {
     /// Consecutive HW failures before entering recovery. constants.md#HW_ERROR_THRESHOLD_CONSECUTIVE.
     static let hwErrorThresholdConsecutive: Int = 5
     /// Max retries before fatal MAX_RETRIES_EXCEEDED. constants.md#RECOVERY_MAX_RETRIES.
+    ///
+    /// Used by `RecoveryCoordinator` for the throwing-reopen fatal (a reopen whose
+    /// `open()` itself keeps throwing). The stall-escalation quick-tier bound is the
+    /// separate `recoveryQuickReopens`.
     static let recoveryMaxRetries: Int = 5
+    /// recovery-restart-budget: quick reopens (fast retries) for a stalling reopen.
+    ///
+    /// Before escalating to a full restart. Linear escalation: quick×this →
+    /// full×maxFullRestarts → fatal (≈ 5 total reopens, ~35 s at ~7 s/cycle).
+    static let recoveryQuickReopens: Int = 3
+    /// recovery-restart-budget: full restarts (heavier teardown + settle + reopen)
+    /// after quick reopens are exhausted, before the terminal permanent fatal.
+    static let maxFullRestarts: Int = 2
+    /// recovery-restart-budget: settle delay before a full restart's reopen.
+    static let fullRestartSettleSeconds: Double = 1.0
     /// Exponential backoff schedule (attempts 1..5+). constants.md#RECOVERY_BACKOFF_*_MS.
     static let recoveryBackoff1Ms: Int = 500
     static let recoveryBackoff2Ms: Int = 1000
@@ -104,9 +173,9 @@ enum Constants {
 
     // MARK: - Stage 10 — Recording mode
 
-    /// AE lower frame-rate bound while recording — allows AE to halve in low light.
-    /// constants.md#FRAME_RATE_RECORDING_MIN_FPS.
-    static let frameRateRecordingMinFps: Int = 15
+    // configurable-frame-rate: `frameRateRecordingMinFps` (the AE low-light
+    // frame-rate floor) was retired — the frame rate is now locked to
+    // `OpenConfiguration.targetFps` identically in every mode, recording included.
     /// Default video bitrate. TARGET_BITRATE_MBPS is marked "docs/measurements/" upstream;
     /// 40 Mbps is reasonable for 4K HEVC @ 30fps. See state.md open questions.
     static let recordingTargetBitrateBpsDefault: Int = 40_000_000

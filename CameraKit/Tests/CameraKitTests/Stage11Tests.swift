@@ -83,57 +83,124 @@ struct Stage11CalibrationComputeTests {
         #expect(gains.red >= 1.0)
     }
 
-    @Test("black-balance offsets scale per-channel sample by overscan multiplier")
-    func blackBalanceOffsetsOverscan() {
-        let sample = RgbSample(r: 0.02, g: 0.03, b: 0.05)
-        let offsets = CalibrationCompute.blackBalanceOffsets(sample: sample)
-        let k = Constants.blackBalanceOverscan
-        #expect(abs(offsets.r - 0.02 * k) < 1e-9)
-        #expect(abs(offsets.g - 0.03 * k) < 1e-9)
-        #expect(abs(offsets.b - 0.05 * k) < 1e-9)
+    // MARK: - linear-normalization-stage: statistical black point
+
+    @Test("black point: uniform dark field → offset = linearized value (σ = 0, no margin)")
+    func blackPointUniformField() {
+        let w = 128, h = 128
+        let g: Float = 0.03  // gamma-encoded
+        let pixels = [SIMD3<Float>](repeating: SIMD3<Float>(g, g, g), count: w * h)
+        let off = CalibrationCompute.blackPointOffsets(
+            pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
+        // Uniform ⇒ σ ≈ 0 ⇒ offset ≈ mean = linearized value. Tolerance 1e-8 (not
+        // 1e-9): the single-pass variance (E[x²]−E[x]²) leaves a ~1.5e-9 residual
+        // on a perfectly-uniform field, an utterly negligible black-point margin
+        // (~6 orders below 8-bit precision).
+        let expected = CalibrationCompute.srgbToLinear(Double(g))
+        #expect(abs(off.r - expected) < 1e-8)
+        #expect(abs(off.g - expected) < 1e-8)
+        #expect(abs(off.b - expected) < 1e-8)
+    }
+
+    @Test("black point: per-pixel gate drops a pixel bright in ANY channel")
+    func blackPointPerPixelGate() {
+        let w = 128, h = 128
+        let bg: Float = 0.03
+        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(bg, bg, bg), count: w * h)
+        // Pixels dark in R/G (0.2 < 0.3) but bright in B (0.6 > 0.3), inside the
+        // patch. The per-PIXEL gate must drop them wholesale — their dark R/G must
+        // NOT pull the R/G offset off the background (a per-channel gate would).
+        let half = Constants.centerPatchSizePx / 2
+        let cx = w / 2, cy = h / 2
+        for y in 0..<h {
+            for x in 0..<w {
+                let inPatch = abs(x - cx) < half && abs(y - cy) < half
+                if inPatch && (y * w + x) % 5 == 0 {
+                    pixels[y * w + x] = SIMD3<Float>(0.2, 0.2, 0.6)
+                }
+            }
+        }
+        let off = CalibrationCompute.blackPointOffsets(
+            pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
+        let expected = CalibrationCompute.srgbToLinear(Double(bg))
+        #expect(abs(off.r - expected) < 1e-8, "R pulled by a B-bright pixel: \(off.r)")
+        #expect(abs(off.g - expected) < 1e-8, "G pulled by a B-bright pixel: \(off.g)")
+        #expect(abs(off.b - expected) < 1e-8, "B pulled by a B-bright pixel: \(off.b)")
+    }
+
+    @Test("black point: offset = mean + k·σ over the masked set")
+    func blackPointSigmaMargin() {
+        let w = 128, h = 128
+        // Balanced two-level background (0.02 / 0.04 gamma) so σ > 0.
+        var pixels = [SIMD3<Float>](repeating: SIMD3<Float>(0.02, 0.02, 0.02), count: w * h)
+        for i in 0..<pixels.count where i % 2 == 0 {
+            pixels[i] = SIMD3<Float>(0.04, 0.04, 0.04)
+        }
+        let off = CalibrationCompute.blackPointOffsets(
+            pixels: pixels, width: w, height: h, patch: Constants.centerPatchSizePx)
+        let l02 = CalibrationCompute.srgbToLinear(0.02)
+        let l04 = CalibrationCompute.srgbToLinear(0.04)
+        let mean = (l02 + l04) / 2
+        let sigma = abs(l04 - l02) / 2  // population std of a balanced two-level set
+        let expected = mean + Constants.blackPointSigmaK * sigma
+        #expect(abs(off.r - expected) < 1e-6, "offset \(off.r) != mean+kσ \(expected)")
+    }
+
+    // MARK: - white-balance residual (§5.1) — chroma + white-point decomposition
+
+    @Test("white balance: neutral grey sample → identity chroma, level lifts to target")
+    func wbResidualNeutral() {
+        let res = CalibrationCompute.whiteBalanceResidual(
+            whiteSample: RgbSample(r: 0.5, g: 0.5, b: 0.5))
+        // No cast ⇒ chroma is identity (channels already equal).
+        #expect(abs(res.chroma.r - 1.0) < 1e-9)
+        #expect(abs(res.chroma.g - 1.0) < 1e-9)
+        #expect(abs(res.chroma.b - 1.0) < 1e-9)
+        // Level lifts the neutral linear level to the white-point target.
+        let lin = CalibrationCompute.srgbToLinear(0.5)
+        let targetLin = CalibrationCompute.srgbToLinear(Constants.whitePointTargetDisplay)
+        #expect(abs(res.level - targetLin / lin) < 1e-9)
+    }
+
+    @Test("white balance: chroma·level maps each channel to the white target (brightfield)")
+    func wbResidualBrightfield() {
+        // Warm cast: R brightest, B dimmest.
+        let s = RgbSample(r: 0.62, g: 0.55, b: 0.48)
+        let res = CalibrationCompute.whiteBalanceResidual(whiteSample: s)
+        let targetLin = CalibrationCompute.srgbToLinear(Constants.whitePointTargetDisplay)
+        // The composite gain a = chroma·level must land every channel on the target,
+        // independent of how the mean was split between chroma and level.
+        for (gamma, chroma) in [(s.r, res.chroma.r), (s.g, res.chroma.g), (s.b, res.chroma.b)] {
+            let lin = CalibrationCompute.srgbToLinear(gamma)
+            #expect(abs(chroma * res.level * lin - targetLin) < 1e-9)
+        }
+    }
+
+    @Test("white balance: chroma alone equalizes channels and preserves linear level (phase contrast)")
+    func wbResidualChromaOnly() {
+        let s = RgbSample(r: 0.62, g: 0.55, b: 0.48)
+        let res = CalibrationCompute.whiteBalanceResidual(whiteSample: s)
+        let lr = CalibrationCompute.srgbToLinear(s.r)
+        let lg = CalibrationCompute.srgbToLinear(s.g)
+        let lb = CalibrationCompute.srgbToLinear(s.b)
+        let outR = res.chroma.r * lr
+        let outG = res.chroma.g * lg
+        let outB = res.chroma.b * lb
+        // Equalized: all three land on the shared linear mean (neutral).
+        let meanLin = (lr + lg + lb) / 3.0
+        #expect(abs(outR - meanLin) < 1e-9)
+        #expect(abs(outG - meanLin) < 1e-9)
+        #expect(abs(outB - meanLin) < 1e-9)
+        // Brightness-preserving: chroma conserves the linear sum (no stretch to white).
+        #expect(abs((outR + outG + outB) - (lr + lg + lb)) < 1e-9)
     }
 }
 
 
-// MARK: - Stage 11 — BB calibration scratch encode
+// MARK: - Stage 11 — center-patch sizing
 
-@Suite("Stage 11 — BB calibration scratch encode", .progressLogged)
-struct Stage11BBCalibrationScratchTests {
-
-    @Test("dispatchBBCalibrationSample ignores live BB pedestal (sample = BCSG-only)")
-    func bbScratchZeroesPedestal() async throws {
-        let device = try #require(MTLCreateSystemDefaultDevice())
-        let size = Size(width: 256, height: 256)
-        let pipeline = try MetalPipeline(device: device, captureSize: size, gateOpen: true)
-
-        // Identity BCSG with a NON-zero BB pedestal in the live uniforms.
-        // If the scratch path failed to zero BB, the sample would read
-        // 0.5 - 0.2 = 0.3 per channel. With BB zeroed in the scratch, sample
-        // should be 0.5 (identity BCSG passes the input through).
-        pipeline.setColorUniformsForTest(
-            ProcessingParameters(
-                brightness: 0,
-                contrast: 0,
-                saturation: 0,
-                blackR: 0.2,
-                blackG: 0.2,
-                blackB: 0.2,
-                gamma: 1
-            ))
-
-        // Inject a uniform 0.5 into naturalTex.
-        let (nBuf, nTex) = try pipeline.texturePoolForTest.dequeuePoolTexture(
-            pool: pipeline.naturalPoolForTest, width: size.width, height: size.height)
-        try fillBufferUniform(nBuf, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
-        pipeline.setLatestNaturalForTest(texture: nTex)
-
-        let sample = try await pipeline.dispatchBBCalibrationSample()
-
-        // BB = 0 in the scratch → sample equals the BCSG-passthrough value.
-        #expect(abs(sample.r - 0.5) < 1e-2)
-        #expect(abs(sample.g - 0.5) < 1e-2)
-        #expect(abs(sample.b - 0.5) < 1e-2)
-    }
+@Suite("Stage 11 — center-patch sizing", .progressLogged)
+struct Stage11CenterPatchSizingTests {
 
     @Test("scaledCenterPatchSize: default → 96, fallback → ≥16, tiny → clamped to 16")
     func scaledCenterPatchSize() {
@@ -179,23 +246,6 @@ struct Stage11FamilyBFollowupCalibrationTests {
 
         await #expect(throws: MetalError.noFrameAvailable) {
             _ = try await pipeline.dispatchCenterPatchOnNatural()
-        }
-    }
-
-    /// `dispatchBBCalibrationSample` must refuse to sample when no frame has
-    /// arrived. (Pre-rework this threw `.unsupportedFormat`, which collapsed two
-    /// distinct failure modes into one case.)
-    @Test("dispatchBBCalibrationSample throws .noFrameAvailable before any frame")
-    func bbCalibrationSampleThrowsBeforeFirstFrame() async throws {
-        let device = try #require(MTLCreateSystemDefaultDevice())
-        let pipeline = try MetalPipeline(
-            device: device,
-            captureSize: Size(width: 256, height: 256),
-            gateOpen: true
-        )
-
-        await #expect(throws: MetalError.noFrameAvailable) {
-            _ = try await pipeline.dispatchBBCalibrationSample()
         }
     }
 

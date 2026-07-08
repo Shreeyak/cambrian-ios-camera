@@ -257,38 +257,111 @@ class MockCameraEngineHostApi extends _i1.Mock
       ) as _i4.Future<String>);
 
   @override
-  _i4.Future<_i2.CalibrationResult> calibrateWhiteBalance() =>
+  _i4.Future<_i2.CalibrationResult> calibrateWhiteBalance(bool? whitePoint) =>
       (super.noSuchMethod(
         Invocation.method(
           #calibrateWhiteBalance,
-          [],
+          [whitePoint],
         ),
         returnValue:
             _i4.Future<_i2.CalibrationResult>.value(_FakeCalibrationResult_2(
           this,
           Invocation.method(
             #calibrateWhiteBalance,
-            [],
+            [whitePoint],
           ),
         )),
       ) as _i4.Future<_i2.CalibrationResult>);
 
   @override
-  _i4.Future<_i2.CalibrationResult> calibrateBlackBalance() =>
-      (super.noSuchMethod(
+  _i4.Future<void> calibrateBlackPoint() => (super.noSuchMethod(
         Invocation.method(
-          #calibrateBlackBalance,
+          #calibrateBlackPoint,
           [],
         ),
-        returnValue:
-            _i4.Future<_i2.CalibrationResult>.value(_FakeCalibrationResult_2(
-          this,
-          Invocation.method(
-            #calibrateBlackBalance,
-            [],
-          ),
-        )),
-      ) as _i4.Future<_i2.CalibrationResult>);
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> enableWhiteBalance() => (super.noSuchMethod(
+        Invocation.method(
+          #enableWhiteBalance,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> disableWhiteBalance() => (super.noSuchMethod(
+        Invocation.method(
+          #disableWhiteBalance,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> enableWhitePoint() => (super.noSuchMethod(
+        Invocation.method(
+          #enableWhitePoint,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> disableWhitePoint() => (super.noSuchMethod(
+        Invocation.method(
+          #disableWhitePoint,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> clearWhiteBalance() => (super.noSuchMethod(
+        Invocation.method(
+          #clearWhiteBalance,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> enableBlackPoint() => (super.noSuchMethod(
+        Invocation.method(
+          #enableBlackPoint,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> disableBlackPoint() => (super.noSuchMethod(
+        Invocation.method(
+          #disableBlackPoint,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> clearBlackPoint() => (super.noSuchMethod(
+        Invocation.method(
+          #clearBlackPoint,
+          [],
+        ),
+        returnValue: _i4.Future<void>.value(),
+        returnValueForMissingStub: _i4.Future<void>.value(),
+      ) as _i4.Future<void>);
 
   @override
   _i4.Future<int> createPreviewTexture(_i2.StreamId? stream) =>
