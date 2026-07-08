@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreVideo
 import Foundation
 import ImageIO
@@ -17,6 +18,25 @@ import UniformTypeIdentifiers
 /// path, and the `"lane"` marker in the `CamPlugin/v1` EXIF envelope.
 @Suite("CaptureNaturalPictureTests — captureNaturalPicture", .progressLogged)
 struct CaptureNaturalPictureTests {
+
+    // MARK: - Photo-quality prioritization (CAMERAKIT-REQUESTS #2)
+
+    /// `OpenConfiguration.photoQualityPrioritization` defaults to `.balanced`, so
+    /// existing consumers keep today's behavior.
+    @Test func photoQualityDefaultsToBalanced() {
+        #expect(OpenConfiguration().photoQualityPrioritization == .balanced)
+    }
+
+    /// `StillPhotoCapture.makeSettings(quality:)` maps each CameraKit quality to the
+    /// matching `AVCapturePhotoOutput.QualityPrioritization` on the photo settings.
+    @Test func makeSettingsAppliesQuality() {
+        #expect(StillPhotoCapture.makeSettings(quality: .speed).photoQualityPrioritization == .speed)
+        #expect(
+            StillPhotoCapture.makeSettings(quality: .balanced).photoQualityPrioritization
+                == .balanced)
+        #expect(
+            StillPhotoCapture.makeSettings(quality: .quality).photoQualityPrioritization == .quality)
+    }
 
     @Test("encode-natural-jpeg-round-trip: BGRA8 round-trips through JPEG within ±8 LSB")
     func encodeNaturalJpegRoundTrip() async throws {
