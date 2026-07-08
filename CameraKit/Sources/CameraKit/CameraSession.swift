@@ -89,13 +89,21 @@ final class CameraSession: @unchecked Sendable {
     /// every mode). Defaults to the package default until `configure` runs.
     private(set) var lockedFps: Int = Constants.frameRateTargetFPS
 
+    /// ISP still-photo quality prioritization applied to `capturePhoto()`.
+    ///
+    /// Set at `configure` from `OpenConfiguration.photoQualityPrioritization`;
+    /// defaults to `.balanced` until `configure` runs.
+    private(set) var photoQualityPrioritization: PhotoQualityPrioritization = .balanced
+
     func configure(
         deliveryQueue: DispatchQueue,
         sampleBufferDelegate: AVCaptureVideoDataOutputSampleBufferDelegate,
         requestedSize: Size? = nil,
         targetFps: Int = Constants.frameRateTargetFPS,
-        orientationAngleDeg: CGFloat = Constants.captureOrientationAngleDeg
+        orientationAngleDeg: CGFloat = Constants.captureOrientationAngleDeg,
+        photoQualityPrioritization: PhotoQualityPrioritization = .balanced
     ) throws -> (device: any CaptureDeviceProviding, captureSize: Size) {
+        self.photoQualityPrioritization = photoQualityPrioritization
 
         // ── 1. Device discovery (D-08) ──────────────────────────────────────────────
         // Use the default API per architecture/03-camera-session.md §Device selection.
@@ -400,7 +408,8 @@ final class CameraSession: @unchecked Sendable {
     ///   cancellation-aware timeout (ADR-30 / AsyncWithTimeout pattern) should be
     ///   added if this surfaces in production.
     func capturePhoto() async throws -> CVPixelBuffer {
-        try await StillPhotoCapture().capture(using: photoOutput, on: sessionQueue)
+        try await StillPhotoCapture().capture(
+            using: photoOutput, on: sessionQueue, quality: photoQualityPrioritization)
     }
 
     /// Re-select device format for new resolution.

@@ -21,16 +21,16 @@ final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @uncheck
     /// Builds the fixed photo settings.
     ///
     /// Requests 420f to match the video format so `MetalPipeline.renderStill`
-    /// consumes the buffer directly. Flash off and `.balanced` quality (nice
-    /// native-camera look while honoring device exposure). Does NOT set
-    /// `maxPhotoDimensions` — photo dims default to the active format dims so
-    /// `renderStill`'s 1:1 crop mapping holds.
-    static func makeSettings() -> AVCapturePhotoSettings {
+    /// consumes the buffer directly. Flash off; ISP quality prioritization from the
+    /// caller's `PhotoQualityPrioritization` (default `.balanced`, honoring device
+    /// exposure). Does NOT set `maxPhotoDimensions` — photo dims default to the active
+    /// format dims so `renderStill`'s 1:1 crop mapping holds.
+    static func makeSettings(quality: PhotoQualityPrioritization) -> AVCapturePhotoSettings {
         let fmt = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         let s = AVCapturePhotoSettings(
             format: [kCVPixelBufferPixelFormatTypeKey as String: fmt])
         s.flashMode = .off
-        s.photoQualityPrioritization = .balanced
+        s.photoQualityPrioritization = quality.avQualityPrioritization
         return s
     }
 
@@ -41,11 +41,14 @@ final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @uncheck
 
     /// Must be handed the sessionQueue (ADR-07): the capturePhoto request is
     /// dispatched onto `queue`; the delegate result returns via the continuation.
-    func capture(using output: AVCapturePhotoOutput, on queue: DispatchQueue) async throws -> CVPixelBuffer {
+    func capture(
+        using output: AVCapturePhotoOutput, on queue: DispatchQueue,
+        quality: PhotoQualityPrioritization
+    ) async throws -> CVPixelBuffer {
         try await withCheckedThrowingContinuation { cont in
             self.continuation = cont
             queue.async { [self] in
-                output.capturePhoto(with: Self.makeSettings(), delegate: self)
+                output.capturePhoto(with: Self.makeSettings(quality: quality), delegate: self)
             }
         }
     }
@@ -67,5 +70,16 @@ final class StillPhotoCapture: NSObject, AVCapturePhotoCaptureDelegate, @uncheck
             return
         }
         continuation?.resume(returning: pb)
+    }
+}
+
+extension PhotoQualityPrioritization {
+    /// Maps to the AVFoundation still-quality knob.
+    var avQualityPrioritization: AVCapturePhotoOutput.QualityPrioritization {
+        switch self {
+        case .speed: return .speed
+        case .balanced: return .balanced
+        case .quality: return .quality
+        }
     }
 }

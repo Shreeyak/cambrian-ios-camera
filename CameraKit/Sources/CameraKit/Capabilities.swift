@@ -194,6 +194,16 @@ public struct OpenConfiguration: Sendable, Hashable {
     /// example, passes `180` so the delivered frame reads upright.
     public var captureOrientationAngleDeg: CGFloat
 
+    /// ISP still-photo quality/latency trade-off for `captureNaturalPicture` /
+    /// `captureNaturalPictureBuffer` (the `AVCapturePhotoOutput` one-shot).
+    ///
+    /// Defaults to `.balanced` (unchanged behavior). `.quality` spends the full ISP
+    /// still-processing budget (better deblur/fusion) at higher capture latency —
+    /// worthwhile for a stationary subject captured on dwell (e.g. a microscope
+    /// stage). `captureImage` reads the latest processed frame and is unaffected.
+    /// See `PhotoQualityPrioritization`.
+    public var photoQualityPrioritization: PhotoQualityPrioritization
+
     public init(
         cameraId: String? = nil,
         captureResolution: Size? = nil,
@@ -202,7 +212,8 @@ public struct OpenConfiguration: Sendable, Hashable {
         cropEnabled: Bool = false,
         initialSettings: CameraSettings? = nil,
         trackerHeight: Int? = nil,
-        captureOrientationAngleDeg: CGFloat = 0  // Constants.captureOrientationAngleDeg (internal); 0 = landscape-right
+        captureOrientationAngleDeg: CGFloat = 0,  // 0 = landscape-right
+        photoQualityPrioritization: PhotoQualityPrioritization = .balanced
     ) {
         self.cameraId = cameraId
         self.captureResolution = captureResolution
@@ -212,7 +223,24 @@ public struct OpenConfiguration: Sendable, Hashable {
         self.initialSettings = initialSettings
         self.trackerHeight = trackerHeight
         self.captureOrientationAngleDeg = captureOrientationAngleDeg
+        self.photoQualityPrioritization = photoQualityPrioritization
     }
+}
+
+// MARK: - Photo capture quality
+
+/// ISP still-photo quality/latency trade-off.
+///
+/// Maps 1:1 to `AVCapturePhotoOutput.QualityPrioritization`. `.balanced` (default)
+/// keeps the native-camera behavior; `.quality` spends the
+/// full ISP still-processing budget (better deblur/fusion) at higher capture
+/// latency; `.speed` minimizes latency. Applies to the natural still capture
+/// (`captureNaturalPicture` / `captureNaturalPictureBuffer`); `captureImage` reads
+/// the latest processed frame and is unaffected.
+public enum PhotoQualityPrioritization: String, Sendable, Hashable {
+    case speed
+    case balanced
+    case quality
 }
 
 // MARK: - Settings types (compressed here per Stage 01 type-compression decision)

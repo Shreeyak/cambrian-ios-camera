@@ -371,7 +371,8 @@ public actor CameraEngine {
                 sampleBufferDelegate: delegate,
                 requestedSize: configuration.captureResolution,
                 targetFps: configuration.targetFps ?? Constants.frameRateTargetFPS,
-                orientationAngleDeg: configuration.captureOrientationAngleDeg)
+                orientationAngleDeg: configuration.captureOrientationAngleDeg,
+                photoQualityPrioritization: configuration.photoQualityPrioritization)
         }
 
         // 4. Metal pipeline — pass the shared submission gate (ADR-09).
