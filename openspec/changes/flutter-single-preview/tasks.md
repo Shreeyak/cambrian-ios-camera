@@ -54,13 +54,12 @@ device-only; Dart on host; Swift RunnerTests via `xcodebuild test` (wireless OK)
 
 - [x] 4.1 `cd flutter && flutter analyze && flutter test` (host) — green
   (analyze: 0 issues; test: 58/58 passed, incl. the edited `open_close`/`texture` fixtures).
-- [~] 4.2 CameraKit build green on iPad (`build_device` SUCCEEDED — the removal
-  compiles across `Capabilities`/`CameraEngine`/`ViewModel`); `swift-format lint
-  --strict` runs at pre-commit. **Deferred:** on-device test *execution* (the test
-  host failed to launch — locked-iPad "Lost pending connection to the test runner",
-  not a code failure; the test target compiled). Carried to the device pass;
-  `RemoveNaturalLaneTests`' only runtime change is a `Mirror` check that a
-  compile-removed stored property is absent.
+- [x] 4.2 CameraKit build + device tests green on iPad. `build_device` SUCCEEDED
+  (the removal compiles across `Capabilities`/`CameraEngine`/`ViewModel`);
+  `RemoveNaturalLaneTests` **2/2 passed on device** — the reflection assertion now
+  confirms `previewTextureId` is absent at runtime, and recompiling the target
+  proved the `RgbaConversion`/`Stage06` fixture edits compile. `swift-format lint
+  --strict` runs at pre-commit.
 - [~] 4.3 Swift adapter RunnerTests via `xcodebuild test` (wireless OK) — **deferred**
   to the device pass (ValueTypeMappers/MockCameraEngine field-drops are mirror-consistent
   with the regenerated Pigeon; host `flutter test` green).
