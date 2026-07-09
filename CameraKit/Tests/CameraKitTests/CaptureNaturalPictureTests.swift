@@ -225,4 +225,22 @@ struct CaptureNaturalPictureBufferDeviceTests {
         try? FileManager.default.removeItem(atPath: output.filePath)
         await engine.close()
     }
+
+    /// Regression (v2.1.0): opening with `.quality` photo prioritization must not
+    /// crash at capture.
+    ///
+    /// `AVCapturePhotoSettings.photoQualityPrioritization` must be `<=` the photo
+    /// output's `maxPhotoQualityPrioritization` ceiling (default `.balanced`), or
+    /// `capturePhoto` throws `NSInvalidArgumentException`. `configure()` now raises
+    /// that ceiling to the configured level; before the fix,
+    /// `captureNaturalPictureBuffer()` opened with `.quality` crashed at capture.
+    @Test func qualityPrioritizationCapturesWithoutThrowing() async throws {
+        let engine = CameraEngine(initialPhase: .active)
+        _ = try await engine.open(
+            configuration: OpenConfiguration(photoQualityPrioritization: .quality))
+        // The capture that threw NSInvalidArgumentException pre-fix.
+        let handle = try await engine.captureNaturalPictureBuffer()
+        #expect(handle.format == .bgra8)
+        await engine.close()
+    }
 }
