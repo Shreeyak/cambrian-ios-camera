@@ -867,13 +867,13 @@ interface CameraEngineHostApi {
   fun captureNaturalPicture(outputPath: String?, photosDestination: PhotosDestination, callback: (Result<String>) -> Unit)
   fun startRecording(options: RecordingOptions, callback: (Result<RecordingStart>) -> Unit)
   fun stopRecording(callback: (Result<String>) -> Unit)
-  fun calibrateWhiteBalance(whitePoint: Boolean, callback: (Result<CalibrationResult>) -> Unit)
+  fun calibrateWhite(whitePoint: Boolean, callback: (Result<CalibrationResult>) -> Unit)
   /**
    * Calibrate the linear black point from a dark field. Returns nothing on
    * success; throws (CameraErrorCode.calibrationFailed) when the field isn't
    * dark enough. Replaces the removed calibrateBlackBalance.
    */
-  fun calibrateBlackPoint(callback: (Result<Unit>) -> Unit)
+  fun calibrateBlack(callback: (Result<Unit>) -> Unit)
   fun enableWhiteBalance(callback: (Result<Unit>) -> Unit)
   fun disableWhiteBalance(callback: (Result<Unit>) -> Unit)
   fun enableWhitePoint(callback: (Result<Unit>) -> Unit)
@@ -1142,12 +1142,12 @@ interface CameraEngineHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhiteBalance$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhite$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val whitePointArg = args[0] as Boolean
-            api.calibrateWhiteBalance(whitePointArg) { result: Result<CalibrationResult> ->
+            api.calibrateWhite(whitePointArg) { result: Result<CalibrationResult> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))
@@ -1162,10 +1162,10 @@ interface CameraEngineHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlack$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            api.calibrateBlackPoint{ result: Result<Unit> ->
+            api.calibrateBlack{ result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))

@@ -106,11 +106,11 @@ class CambrianIosCameraPlugin :
     override fun stopRecording(callback: (Result<String>) -> Unit) =
         callback(Result.failure(iosOnly("stopRecording")))
 
-    override fun calibrateWhiteBalance(whitePoint: Boolean, callback: (Result<CalibrationResult>) -> Unit) =
-        callback(Result.failure(iosOnly("calibrateWhiteBalance")))
+    override fun calibrateWhite(whitePoint: Boolean, callback: (Result<CalibrationResult>) -> Unit) =
+        callback(Result.failure(iosOnly("calibrateWhite")))
 
-    override fun calibrateBlackPoint(callback: (Result<Unit>) -> Unit) =
-        callback(Result.failure(iosOnly("calibrateBlackPoint")))
+    override fun calibrateBlack(callback: (Result<Unit>) -> Unit) =
+        callback(Result.failure(iosOnly("calibrateBlack")))
 
     override fun enableWhiteBalance(callback: (Result<Unit>) -> Unit) =
         callback(Result.failure(iosOnly("enableWhiteBalance")))

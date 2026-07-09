@@ -875,11 +875,11 @@ protocol CameraEngineHostApi {
   func captureNaturalPicture(outputPath: String?, photosDestination: PhotosDestination, completion: @escaping (Result<String, Error>) -> Void)
   func startRecording(options: RecordingOptions, completion: @escaping (Result<RecordingStart, Error>) -> Void)
   func stopRecording(completion: @escaping (Result<String, Error>) -> Void)
-  func calibrateWhiteBalance(whitePoint: Bool, completion: @escaping (Result<CalibrationResult, Error>) -> Void)
+  func calibrateWhite(whitePoint: Bool, completion: @escaping (Result<CalibrationResult, Error>) -> Void)
   /// Calibrate the linear black point from a dark field. Returns nothing on
   /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
   /// dark enough. Replaces the removed calibrateBlackBalance.
-  func calibrateBlackPoint(completion: @escaping (Result<Void, Error>) -> Void)
+  func calibrateBlack(completion: @escaping (Result<Void, Error>) -> Void)
   func enableWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
   func disableWhiteBalance(completion: @escaping (Result<Void, Error>) -> Void)
   func enableWhitePoint(completion: @escaping (Result<Void, Error>) -> Void)
@@ -1111,12 +1111,12 @@ class CameraEngineHostApiSetup {
     } else {
       stopRecordingChannel.setMessageHandler(nil)
     }
-    let calibrateWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    let calibrateWhiteChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhite\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      calibrateWhiteBalanceChannel.setMessageHandler { message, reply in
+      calibrateWhiteChannel.setMessageHandler { message, reply in
         let args = message as! [Any?]
         let whitePointArg = args[0] as! Bool
-        api.calibrateWhiteBalance(whitePoint: whitePointArg) { result in
+        api.calibrateWhite(whitePoint: whitePointArg) { result in
           switch result {
           case .success(let res):
             reply(wrapResult(res))
@@ -1126,15 +1126,15 @@ class CameraEngineHostApiSetup {
         }
       }
     } else {
-      calibrateWhiteBalanceChannel.setMessageHandler(nil)
+      calibrateWhiteChannel.setMessageHandler(nil)
     }
     /// Calibrate the linear black point from a dark field. Returns nothing on
     /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
     /// dark enough. Replaces the removed calibrateBlackBalance.
-    let calibrateBlackPointChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    let calibrateBlackChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlack\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
-      calibrateBlackPointChannel.setMessageHandler { _, reply in
-        api.calibrateBlackPoint { result in
+      calibrateBlackChannel.setMessageHandler { _, reply in
+        api.calibrateBlack { result in
           switch result {
           case .success:
             reply(wrapResult(nil))
@@ -1144,7 +1144,7 @@ class CameraEngineHostApiSetup {
         }
       }
     } else {
-      calibrateBlackPointChannel.setMessageHandler(nil)
+      calibrateBlackChannel.setMessageHandler(nil)
     }
     let enableWhiteBalanceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.enableWhiteBalance\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

@@ -1177,8 +1177,8 @@ class CameraEngineHostApi {
     }
   }
 
-  Future<CalibrationResult> calibrateWhiteBalance(bool whitePoint) async {
-    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhiteBalance$pigeonVar_messageChannelSuffix';
+  Future<CalibrationResult> calibrateWhite(bool whitePoint) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateWhite$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -1207,8 +1207,8 @@ class CameraEngineHostApi {
   /// Calibrate the linear black point from a dark field. Returns nothing on
   /// success; throws (CameraErrorCode.calibrationFailed) when the field isn't
   /// dark enough. Replaces the removed calibrateBlackBalance.
-  Future<void> calibrateBlackPoint() async {
-    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlackPoint$pigeonVar_messageChannelSuffix';
+  Future<void> calibrateBlack() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.cambrian_ios_camera.CameraEngineHostApi.calibrateBlack$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,

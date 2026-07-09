@@ -206,7 +206,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
 
     // MARK: - Calibration
 
-    func calibrateWhiteBalance(
+    func calibrateWhite(
         whitePoint: Bool,
         completion: @escaping (Result<CalibrationResult, any Error>) -> Void
     ) {
@@ -216,7 +216,7 @@ extension CambrianIosCameraPlugin: CameraEngineHostApi {
         }
     }
 
-    func calibrateBlackPoint(
+    func calibrateBlack(
         completion: @escaping (Result<Void, any Error>) -> Void
     ) {
         guardOpen(completion) { engine in

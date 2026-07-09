@@ -257,26 +257,26 @@ class MockCameraEngineHostApi extends _i1.Mock
       ) as _i4.Future<String>);
 
   @override
-  _i4.Future<_i2.CalibrationResult> calibrateWhiteBalance(bool? whitePoint) =>
+  _i4.Future<_i2.CalibrationResult> calibrateWhite(bool? whitePoint) =>
       (super.noSuchMethod(
         Invocation.method(
-          #calibrateWhiteBalance,
+          #calibrateWhite,
           [whitePoint],
         ),
         returnValue:
             _i4.Future<_i2.CalibrationResult>.value(_FakeCalibrationResult_2(
           this,
           Invocation.method(
-            #calibrateWhiteBalance,
+            #calibrateWhite,
             [whitePoint],
           ),
         )),
       ) as _i4.Future<_i2.CalibrationResult>);
 
   @override
-  _i4.Future<void> calibrateBlackPoint() => (super.noSuchMethod(
+  _i4.Future<void> calibrateBlack() => (super.noSuchMethod(
         Invocation.method(
-          #calibrateBlackPoint,
+          #calibrateBlack,
           [],
         ),
         returnValue: _i4.Future<void>.value(),

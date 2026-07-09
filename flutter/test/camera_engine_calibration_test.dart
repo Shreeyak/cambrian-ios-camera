@@ -22,14 +22,14 @@ void main() {
     engine = CameraEngineTesting.create(api: api);
   });
 
-  test('calibrateWhiteBalance passes whitePoint and returns result', () async {
+  test('calibrateWhite passes whitePoint and returns result', () async {
     final r = _fakeResult();
-    when(api.calibrateWhiteBalance(any)).thenAnswer((_) async => r);
-    expect(await engine.calibrateWhiteBalance(whitePoint: false), r);
-    verify(api.calibrateWhiteBalance(false)).called(1);
+    when(api.calibrateWhite(any)).thenAnswer((_) async => r);
+    expect(await engine.calibrateWhite(whitePoint: false), r);
+    verify(api.calibrateWhite(false)).called(1);
     // Default is brightfield (white point on).
-    expect(await engine.calibrateWhiteBalance(), r);
-    verify(api.calibrateWhiteBalance(true)).called(1);
+    expect(await engine.calibrateWhite(), r);
+    verify(api.calibrateWhite(true)).called(1);
   });
   test('calibration toggles forward to the host api', () async {
     when(api.enableWhiteBalance()).thenAnswer((_) async {});
@@ -72,20 +72,20 @@ void main() {
       ),
     );
   });
-  test('calibrateBlackPoint completes on success', () async {
-    when(api.calibrateBlackPoint()).thenAnswer((_) async {});
-    await engine.calibrateBlackPoint();
-    verify(api.calibrateBlackPoint()).called(1);
+  test('calibrateBlack completes on success', () async {
+    when(api.calibrateBlack()).thenAnswer((_) async {});
+    await engine.calibrateBlack();
+    verify(api.calibrateBlack()).called(1);
   });
-  test('calibrateBlackPoint surfaces failure as CameraException', () async {
-    when(api.calibrateBlackPoint()).thenThrow(
+  test('calibrateBlack surfaces failure as CameraException', () async {
+    when(api.calibrateBlack()).thenThrow(
       PlatformException(
         code: 'calibrationFailed',
         message: 'Only 5% of the sampled patch was near-black (need ≥ 40%).',
       ),
     );
     await expectLater(
-      engine.calibrateBlackPoint(),
+      engine.calibrateBlack(),
       throwsA(
         isA<CameraException>()
             .having((e) => e.code, 'code', CameraErrorCode.calibrationFailed),

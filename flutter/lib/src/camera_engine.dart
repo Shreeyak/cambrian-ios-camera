@@ -232,8 +232,8 @@ class CameraEngine {
   /// when [whitePoint] is true (brightfield, the default), the white-point level.
   /// Throws a [CameraException] with [CameraErrorCode.calibrationFailed] when the
   /// field isn't bright enough.
-  Future<g.CalibrationResult> calibrateWhiteBalance({bool whitePoint = true}) =>
-      _guard(() => _api.calibrateWhiteBalance(whitePoint));
+  Future<g.CalibrationResult> calibrateWhite({bool whitePoint = true}) =>
+      _guard(() => _api.calibrateWhite(whitePoint));
 
   /// Calibrate the linear black point from a dark field.
   ///
@@ -242,7 +242,7 @@ class CameraEngine {
   /// [CameraErrorCode.calibrationFailed] (the message explains why — e.g. the
   /// field wasn't dark enough) when a valid black point can't be derived.
   /// Replaces the removed `calibrateBlackBalance`.
-  Future<void> calibrateBlackPoint() => _guard(_api.calibrateBlackPoint);
+  Future<void> calibrateBlack() => _guard(_api.calibrateBlack);
 
   // Calibration toggles — flip the stored coefficients without resampling.
   // `enable*` throw a [CameraException] ([CameraErrorCode.invalidState]) when the

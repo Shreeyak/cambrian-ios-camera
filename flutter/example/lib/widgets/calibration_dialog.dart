@@ -28,7 +28,7 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
       _message = null;
     });
     try {
-      final r = await widget.engine.calibrateWhiteBalance();
+      final r = await widget.engine.calibrateWhite();
       if (mounted) {
         setState(() {
           _last = r;
@@ -48,7 +48,7 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
       _message = null;
     });
     try {
-      await widget.engine.calibrateBlackPoint();
+      await widget.engine.calibrateBlack();
       if (mounted) {
         setState(() {
           _last = null;
