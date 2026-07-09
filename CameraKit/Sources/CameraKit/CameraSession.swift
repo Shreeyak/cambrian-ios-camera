@@ -213,6 +213,14 @@ final class CameraSession: @unchecked Sendable {
             avDevice.automaticallyEnablesLowLightBoostWhenAvailable = false
         }
 
+        // Close-range scanning: bias autofocus toward near subjects so AF is
+        // faster, lower-power, and less prone to focusing ambiguity when the
+        // target is close (Apple recommends `.near` for scanning apps). It's a
+        // hint, not a hard limit, and has no effect once focus is locked.
+        if avDevice.isAutoFocusRangeRestrictionSupported {
+            avDevice.autoFocusRangeRestriction = .near
+        }
+
         avDevice.unlockForConfiguration()
 
         // ── 4. Wire session input + output ──────────────────────────────────────────
@@ -523,6 +531,11 @@ final class CameraSession: @unchecked Sendable {
                     dev.automaticallyAdjustsVideoHDREnabled = false
                     if dev.activeFormat.isVideoHDRSupported {
                         dev.isVideoHDREnabled = false
+                    }
+                    // Re-assert the near-focus restriction (configure sets it too;
+                    // re-applied here in case an activeFormat change resets it).
+                    if dev.isAutoFocusRangeRestrictionSupported {
+                        dev.autoFocusRangeRestriction = .near
                     }
                     let frameDuration = clampFrameDuration(
                         CMTimeMake(value: 1, timescale: Int32(self.lockedFps)),

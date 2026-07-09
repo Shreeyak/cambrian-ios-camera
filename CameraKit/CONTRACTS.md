@@ -1292,7 +1292,7 @@ let duration = CMTimeMake(value: durationNs, timescale: 1_000_000_000)
 ⋮----
 func setContinuousAutoExposure() throws {
 ⋮----
-func setFocusModeLocked(lensPosition: Float) throws {
+func setFocusModeLocked(lensPosition: Float) async throws {
 ⋮----
 func setContinuousAutoFocus() throws {
 ⋮----
@@ -1350,6 +1350,8 @@ let resumed = ManagedAtomic<Bool>(false)
 let resumeOnce: @Sendable (CMTime) -> Bool = { t in
 ⋮----
 let kindLabel: String =
+⋮----
+private func focusApplyAwait(
 ⋮----
 private func aeSettledWait(avDevice: AVCaptureDevice) async {
 ⋮----

@@ -350,8 +350,14 @@ final actor LiveCaptureDevice: CaptureDeviceProviding {
         avDevice.exposureMode = .continuousAutoExposure
     }
 
-    func setFocusModeLocked(lensPosition: Float) throws {
-        avDevice.setFocusModeLocked(lensPosition: lensPosition, completionHandler: nil)
+    /// Locks focus and awaits the lens settling at `lensPosition`.
+    ///
+    /// The AVF completion handler fires when the lens reaches the position
+    /// (~1 s timeout fallback); the `async` return is the "focus settled"
+    /// signal to callers — awaiting this call resolves only once the lens
+    /// has physically settled.
+    func setFocusModeLocked(lensPosition: Float) async throws {
+        _ = await focusApplyAwait(avDevice: avDevice, lensPosition: lensPosition)
     }
 
     func setContinuousAutoFocus() throws {
@@ -543,6 +549,47 @@ private func wbApplyAwait(
                 CameraKitLog.error(
                     .engine,
                     "wb-apply handler missed 400ms deadline (\(kindLabel))")
+            }
+        }
+    }
+}
+
+/// Locks focus at `lensPosition` and resumes when AVF reports the lens has
+/// reached the requested position.
+///
+/// Returns the AVF-supplied buffer timestamp, or `CMTime.invalid` if the 1 s
+/// deadline fired (logged at error level so field traces surface the miss
+/// frequency). CAS-races the completion handler against the deadline so a
+/// missed callback can't hang the caller. Mirrors `wbApplyAwait` (ADR-30 —
+/// `withTaskGroup` over an unresumed continuation is forbidden). Focus racks
+/// mechanically, so the deadline is longer than WB's (1 s vs 400 ms).
+private func focusApplyAwait(
+    avDevice: AVCaptureDevice,
+    lensPosition: Float
+) async -> CMTime {
+    nonisolated(unsafe) let dev = avDevice
+
+    return await withCheckedContinuation { (cont: CheckedContinuation<CMTime, Never>) in
+        let resumed = ManagedAtomic<Bool>(false)
+        let resumeOnce: @Sendable (CMTime) -> Bool = { t in
+            let (won, _) = resumed.compareExchange(
+                expected: false, desired: true,
+                ordering: .sequentiallyConsistent
+            )
+            if won { cont.resume(returning: t) }
+            return won
+        }
+
+        dev.setFocusModeLocked(
+            lensPosition: lensPosition,
+            completionHandler: { t in _ = resumeOnce(t) })
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(1000))
+            if resumeOnce(.invalid) {
+                CameraKitLog.error(
+                    .engine,
+                    "focus-apply handler missed 1s deadline (lensPosition=\(lensPosition))")
             }
         }
     }

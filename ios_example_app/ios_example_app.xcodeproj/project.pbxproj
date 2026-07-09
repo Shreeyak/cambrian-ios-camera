@@ -19,6 +19,7 @@
 		14E07E352F8E513F00E9F7FC /* ios_example_appUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E342F8E513F00E9F7FC /* ios_example_appUITests.swift */; };
 		14E07E372F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E07E362F8E513F00E9F7FC /* ios_example_appUITestsLaunchTests.swift */; };
 		1597FE0511AFD9C0406D7498 /* Stage09Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE72B917051A958CCDA6299B /* Stage09Tests.swift */; };
+		2177A1927D83CE147234AF82 /* FocusSettleDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04C87D8AEA844E9C87E60A0 /* FocusSettleDeviceTests.swift */; };
 		241E01BA0EEA2BE49F1D22F4 /* CameraCropConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0F30D46689AC6A3B1623C4F /* CameraCropConfigTests.swift */; };
 		278E32053DA41734DC1B4992 /* CaptureNaturalPictureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 389FEB9B19ABEE545040C1BB /* CaptureNaturalPictureTests.swift */; };
 		2C3C1285DDA0A8726F1995F1 /* RgbaConversionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32EB05562EB8BEEFE212FFA1 /* RgbaConversionTests.swift */; };
@@ -134,6 +135,7 @@
 		ABF10587E507E1048C8C847C /* Stage11UITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage11UITests.swift; sourceTree = "<group>"; };
 		B40574632638223EEF0762DC /* Stage06Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage06Tests.swift; sourceTree = "<group>"; };
 		BC0D1E5CC80A9AC538496AB0 /* PhotosLibraryClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotosLibraryClientTests.swift; sourceTree = "<group>"; };
+		C04C87D8AEA844E9C87E60A0 /* FocusSettleDeviceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FocusSettleDeviceTests.swift; sourceTree = "<group>"; };
 		C3CEB8DADD3C9D49E9D2E72C /* RecordingViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingViewModel.swift; sourceTree = "<group>"; };
 		CB54EC1745C95B4BBB525A97 /* ErrorDescriptionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ErrorDescriptionTests.swift; sourceTree = "<group>"; };
 		CF9CE1A083B2C84FEED433D8 /* Stage01Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Stage01Tests.swift; sourceTree = "<group>"; };
@@ -231,6 +233,7 @@
 				936FCA9CDB61461BB9E44723 /* FrameRateStreamingProbeTests.swift */,
 				F24FFEBB4EA2A25FF7371F67 /* WBNormalizationGatingTests.swift */,
 				CB54EC1745C95B4BBB525A97 /* ErrorDescriptionTests.swift */,
+				C04C87D8AEA844E9C87E60A0 /* FocusSettleDeviceTests.swift */,
 			);
 			name = CameraKitTests;
 			path = ../CameraKit/Tests/CameraKitTests;
@@ -545,6 +548,7 @@
 				A6A4D6A6BEE2046D3E66732A /* FrameRateStreamingProbeTests.swift in Sources */,
 				67E127F815AF0C4C7A2EFFBC /* WBNormalizationGatingTests.swift in Sources */,
 				77130A3C90956CD9E971F6BE /* ErrorDescriptionTests.swift in Sources */,
+				2177A1927D83CE147234AF82 /* FocusSettleDeviceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
