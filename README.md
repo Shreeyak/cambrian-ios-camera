@@ -20,7 +20,8 @@ let package = Package(
     name: "MyApp",
     platforms: [.iOS(.v26)],
     dependencies: [
-        .package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "2.2.0"),
+        // `from:` is a floor that floats up within the major — see Releases for the latest.
+        .package(url: "https://github.com/Shreeyak/cambrian-ios-camera.git", from: "2.0.0"),
     ],
     targets: [
         .target(
@@ -33,7 +34,9 @@ let package = Package(
 )
 ```
 
-Or in Xcode: File → Add Package Dependencies → paste `https://github.com/Shreeyak/cambrian-ios-camera.git` → choose a version.
+Or in Xcode: File → Add Package Dependencies → paste `https://github.com/Shreeyak/cambrian-ios-camera.git` → choose **Up to Next Major Version**.
+
+The [Releases page](https://github.com/Shreeyak/cambrian-ios-camera/releases) is the source of truth for the current `vX.Y.Z`; you don't need to hardcode it here — `from:` above resolves to the newest compatible version within the same major.
 
 Then in your Swift code:
 
@@ -126,10 +129,10 @@ dependencies:
     git:
       url: https://github.com/Shreeyak/cambrian-ios-camera.git
       path: flutter        # ← important: plugin is at flutter/, not the repo root
-      ref: main            # ← the plugin lives on main, so this always resolves
-      # ref: v2.2.0        # ← or pin a fixed version instead. The tag must be cut
-      #                       from main (the old v1.0.0/v1.0.1 tags predate the
-      #                       Flutter plugin and won't resolve it).
+      ref: main            # ← the plugin lives on main, so this always tracks the latest
+      # ref: vX.Y.Z        # ← or pin a specific release instead — see the Releases page
+      #                       for the current tag (any tag from v1.2.0 onward resolves
+      #                       the Flutter plugin; the older v1.0.x tags predate it).
 ```
 
 Then run `flutter pub get` and import in Dart:
@@ -145,7 +148,7 @@ await engine.open();
 
 ## Versioning
 
-A single git tag `vX.Y.Z` drives **both** consumers — the SPM `from:`/`exact:` resolution and the Flutter `ref:` point at the same tag. SemVer applies across the combined surface: a breaking change to either the Swift `CameraKit` API or the Dart `cambrian_ios_camera` API bumps the major. `main` is for development; always pin a tag.
+A single git tag `vX.Y.Z` drives **both** consumers — the SPM `from:`/`exact:` resolution and the Flutter `ref:` point at the same tag. SemVer applies across the combined surface: a breaking change to either the Swift `CameraKit` API or the Dart `cambrian_ios_camera` API bumps the major. `main` is for development; always pin a tag. The [Releases page](https://github.com/Shreeyak/cambrian-ios-camera/releases) lists every `vX.Y.Z` and is the source of truth for the latest — this README deliberately avoids hardcoding a current version number so it can't go stale.
 
 ## Two example apps in this repo
 
